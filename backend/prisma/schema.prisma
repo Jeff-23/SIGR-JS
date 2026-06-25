@@ -1,0 +1,62 @@
+// Configuración del generador de cliente de Prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Configuración de la conexión a PostgreSQL
+datasource db {
+  provider = "postgresql"
+}
+
+//
+// MODELOS DE DATOS (TABLAS)
+//
+
+model Restaurante {
+  id          Int        @id @default(autoincrement())
+  nombre      String     @db.VarChar(100)
+  nit         String     @unique @db.VarChar(20)
+  creadoEn    DateTime   @default(now())
+  actualizado DateTime   @updatedAt
+  
+  // Relación: Un restaurante puede tener muchas sucursales
+  sucursales  Sucursal[]
+}
+
+model Sucursal {
+  id            Int         @id @default(autoincrement())
+  nombre        String      @db.VarChar(100)
+  direccion     String      @db.VarChar(200)
+  telefono      String?     @db.VarChar(20)
+  restauranteId Int
+  creadoEn      DateTime    @default(now())
+  
+  // Relaciones
+  restaurante   Restaurante @relation(fields: [restauranteId], references: [id])
+  usuarios      Usuario[]
+}
+
+model Rol {
+  id          Int       @id @default(autoincrement())
+  nombre      String    @unique @db.VarChar(50) // Ej: ADMIN, CAJERO, MESERO, COCINA
+  descripcion String?   @db.Text
+  
+  // Relaciones
+  usuarios    Usuario[]
+}
+
+model Usuario {
+  id          Int       @id @default(autoincrement())
+  nombres     String    @db.VarChar(100)
+  apellidos   String    @db.VarChar(100)
+  email       String    @unique @db.VarChar(150)
+  password    String    @db.VarChar(255)
+  activo      Boolean   @default(true)
+  rolId       Int
+  sucursalId  Int?      // Nullable por si es un Super Admin global
+  creadoEn    DateTime  @default(now())
+  
+  // Relaciones
+  rol         Rol       @relation(fields: [rolId], references: [id])
+  sucursal    Sucursal? @relation(fields: [sucursalId], references: [id])
+}

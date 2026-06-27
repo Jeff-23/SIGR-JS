@@ -6,7 +6,6 @@ import { UsuariosModule } from './modulos/usuarios/usuarios.module';
 import { AuthModule } from './modulos/auth/auth.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
-import { AuthModule } from './modulos/auth/auth.module';
 
 @Module({
   imports: [

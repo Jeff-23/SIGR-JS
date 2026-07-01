@@ -13,25 +13,30 @@ datasource db {
 //
 
 model Restaurante {
-  id          Int        @id @default(autoincrement())
-  nombre      String     @db.VarChar(100)
-  nit         String     @unique @db.VarChar(20)
-  creadoEn    DateTime   @default(now())
-  actualizado DateTime   @updatedAt
+  id            Int        @id @default(autoincrement())
+  nombre        String     @db.VarChar(100)
+  nit           String     @unique @db.VarChar(20)
+  direccion     String?    @db.VarChar(200)
+  telefono      String?    @db.VarChar(20)
+  correo        String?    @db.VarChar(150)
+  estado        Boolean    @default(true) // true = Activo, false = Eliminado (Borrado Lógico)
+  creadoEn      DateTime   @default(now())
+  actualizadoEn DateTime   @updatedAt
   
-  // Relación: Un restaurante puede tener muchas sucursales
-  sucursales  Sucursal[]
+  // Relaciones
+  sucursales    Sucursal[]
 }
 
 model Sucursal {
   id            Int         @id @default(autoincrement())
   nombre        String      @db.VarChar(100)
-  direccion     String      @db.VarChar(200)
+  direccion     String?     @db.VarChar(200)
   telefono      String?     @db.VarChar(20)
-  restauranteId Int
+  estado        Boolean     @default(true)
   creadoEn      DateTime    @default(now())
   
   // Relaciones
+  restauranteId Int
   restaurante   Restaurante @relation(fields: [restauranteId], references: [id])
   usuarios      Usuario[]
 }
@@ -46,17 +51,17 @@ model Rol {
 }
 
 model Usuario {
-  id          Int       @id @default(autoincrement())
-  nombres     String    @db.VarChar(100)
-  apellidos   String    @db.VarChar(100)
-  email       String    @unique @db.VarChar(150)
-  password    String    @db.VarChar(255)
-  activo      Boolean   @default(true)
-  rolId       Int
-  sucursalId  Int?      // Nullable por si es un Super Admin global
-  creadoEn    DateTime  @default(now())
+  id         Int       @id @default(autoincrement())
+  nombres    String    @db.VarChar(100)
+  apellidos  String    @db.VarChar(100)
+  email      String    @unique @db.VarChar(150)
+  password   String    @db.VarChar(255)
+  activo     Boolean   @default(true)
+  rolId      Int
+  sucursalId Int?      // Nullable por si es un Super Admin global
+  creadoEn   DateTime  @default(now())
   
   // Relaciones
-  rol         Rol       @relation(fields: [rolId], references: [id])
-  sucursal    Sucursal? @relation(fields: [sucursalId], references: [id])
+  rol        Rol       @relation(fields: [rolId], references: [id])
+  sucursal   Sucursal? @relation(fields: [sucursalId], references: [id])
 }

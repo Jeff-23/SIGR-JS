@@ -6,6 +6,8 @@ import { UsuariosModule } from './modulos/usuarios/usuarios.module';
 import { AuthModule } from './modulos/auth/auth.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { RestaurantesModule } from './modulos/restaurantes/restaurantes.module';
+import { SucursalesModule } from './modulos/sucursales/sucursales.module';
 
 @Module({
   imports: [
@@ -16,7 +18,7 @@ import { APP_GUARD } from '@nestjs/core';
     }]),
     PrismaModule, 
     UsuariosModule, 
-    AuthModule
+    AuthModule, RestaurantesModule, SucursalesModule
   ],
   controllers: [AppController],
   providers: [

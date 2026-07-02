@@ -1,6 +1,6 @@
 import { IsString, IsNotEmpty, IsInt, MaxLength } from 'class-validator';
 
-export class CreateZonaDto {
+export class CreateCategoriaDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(50)

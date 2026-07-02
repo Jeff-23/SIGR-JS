@@ -3,7 +3,7 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// Configuración de la conexión a PostgreSQL
+// Configuración de la conexión a PostgreSQL (Compatibilidad Prisma v7)
 datasource db {
   provider = "postgresql"
 }
@@ -39,6 +39,8 @@ model Sucursal {
   restauranteId Int
   restaurante   Restaurante @relation(fields: [restauranteId], references: [id])
   usuarios      Usuario[]
+  zonas         Zona[]       
+  categorias    Categoria[]  
 }
 
 model Rol {
@@ -64,4 +66,63 @@ model Usuario {
   // Relaciones
   rol        Rol       @relation(fields: [rolId], references: [id])
   sucursal   Sucursal? @relation(fields: [sucursalId], references: [id])
+}
+
+// ==========================================
+// FASE 2: OPERACIÓN DEL SALÓN (BLOQUE 1)
+// ==========================================
+
+model Zona {
+  id         Int      @id @default(autoincrement())
+  nombre     String   @db.VarChar(50) // Ej: Terraza, Salón Principal, VIP
+  estado     Boolean  @default(true)
+  creadoEn   DateTime @default(now())
+  
+  // Relaciones
+  sucursalId Int
+  sucursal   Sucursal @relation(fields: [sucursalId], references: [id])
+  mesas      Mesa[]
+}
+
+model Mesa {
+  id         Int      @id @default(autoincrement())
+  numero     String   @db.VarChar(10) // Ej: "Mesa 1", "Barra 3"
+  capacidad  Int      @default(4)
+  situacion  String   @default("LIBRE") // LIBRE, OCUPADA, RESERVADA
+  estado     Boolean  @default(true)
+  creadoEn   DateTime @default(now())
+
+  // Relaciones
+  zonaId     Int
+  zona       Zona     @relation(fields: [zonaId], references: [id])
+}
+
+// ==========================================
+// FASE 2: CATÁLOGOS Y MENÚ (BLOQUE 2)
+// ==========================================
+
+model Categoria {
+  id         Int      @id @default(autoincrement())
+  nombre     String   @db.VarChar(50) // Ej: Entradas, Fuertes, Bebidas
+  estado     Boolean  @default(true)
+  creadoEn   DateTime @default(now())
+
+  // Relaciones
+  sucursalId Int
+  sucursal   Sucursal @relation(fields: [sucursalId], references: [id])
+  productos  Producto[]
+}
+
+model Producto {
+  id          Int      @id @default(autoincrement())
+  nombre      String   @db.VarChar(100)
+  descripcion String?  @db.Text
+  precio      Decimal  @db.Decimal(10, 2)
+  stock       Int?     // Nullable para productos preparados en cocina
+  estado      Boolean  @default(true)
+  creadoEn    DateTime @default(now())
+
+  // Relaciones
+  categoriaId Int
+  categoria   Categoria @relation(fields: [categoriaId], references: [id])
 }

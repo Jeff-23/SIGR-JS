@@ -10,8 +10,8 @@ import { RestaurantesModule } from './modulos/restaurantes/restaurantes.module';
 import { SucursalesModule } from './modulos/sucursales/sucursales.module';
 import { CategoriasModule } from './modulos/categorias/categorias.module';
 import { MesasModule } from './modulos/mesas/mesas.module';
-import { ProductosController } from './modulos/productos/productos.controller';
-import { ProductosService } from './modulos/productos/productos.service';
+import { ZonasModule } from './modulos/zonas/zonas.module'; // <-- Añadido correctamente
+import { ProductosModule } from './modulos/productos/productos.module'; // <-- Añadido correctamente
 
 @Module({
   imports: [
@@ -22,17 +22,23 @@ import { ProductosService } from './modulos/productos/productos.service';
     }]),
     PrismaModule, 
     UsuariosModule, 
-    AuthModule, RestaurantesModule, SucursalesModule, CategoriasModule, MesasModule
+    AuthModule, 
+    RestaurantesModule, 
+    SucursalesModule, 
+    CategoriasModule, 
+    MesasModule,
+    ZonasModule,      // <-- Inyectado como módulo
+    ProductosModule   // <-- Inyectado como módulo
   ],
-  controllers: [AppController, ProductosController],
+  controllers: [AppController], // <-- Limpio, sin controladores huérfanos
   providers: [
     AppService,
     // Esto hace que el escudo proteja TODO el sistema automáticamente
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
-    },
-    ProductosService
+    }
+    // <-- Limpio, sin servicios huérfanos
   ],
 })
 export class AppModule {}

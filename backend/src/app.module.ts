@@ -8,6 +8,10 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { RestaurantesModule } from './modulos/restaurantes/restaurantes.module';
 import { SucursalesModule } from './modulos/sucursales/sucursales.module';
+import { CategoriasModule } from './modulos/categorias/categorias.module';
+import { MesasModule } from './modulos/mesas/mesas.module';
+import { ProductosController } from './modulos/productos/productos.controller';
+import { ProductosService } from './modulos/productos/productos.service';
 
 @Module({
   imports: [
@@ -18,16 +22,17 @@ import { SucursalesModule } from './modulos/sucursales/sucursales.module';
     }]),
     PrismaModule, 
     UsuariosModule, 
-    AuthModule, RestaurantesModule, SucursalesModule
+    AuthModule, RestaurantesModule, SucursalesModule, CategoriasModule, MesasModule
   ],
-  controllers: [AppController],
+  controllers: [AppController, ProductosController],
   providers: [
     AppService,
     // Esto hace que el escudo proteja TODO el sistema automáticamente
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
-    }
+    },
+    ProductosService
   ],
 })
 export class AppModule {}

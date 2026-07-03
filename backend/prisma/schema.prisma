@@ -1,16 +1,10 @@
-// Configuración del generador de cliente de Prisma
 generator client {
   provider = "prisma-client-js"
 }
 
-// Configuración de la conexión a PostgreSQL (Compatibilidad Prisma v7)
 datasource db {
   provider = "postgresql"
 }
-
-//
-// MODELOS DE DATOS (TABLAS)
-//
 
 model Restaurante {
   id            Int        @id @default(autoincrement())
@@ -19,11 +13,9 @@ model Restaurante {
   direccion     String?    @db.VarChar(200)
   telefono      String?    @db.VarChar(20)
   correo        String?    @db.VarChar(150)
-  estado        Boolean    @default(true) // true = Activo, false = Eliminado (Borrado Lógico)
+  estado        Boolean    @default(true)
   creadoEn      DateTime   @default(now())
   actualizadoEn DateTime   @updatedAt
-  
-  // Relaciones
   sucursales    Sucursal[]
 }
 
@@ -34,21 +26,17 @@ model Sucursal {
   telefono      String?     @db.VarChar(20)
   estado        Boolean     @default(true)
   creadoEn      DateTime    @default(now())
-  
-  // Relaciones
   restauranteId Int
   restaurante   Restaurante @relation(fields: [restauranteId], references: [id])
   usuarios      Usuario[]
-  zonas         Zona[]       
-  categorias    Categoria[]  
+  zonas         Zona[]
+  categorias    Categoria[]
 }
 
 model Rol {
   id          Int       @id @default(autoincrement())
-  nombre      String    @unique @db.VarChar(50) // Ej: ADMIN, CAJERO, MESERO, COCINA
+  nombre      String    @unique @db.VarChar(50)
   descripcion String?   @db.Text
-  
-  // Relaciones
   usuarios    Usuario[]
 }
 
@@ -60,25 +48,18 @@ model Usuario {
   password   String    @db.VarChar(255)
   activo     Boolean   @default(true)
   rolId      Int
-  sucursalId Int?      // Nullable por si es un Super Admin global
+  sucursalId Int?
   creadoEn   DateTime  @default(now())
-  
-  // Relaciones
   rol        Rol       @relation(fields: [rolId], references: [id])
   sucursal   Sucursal? @relation(fields: [sucursalId], references: [id])
+  pedidos    Pedido[]
 }
-
-// ==========================================
-// FASE 2: OPERACIÓN DEL SALÓN (BLOQUE 1)
-// ==========================================
 
 model Zona {
   id         Int      @id @default(autoincrement())
-  nombre     String   @db.VarChar(50) // Ej: Terraza, Salón Principal, VIP
+  nombre     String   @db.VarChar(50)
   estado     Boolean  @default(true)
   creadoEn   DateTime @default(now())
-  
-  // Relaciones
   sucursalId Int
   sucursal   Sucursal @relation(fields: [sucursalId], references: [id])
   mesas      Mesa[]
@@ -86,28 +67,21 @@ model Zona {
 
 model Mesa {
   id         Int      @id @default(autoincrement())
-  numero     String   @db.VarChar(10) // Ej: "Mesa 1", "Barra 3"
+  numero     String   @db.VarChar(10)
   capacidad  Int      @default(4)
-  situacion  String   @default("LIBRE") // LIBRE, OCUPADA, RESERVADA
+  situacion  String   @default("LIBRE")
   estado     Boolean  @default(true)
   creadoEn   DateTime @default(now())
-
-  // Relaciones
   zonaId     Int
   zona       Zona     @relation(fields: [zonaId], references: [id])
+  pedidos    Pedido[]
 }
-
-// ==========================================
-// FASE 2: CATÁLOGOS Y MENÚ (BLOQUE 2)
-// ==========================================
 
 model Categoria {
   id         Int      @id @default(autoincrement())
-  nombre     String   @db.VarChar(50) // Ej: Entradas, Fuertes, Bebidas
+  nombre     String   @db.VarChar(50)
   estado     Boolean  @default(true)
   creadoEn   DateTime @default(now())
-
-  // Relaciones
   sucursalId Int
   sucursal   Sucursal @relation(fields: [sucursalId], references: [id])
   productos  Producto[]
@@ -118,11 +92,32 @@ model Producto {
   nombre      String   @db.VarChar(100)
   descripcion String?  @db.Text
   precio      Decimal  @db.Decimal(10, 2)
-  stock       Int?     // Nullable para productos preparados en cocina
+  stock       Int?
   estado      Boolean  @default(true)
   creadoEn    DateTime @default(now())
-
-  // Relaciones
   categoriaId Int
   categoria   Categoria @relation(fields: [categoriaId], references: [id])
+  detalles    DetallePedido[]
+}
+
+// NUEVOS MODELOS FASE 3
+model Pedido {
+  id        Int      @id @default(autoincrement())
+  total     Decimal  @db.Decimal(10, 2)
+  creadoEn  DateTime @default(now())
+  mesaId    Int
+  usuarioId Int
+  mesa      Mesa     @relation(fields: [mesaId], references: [id])
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id])
+  detalles  DetallePedido[]
+}
+
+model DetallePedido {
+  id         Int      @id @default(autoincrement())
+  cantidad   Int
+  subtotal   Decimal  @db.Decimal(10, 2)
+  pedidoId   Int
+  productoId Int
+  pedido     Pedido   @relation(fields: [pedidoId], references: [id])
+  producto   Producto @relation(fields: [productoId], references: [id])
 }

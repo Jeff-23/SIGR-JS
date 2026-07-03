@@ -12,6 +12,7 @@ import { CategoriasModule } from './modulos/categorias/categorias.module';
 import { MesasModule } from './modulos/mesas/mesas.module';
 import { ZonasModule } from './modulos/zonas/zonas.module'; // <-- Añadido correctamente
 import { ProductosModule } from './modulos/productos/productos.module'; // <-- Añadido correctamente
+import { PedidosModule } from './modulos/pedidos/pedidos.module';
 
 @Module({
   imports: [
@@ -28,7 +29,7 @@ import { ProductosModule } from './modulos/productos/productos.module'; // <-- A
     CategoriasModule, 
     MesasModule,
     ZonasModule,      // <-- Inyectado como módulo
-    ProductosModule   // <-- Inyectado como módulo
+    ProductosModule, PedidosModule   // <-- Inyectado como módulo
   ],
   controllers: [AppController], // <-- Limpio, sin controladores huérfanos
   providers: [

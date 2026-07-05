@@ -10,15 +10,16 @@ import { RestaurantesModule } from './modulos/restaurantes/restaurantes.module';
 import { SucursalesModule } from './modulos/sucursales/sucursales.module';
 import { CategoriasModule } from './modulos/categorias/categorias.module';
 import { MesasModule } from './modulos/mesas/mesas.module';
-import { ZonasModule } from './modulos/zonas/zonas.module'; // <-- Añadido correctamente
-import { ProductosModule } from './modulos/productos/productos.module'; // <-- Añadido correctamente
+import { ZonasModule } from './modulos/zonas/zonas.module'; 
+import { ProductosModule } from './modulos/productos/productos.module'; 
 import { PedidosModule } from './modulos/pedidos/pedidos.module';
-import { ArticulosModule } from './modulos/articulos/articulos.module';
-import { RecetasModule } from './modulos/recetas/recetas.module';
+import { ArticulosModule } from './modulos/articulos/articulos.module'; 
+import { RecetasModule } from './modulos/recetas/recetas.module'; 
+import { MetodosPagoModule } from './modulos/metodos-pago/metodos-pago.module'; // <-- NUEVO
+import { FacturasModule } from './modulos/facturas/facturas.module'; // <-- NUEVO
 
 @Module({
   imports: [
-    // Escudo activado: Máximo 10 peticiones cada 60 segundos (60000 milisegundos) por IP
     ThrottlerModule.forRoot([{
       ttl: 60000,
       limit: 10,
@@ -30,18 +31,21 @@ import { RecetasModule } from './modulos/recetas/recetas.module';
     SucursalesModule, 
     CategoriasModule, 
     MesasModule,
-    ZonasModule,      // <-- Inyectado como módulo
-    ProductosModule, PedidosModule, ArticulosModule, RecetasModule   // <-- Inyectado como módulo
+    ZonasModule,      
+    ProductosModule, 
+    PedidosModule,
+    ArticulosModule, 
+    RecetasModule,
+    MetodosPagoModule, // <-- INYECTADO
+    FacturasModule     // <-- INYECTADO
   ],
-  controllers: [AppController], // <-- Limpio, sin controladores huérfanos
+  controllers: [AppController],
   providers: [
     AppService,
-    // Esto hace que el escudo proteja TODO el sistema automáticamente
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
     }
-    // <-- Limpio, sin servicios huérfanos
   ],
 })
 export class AppModule {}

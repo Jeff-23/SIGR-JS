@@ -7,7 +7,7 @@ export class PedidosService {
   constructor(private prisma: PrismaService) {}
 
   async create(data: CreatePedidoDto) {
-    // Iniciamos una transacción: Todo o nada
+    // Transacción: Todo o nada
     return this.prisma.$transaction(async (tx) => {
       
       // 1. Verificar si la Mesa existe y está LIBRE
@@ -18,25 +18,43 @@ export class PedidosService {
       let totalPedido = 0;
       const detallesPreparados = [];
 
-      // 2. Calcular los totales consultando el precio real
+      // 2. Procesar productos, calcular totales y DESCONTAR INVENTARIO
       for (const item of data.detalles) {
-        const producto = await tx.producto.findUnique({ where: { id: item.productoId } });
+        // Buscamos el producto INCLUYENDO su receta
+        const producto = await tx.producto.findUnique({ 
+          where: { id: item.productoId },
+          include: { recetas: true } // <-- Traemos los ingredientes
+        });
+        
         if (!producto) throw new NotFoundException(`El producto con ID ${item.productoId} no existe`);
 
-        // Convertimos el Decimal de Prisma a número para la multiplicación
+        // Calcular costo
         const precioNum = producto.precio.toNumber();
         const subtotal = precioNum * item.cantidad;
-        
         totalPedido += subtotal;
 
         detallesPreparados.push({
           productoId: item.productoId,
           cantidad: item.cantidad,
-          subtotal: subtotal, // Prisma convertirá este número de vuelta a Decimal automáticamente
+          subtotal: subtotal, 
         });
+
+        // 3. MAGIA DEL ERP: Descontar ingredientes de la bodega
+        for (const receta of producto.recetas) {
+          const cantidadADescontar = receta.cantidad.toNumber() * item.cantidad;
+          
+          await tx.articulo.update({
+            where: { id: receta.articuloId },
+            data: {
+              stock: {
+                decrement: cantidadADescontar // Prisma resta automáticamente del valor actual
+              }
+            }
+          });
+        }
       }
 
-      // 3. Crear el Pedido y sus Detalles en cascada
+      // 4. Crear el Pedido y sus Detalles
       const nuevoPedido = await tx.pedido.create({
         data: {
           mesaId: data.mesaId,
@@ -47,11 +65,11 @@ export class PedidosService {
           },
         },
         include: {
-          detalles: true, // Para devolver el recibo completo
+          detalles: true,
         }
       });
 
-      // 4. Actualizar el estado de la Mesa a OCUPADA
+      // 5. Actualizar el estado de la Mesa
       await tx.mesa.update({
         where: { id: data.mesaId },
         data: { situacion: 'OCUPADA' },

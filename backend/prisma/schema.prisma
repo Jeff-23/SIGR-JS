@@ -31,6 +31,7 @@ model Sucursal {
   usuarios      Usuario[]
   zonas         Zona[]
   categorias    Categoria[]
+  articulos     Articulo[]  // <-- RELACIÓN FASE 4 AÑADIDA
 }
 
 model Rol {
@@ -98,9 +99,9 @@ model Producto {
   categoriaId Int
   categoria   Categoria @relation(fields: [categoriaId], references: [id])
   detalles    DetallePedido[]
+  recetas     Receta[] // <-- RELACIÓN FASE 4 AÑADIDA
 }
 
-// NUEVOS MODELOS FASE 3
 model Pedido {
   id        Int      @id @default(autoincrement())
   total     Decimal  @db.Decimal(10, 2)
@@ -110,6 +111,7 @@ model Pedido {
   mesa      Mesa     @relation(fields: [mesaId], references: [id])
   usuario   Usuario  @relation(fields: [usuarioId], references: [id])
   detalles  DetallePedido[]
+  factura   Factura? //
 }
 
 model DetallePedido {
@@ -120,4 +122,76 @@ model DetallePedido {
   productoId Int
   pedido     Pedido   @relation(fields: [pedidoId], references: [id])
   producto   Producto @relation(fields: [productoId], references: [id])
+}
+
+// ==========================================
+// FASE 4: INVENTARIOS Y RECETAS
+// ==========================================
+
+model Articulo {
+  id          Int      @id @default(autoincrement())
+  nombre      String   @db.VarChar(100)
+  unidad      String   @db.VarChar(20) // ej: gramos, mililitros, unidades
+  costoUnidad Decimal  @db.Decimal(10, 2)
+  stock       Decimal  @db.Decimal(10, 2)
+  estado      Boolean  @default(true)
+  creadoEn    DateTime @default(now())
+
+  // Relaciones
+  sucursalId  Int
+  sucursal    Sucursal @relation(fields: [sucursalId], references: [id])
+  recetas     Receta[]
+}
+
+model Receta {
+  id          Int      @id @default(autoincrement())
+  cantidad    Decimal  @db.Decimal(10, 2) // Cuánto de este artículo usa el producto
+  
+  // Relaciones
+  productoId  Int
+  articuloId  Int
+  producto    Producto @relation(fields: [productoId], references: [id])
+  articulo    Articulo @relation(fields: [articuloId], references: [id])
+
+  // Restricción: Un producto no puede tener el mismo artículo dos veces en su receta
+  @@unique([productoId, articuloId]) 
+}
+
+// ==========================================
+// FASE 5: FACTURACIÓN Y PAGOS (DIAN)
+// ==========================================
+
+model MetodoPago {
+  id          Int      @id @default(autoincrement())
+  nombre      String   @db.VarChar(50) // Ej: Efectivo, Tarjeta, Nequi, DaviPlata
+  activo      Boolean  @default(true)
+  pagos       Pago[]
+}
+
+model Factura {
+  id               Int      @id @default(autoincrement())
+  numero           String   @unique @db.VarChar(50) // Prefijo + consecutivo (Ej: SET-1)
+  total            Decimal  @db.Decimal(10, 2)
+  cufe             String?  @db.VarChar(150) // Código Único de Factura Electrónica (DIAN)
+  qrCode           String?  @db.Text
+  resolucionDian   String?  @db.VarChar(100)
+  estado           String   @default("EMITIDA") // EMITIDA, ANULADA
+  creadoEn         DateTime @default(now())
+
+  // Relaciones
+  pedidoId         Int      @unique
+  pedido           Pedido   @relation(fields: [pedidoId], references: [id])
+  pagos            Pago[]
+}
+
+model Pago {
+  id             Int        @id @default(autoincrement())
+  monto          Decimal    @db.Decimal(10, 2)
+  creadoEn       DateTime   @default(now())
+
+  // Relaciones
+  facturaId      Int
+  metodoPagoId   Int
+  factura        Factura    @relation(fields: [facturaId], references: [id])
+  metodoPago     MetodoPago @relation(fields: [metodoPagoId], references: [id])
 }

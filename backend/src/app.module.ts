@@ -13,6 +13,8 @@ import { MesasModule } from './modulos/mesas/mesas.module';
 import { ZonasModule } from './modulos/zonas/zonas.module'; // <-- Añadido correctamente
 import { ProductosModule } from './modulos/productos/productos.module'; // <-- Añadido correctamente
 import { PedidosModule } from './modulos/pedidos/pedidos.module';
+import { ArticulosModule } from './modulos/articulos/articulos.module';
+import { RecetasModule } from './modulos/recetas/recetas.module';
 
 @Module({
   imports: [
@@ -29,7 +31,7 @@ import { PedidosModule } from './modulos/pedidos/pedidos.module';
     CategoriasModule, 
     MesasModule,
     ZonasModule,      // <-- Inyectado como módulo
-    ProductosModule, PedidosModule   // <-- Inyectado como módulo
+    ProductosModule, PedidosModule, ArticulosModule, RecetasModule   // <-- Inyectado como módulo
   ],
   controllers: [AppController], // <-- Limpio, sin controladores huérfanos
   providers: [

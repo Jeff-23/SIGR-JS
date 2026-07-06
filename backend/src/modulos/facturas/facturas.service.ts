@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateFacturaDto } from './dto/create-factura.dto';
+import * as crypto from 'crypto'; // <-- Importación nativa de Node para el CUFE
 
 @Injectable()
 export class FacturasService {
@@ -34,7 +35,7 @@ export class FacturasService {
         data: {
           numero: numeroFactura,
           total: totalPedido,
-          resolucionDian: data.resolucionDian || '18760000001', // Resolución por defecto
+          resolucionDian: data.resolucionDian || '18760000001',
           pedidoId: data.pedidoId,
           pagos: {
             create: data.pagos.map(p => ({
@@ -55,6 +56,83 @@ export class FacturasService {
       });
 
       return nuevaFactura;
+    });
+  }
+
+  // ==========================================
+  // NUEVO: CORTE DE CAJA (REPORTES)
+  // ==========================================
+  async obtenerCorteCaja(fechaInicio?: string, fechaFin?: string) {
+    // Si no mandan fechas, usamos el día de hoy desde las 00:00
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    
+    const inicio = fechaInicio ? new Date(fechaInicio) : hoy;
+    const fin = fechaFin ? new Date(fechaFin) : new Date();
+
+    const facturas = await this.prisma.factura.findMany({
+      where: {
+        creadoEn: {
+          gte: inicio,
+          lte: fin,
+        },
+        estado: 'EMITIDA'
+      },
+      include: {
+        pagos: {
+          include: { metodoPago: true }
+        }
+      }
+    });
+
+    let totalVentas = 0;
+    const desglosePorMetodo: Record<string, number> = {};
+
+    facturas.forEach(fac => {
+      totalVentas += fac.total.toNumber();
+      
+      fac.pagos.forEach(pago => {
+        const metodo = pago.metodoPago.nombre;
+        const monto = pago.monto.toNumber();
+        
+        if (!desglosePorMetodo[metodo]) {
+          desglosePorMetodo[metodo] = 0;
+        }
+        desglosePorMetodo[metodo] += monto;
+      });
+    });
+
+    return {
+      fechaInicio: inicio,
+      fechaFin: fin,
+      cantidadFacturas: facturas.length,
+      totalVentas,
+      desglosePagos: desglosePorMetodo
+    };
+  }
+
+  // ==========================================
+  // NUEVO: SIMULACIÓN DIAN (FIRMA ELECTRÓNICA)
+  // ==========================================
+  async emitirDian(id: number) {
+    const factura = await this.prisma.factura.findUnique({ where: { id } });
+    
+    if (!factura) throw new NotFoundException('Factura no encontrada');
+    if (factura.cufe) throw new BadRequestException('Esta factura ya fue transmitida a la DIAN');
+
+    // La DIAN exige un hash SHA384 con los datos de la factura. Lo simulamos aquí:
+    const dataToHash = `${factura.numero}${factura.total}${factura.resolucionDian}${factura.creadoEn.toISOString()}`;
+    const cufeGenerado = crypto.createHash('sha384').update(dataToHash).digest('hex');
+
+    // La URL oficial donde los clientes validan la factura con la DIAN
+    const qrGenerado = `https://catalogo-vpfe.dian.gov.co/document/searchqr?documentkey=${cufeGenerado}`;
+
+    return this.prisma.factura.update({
+      where: { id },
+      data: {
+        cufe: cufeGenerado,
+        qrCode: qrGenerado
+      }
     });
   }
 }

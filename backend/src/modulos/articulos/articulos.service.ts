@@ -13,7 +13,6 @@ export class ArticulosService {
     return this.prisma.articulo.create({ data });
   }
 
-  // --- AÑADE ESTOS MÉTODOS DE CONSULTA ---
   async findAll() {
     return this.prisma.articulo.findMany({
       where: { estado: true },
@@ -24,5 +23,15 @@ export class ArticulosService {
     const articulo = await this.prisma.articulo.findUnique({ where: { id } });
     if (!articulo) throw new NotFoundException(`Artículo con ID ${id} no encontrado`);
     return articulo;
+  }
+
+  async update(id: number, data: Partial<CreateArticuloDto>) {
+    const articulo = await this.prisma.articulo.findUnique({ where: { id } });
+    if (!articulo) throw new NotFoundException(`Artículo con ID ${id} no encontrado`);
+
+    return this.prisma.articulo.update({
+      where: { id },
+      data,
+    });
   }
 }

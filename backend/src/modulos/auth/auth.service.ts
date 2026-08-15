@@ -24,6 +24,10 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales incorrectas');
     }
 
+    if (!usuario.activo) {
+      throw new UnauthorizedException('Credenciales incorrectas');
+    }
+
     // 3. Comparamos la contraseña enviada con la contraseña encriptada guardada
     const passwordValida = await bcrypt.compare(password, usuario.password);
     if (!passwordValida) {

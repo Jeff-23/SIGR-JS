@@ -1,21 +1,52 @@
-import { ExtractJwt, Strategy } from 'passport-jwt';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
-import { Injectable } from '@nestjs/common';
-import 'dotenv/config';
+import { ExtractJwt, Strategy } from 'passport-jwt';
+
+import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor() {
+  constructor(private readonly prisma: PrismaService) {
     super({
-      // Le decimos que busque el token en la cabecera HTTP 'Authorization: Bearer <token>'
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET, // Usamos la misma llave secreta de tu .env
+      secretOrKey: process.env.JWT_SECRET,
     });
   }
 
-  // Si el token es válido y la firma coincide, NestJS ejecuta esta función
-  async validate(payload: any) {
-    return { id: payload.sub, email: payload.email, rolId: payload.rolId };
+  async validate(payload: { sub: number }) {
+    const usuario = await this.prisma.usuario.findUnique({
+      where: {
+        id: payload.sub,
+      },
+      select: {
+        id: true,
+        email: true,
+        activo: true,
+        rolId: true,
+        restauranteId: true,
+        sucursalId: true,
+        rol: {
+          select: {
+            nombre: true,
+          },
+        },
+      },
+    });
+
+    if (!usuario || !usuario.activo) {
+      throw new UnauthorizedException(
+        'La sesión no es válida o el usuario está inactivo',
+      );
+    }
+
+    return {
+      id: usuario.id,
+      email: usuario.email,
+      rolId: usuario.rolId,
+      rol: usuario.rol.nombre,
+      restauranteId: usuario.restauranteId,
+      sucursalId: usuario.sucursalId,
+    };
   }
 }

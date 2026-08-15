@@ -32,16 +32,18 @@ enum EstadoPedido {
 }
 
 model Restaurante {
-  id            Int        @id @default(autoincrement())
-  nombre        String     @db.VarChar(100)
-  nit           String     @unique @db.VarChar(20)
-  direccion     String?    @db.VarChar(200)
-  telefono      String?    @db.VarChar(20)
-  correo        String?    @db.VarChar(150)
-  estado        Boolean    @default(true)
-  creadoEn      DateTime   @default(now())
-  actualizadoEn DateTime   @updatedAt
-  sucursales    Sucursal[]
+  id            Int      @id @default(autoincrement())
+  nombre        String   @db.VarChar(100)
+  nit           String   @unique @db.VarChar(20)
+  direccion     String?  @db.VarChar(200)
+  telefono      String?  @db.VarChar(20)
+  correo        String?  @db.VarChar(150)
+  estado        Boolean  @default(true)
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  sucursales Sucursal[]
+  usuarios   Usuario[]
 }
 
 model Sucursal {
@@ -68,18 +70,27 @@ model Rol {
 }
 
 model Usuario {
-  id         Int       @id @default(autoincrement())
-  nombres    String    @db.VarChar(100)
-  apellidos  String    @db.VarChar(100)
-  email      String    @unique @db.VarChar(150)
-  password   String    @db.VarChar(255)
-  activo     Boolean   @default(true)
-  rolId      Int
-  sucursalId Int?
-  creadoEn   DateTime  @default(now())
-  rol        Rol       @relation(fields: [rolId], references: [id])
-  sucursal   Sucursal? @relation(fields: [sucursalId], references: [id])
-  pedidos    Pedido[]
+  id        Int     @id @default(autoincrement())
+  nombres   String  @db.VarChar(100)
+  apellidos String  @db.VarChar(100)
+  email     String  @unique @db.VarChar(150)
+  password  String  @db.VarChar(255)
+  activo    Boolean @default(true)
+
+  rolId         Int
+  restauranteId Int?
+  sucursalId    Int?
+
+  creadoEn DateTime @default(now())
+
+  rol         Rol          @relation(fields: [rolId], references: [id])
+  restaurante Restaurante? @relation(fields: [restauranteId], references: [id])
+  sucursal    Sucursal?    @relation(fields: [sucursalId], references: [id])
+
+  pedidos Pedido[]
+
+  @@index([restauranteId])
+  @@index([sucursalId])
 }
 
 model Zona {

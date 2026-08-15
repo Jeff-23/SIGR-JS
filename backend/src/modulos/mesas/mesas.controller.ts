@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards } from '@nestjs/common'; // 👈 ¡Ahora sí tiene Get!
 import { MesasService } from './mesas.service';
 import { CreateMesaDto } from './dto/create-mesa.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -11,8 +11,13 @@ export class MesasController {
   constructor(private readonly mesasService: MesasService) {}
 
   @Post()
-  @Roles(1) // Solo Admin
+  @Roles(1) // Solo Admin puede crear mesas
   create(@Body() createMesaDto: CreateMesaDto) {
     return this.mesasService.create(createMesaDto);
+  }
+
+  @Get() // Permite a cualquier usuario autenticado ver el salón
+  findAll() {
+    return this.mesasService.findAll();
   }
 }

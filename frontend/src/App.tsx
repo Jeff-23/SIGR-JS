@@ -5,7 +5,7 @@ import { create } from 'zustand';
 import { Toaster, toast } from 'react-hot-toast';
 import { 
   ChefHat, Lock, Mail, Loader2, LogOut, LayoutDashboard, UtensilsCrossed, Users, 
-  Layers, ClipboardList, Flame, Archive, Receipt, Printer, DollarSign, Plus, Trash2, CheckCircle, RefreshCw, BarChart3, HelpCircle 
+  Layers, ClipboardList, Flame, Archive, Receipt, Printer, DollarSign, Plus, Trash2, CheckCircle, RefreshCw, BarChart3 
 } from 'lucide-react';
 
 export const api = axios.create({

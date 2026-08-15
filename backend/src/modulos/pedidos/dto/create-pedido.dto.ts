@@ -1,4 +1,10 @@
-import { IsInt, IsNotEmpty, IsArray, ValidateNested, Min } from 'class-validator';
+import {
+  IsArray,
+  IsInt,
+  IsNotEmpty,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 class DetallePedidoDto {
@@ -15,10 +21,6 @@ export class CreatePedidoDto {
   @IsInt()
   @IsNotEmpty()
   mesaId: number;
-
-  @IsInt()
-  @IsNotEmpty()
-  usuarioId: number; // El ID del mesero/admin que toma el pedido
 
   @IsArray()
   @ValidateNested({ each: true })

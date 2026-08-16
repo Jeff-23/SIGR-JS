@@ -11,7 +11,7 @@ export class RecetasController {
   constructor(private readonly recetasService: RecetasService) {}
 
   @Post()
-  @Roles(1) // Solo Admin
+  @Roles('ADMIN')
   create(@Body() createRecetaDto: CreateRecetaDto) {
     return this.recetasService.create(createRecetaDto);
   }

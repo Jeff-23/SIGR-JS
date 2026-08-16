@@ -11,7 +11,7 @@ export class ZonasController {
   constructor(private readonly zonasService: ZonasService) {}
 
   @Post()
-  @Roles(1) // Solo Admin
+  @Roles('ADMIN')
   create(@Body() createZonaDto: CreateZonaDto) {
     return this.zonasService.create(createZonaDto);
   }

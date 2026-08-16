@@ -10,7 +10,7 @@ export class ProductosController {
   constructor(private readonly productosService: ProductosService) {}
 
   @Post()
-  @Roles(1)
+  @Roles('ADMIN')
   create(@Body() createProductoDto: any) {
     return this.productosService.create(createProductoDto);
   }
@@ -21,7 +21,7 @@ export class ProductosController {
   }
 
   @Patch(':id')
-  @Roles(1) // Solo Admin puede cambiar el precio de la carta
+  @Roles('ADMIN')
   update(@Param('id', ParseIntPipe) id: number, @Body() updateData: any) {
     return this.productosService.update(id, updateData);
   }

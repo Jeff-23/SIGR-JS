@@ -12,7 +12,7 @@ export class RestaurantesController {
   constructor(private readonly restaurantesService: RestaurantesService) {}
 
   @Post()
-  @Roles(1) // Candado extra: Solo el Admin puede crear sedes maestras
+  @Roles('ADMIN')
   create(@Body() createRestauranteDto: CreateRestauranteDto) {
     return this.restaurantesService.create(createRestauranteDto);
   }
@@ -28,13 +28,13 @@ export class RestaurantesController {
   }
 
   @Patch(':id')
-  @Roles(1)
+  @Roles('ADMIN')
   update(@Param('id') id: string, @Body() updateRestauranteDto: UpdateRestauranteDto) {
     return this.restaurantesService.update(+id, updateRestauranteDto);
   }
 
   @Delete(':id')
-  @Roles(1)
+  @Roles('ADMIN')
   remove(@Param('id') id: string) {
     return this.restaurantesService.remove(+id);
   }

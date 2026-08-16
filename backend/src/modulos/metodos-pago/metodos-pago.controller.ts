@@ -11,7 +11,7 @@ export class MetodosPagoController {
   constructor(private readonly metodosPagoService: MetodosPagoService) {}
 
   @Post()
-  @Roles(1) // Solo admin crea métodos de pago
+  @Roles('ADMIN')
   create(@Body() createMetodoPagoDto: CreateMetodoPagoDto) {
     return this.metodosPagoService.create(createMetodoPagoDto);
   }

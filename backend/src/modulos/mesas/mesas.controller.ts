@@ -11,7 +11,7 @@ export class MesasController {
   constructor(private readonly mesasService: MesasService) {}
 
   @Post()
-  @Roles(1) // Solo Admin puede crear mesas
+  @Roles('ADMIN')
   create(@Body() createMesaDto: CreateMesaDto) {
     return this.mesasService.create(createMesaDto);
   }

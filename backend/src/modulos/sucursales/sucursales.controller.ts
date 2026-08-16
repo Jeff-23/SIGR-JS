@@ -12,7 +12,7 @@ export class SucursalesController {
   constructor(private readonly sucursalesService: SucursalesService) {}
 
   @Post()
-  @Roles(1) // Bloqueo: Solo administradores maestros crean sucursales
+  @Roles('ADMIN')
   create(@Body() createSucursalDto: CreateSucursalDto) {
     return this.sucursalesService.create(createSucursalDto);
   }
@@ -28,13 +28,13 @@ export class SucursalesController {
   }
 
   @Patch(':id')
-  @Roles(1)
+  @Roles('ADMIN')
   update(@Param('id', ParseIntPipe) id: number, @Body() updateSucursalDto: UpdateSucursalDto) {
     return this.sucursalesService.update(id, updateSucursalDto);
   }
 
   @Delete(':id')
-  @Roles(1)
+  @Roles('ADMIN')
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.sucursalesService.remove(id);
   }

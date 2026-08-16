@@ -11,7 +11,7 @@ export class ArticulosController {
   constructor(private readonly articulosService: ArticulosService) {}
 
   @Post()
-  @Roles(1) // Solo Admin crea
+ @Roles('ADMIN')
   create(@Body() createArticuloDto: CreateArticuloDto) {
     return this.articulosService.create(createArticuloDto);
   }
@@ -28,7 +28,7 @@ export class ArticulosController {
 
   // AQUÍ ESTÁ LA RUTA QUE FALTABA
   @Patch(':id')
-  @Roles(1) 
+  @Roles('ADMIN')
   update(@Param('id', ParseIntPipe) id: number, @Body() updateData: Partial<CreateArticuloDto>) {
     return this.articulosService.update(id, updateData);
   }

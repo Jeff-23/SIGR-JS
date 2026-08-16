@@ -11,7 +11,7 @@ export class FacturasController {
   constructor(private readonly facturasService: FacturasService) {}
 
   @Post()
-  @Roles(1, 2) // Admin y Cajero
+ @Roles('ADMIN', 'CAJERO')
   create(@Body() createFacturaDto: CreateFacturaDto) {
     return this.facturasService.create(createFacturaDto);
   }
@@ -19,14 +19,14 @@ export class FacturasController {
   // --- 1. RUTA CORTE DE CAJA ---
   // Importante: Debe ir ANTES de las rutas con :id para que NestJS no confunda "corte-caja" con un ID
   @Get('corte-caja')
-  @Roles(1) // Solo Admin
+  @Roles('ADMIN')
   obtenerCorteCaja(@Query('inicio') inicio?: string, @Query('fin') fin?: string) {
     return this.facturasService.obtenerCorteCaja(inicio, fin);
   }
 
   // --- 2. RUTA SIMULACIÓN DIAN ---
   @Post(':id/emitir-dian')
-  @Roles(1, 2) // Admin y Cajero
+  @Roles('ADMIN', 'CAJERO')
   emitirDian(@Param('id', ParseIntPipe) id: number) {
     return this.facturasService.emitirDian(id);
   }

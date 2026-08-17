@@ -42,8 +42,13 @@ model Restaurante {
   creadoEn      DateTime @default(now())
   actualizadoEn DateTime @updatedAt
 
+  planId Int?
+  plan   Plan? @relation(fields: [planId], references: [id])
+
   sucursales Sucursal[]
   usuarios   Usuario[]
+
+  @@index([planId])
 }
 
 model Sucursal {
@@ -63,10 +68,12 @@ model Sucursal {
 }
 
 model Rol {
-  id          Int       @id @default(autoincrement())
-  nombre      String    @unique @db.VarChar(50)
-  descripcion String?   @db.Text
-  usuarios    Usuario[]
+  id          Int     @id @default(autoincrement())
+  nombre      String  @unique @db.VarChar(50)
+  descripcion String? @db.Text
+
+  usuarios Usuario[]
+  permisos RolPermiso[]
 }
 
 model Usuario {
@@ -239,4 +246,71 @@ model Pago {
   metodoPagoId Int
   factura      Factura    @relation(fields: [facturaId], references: [id])
   metodoPago   MetodoPago @relation(fields: [metodoPagoId], references: [id])
+}
+
+// ==========================================
+// SPRINT 2: PLANES Y CAPACIDADES SAAS
+// ==========================================
+
+model Plan {
+  id            Int      @id @default(autoincrement())
+  codigo        String   @unique @db.VarChar(30)
+  nombre        String   @db.VarChar(60)
+  descripcion   String?  @db.Text
+  activo        Boolean  @default(true)
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  restaurantes Restaurante[]
+  capacidades  PlanCapacidad[]
+}
+
+model Capacidad {
+  id          Int      @id @default(autoincrement())
+  codigo      String   @unique @db.VarChar(50)
+  nombre      String   @db.VarChar(100)
+  descripcion String?  @db.Text
+  modulo      String?  @db.VarChar(50)
+  activo      Boolean  @default(true)
+  creadoEn    DateTime @default(now())
+
+  planes PlanCapacidad[]
+}
+
+model PlanCapacidad {
+  planId      Int
+  capacidadId Int
+
+  plan      Plan      @relation(fields: [planId], references: [id], onDelete: Cascade)
+  capacidad Capacidad @relation(fields: [capacidadId], references: [id], onDelete: Cascade)
+
+  @@id([planId, capacidadId])
+  @@index([capacidadId])
+}
+
+// ==========================================
+// SPRINT 2: PERMISOS GRANULARES
+// ==========================================
+
+model Permiso {
+  id          Int      @id @default(autoincrement())
+  codigo      String   @unique @db.VarChar(80)
+  nombre      String   @db.VarChar(120)
+  descripcion String?  @db.Text
+  modulo      String   @db.VarChar(50)
+  activo      Boolean  @default(true)
+  creadoEn    DateTime @default(now())
+
+  roles RolPermiso[]
+}
+
+model RolPermiso {
+  rolId     Int
+  permisoId Int
+
+  rol     Rol     @relation(fields: [rolId], references: [id], onDelete: Cascade)
+  permiso Permiso @relation(fields: [permisoId], references: [id], onDelete: Cascade)
+
+  @@id([rolId, permisoId])
+  @@index([permisoId])
 }

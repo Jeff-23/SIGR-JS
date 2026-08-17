@@ -1,4 +1,4 @@
-import {
+﻿import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -43,6 +43,22 @@ export class JwtStrategy extends PassportStrategy(
           rol: {
             select: {
               nombre: true,
+
+              permisos: {
+                where: {
+                  permiso: {
+                    activo: true,
+                  },
+                },
+
+                select: {
+                  permiso: {
+                    select: {
+                      codigo: true,
+                    },
+                  },
+                },
+              },
             },
           },
 
@@ -61,15 +77,12 @@ export class JwtStrategy extends PassportStrategy(
         },
       });
 
-    // El usuario debe existir y estar activo.
     if (!usuario || !usuario.activo) {
       throw new UnauthorizedException(
         'La sesión no es válida o el usuario está inactivo',
       );
     }
 
-    // Si pertenece a un restaurante,
-    // este debe existir y estar activo.
     if (
       usuario.restauranteId !== null &&
       (
@@ -82,9 +95,6 @@ export class JwtStrategy extends PassportStrategy(
       );
     }
 
-    // Si pertenece a una sucursal,
-    // esta debe estar activa y pertenecer
-    // al mismo restaurante del usuario.
     if (
       usuario.sucursalId !== null &&
       (
@@ -102,10 +112,21 @@ export class JwtStrategy extends PassportStrategy(
     return {
       id: usuario.id,
       email: usuario.email,
+
       rolId: usuario.rolId,
       rol: usuario.rol.nombre,
-      restauranteId: usuario.restauranteId,
-      sucursalId: usuario.sucursalId,
+
+      restauranteId:
+        usuario.restauranteId,
+
+      sucursalId:
+        usuario.sucursalId,
+
+      permisos:
+        usuario.rol.permisos.map(
+          (rolPermiso) =>
+            rolPermiso.permiso.codigo,
+        ),
     };
   }
 }

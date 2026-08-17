@@ -77,11 +77,11 @@ model Sucursal {
 
 model Rol {
   id          Int     @id @default(autoincrement())
-  clave       String? @unique @db.VarChar(120)
+  clave       String  @unique @db.VarChar(120)
   nombre      String  @db.VarChar(50)
   descripcion String? @db.Text
 
-  ambito        AmbitoRol?
+  ambito        AmbitoRol
   restauranteId Int?
 
   restaurante Restaurante? @relation(fields: [restauranteId], references: [id], onDelete: Restrict)

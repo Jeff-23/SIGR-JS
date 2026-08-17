@@ -492,76 +492,37 @@ async function bootstrap() {
 
     console.log(`${PERMISOS.length} permisos configurados.`);
 
-        // ==========================================
+          // ==========================================
     // 5. SUPERADMIN GLOBAL DE SIGR
     // ==========================================
 
-    let rolSuperadmin =
-      await prisma.rol.findUnique({
+    const rolSuperadmin =
+      await prisma.rol.upsert({
         where: {
           clave: 'SISTEMA:SUPERADMIN',
         },
+
+        update: {
+          nombre: 'SUPERADMIN',
+          descripcion:
+            'Superadministrador global de la plataforma SIGR',
+          ambito: AmbitoRol.SISTEMA,
+          restauranteId: null,
+        },
+
+        create: {
+          clave: 'SISTEMA:SUPERADMIN',
+          nombre: 'SUPERADMIN',
+          descripcion:
+            'Superadministrador global de la plataforma SIGR',
+          ambito: AmbitoRol.SISTEMA,
+          restauranteId: null,
+        },
       });
 
-    // Primera ejecución después de Sprint 1:
-    // reutilizamos el ADMIN global heredado.
-    if (!rolSuperadmin) {
-      const rolHeredado =
-        await prisma.rol.findFirst({
-          where: {
-            restauranteId: null,
-            nombre: 'ADMIN',
-            clave: null,
-          },
-          orderBy: {
-            id: 'asc',
-          },
-        });
-
-      if (rolHeredado) {
-        rolSuperadmin =
-          await prisma.rol.update({
-            where: {
-              id: rolHeredado.id,
-            },
-            data: {
-              clave: 'SISTEMA:SUPERADMIN',
-              nombre: 'SUPERADMIN',
-              descripcion:
-                'Superadministrador global de la plataforma SIGR',
-              ambito: AmbitoRol.SISTEMA,
-              restauranteId: null,
-            },
-          });
-      } else {
-        rolSuperadmin =
-          await prisma.rol.create({
-            data: {
-              clave: 'SISTEMA:SUPERADMIN',
-              nombre: 'SUPERADMIN',
-              descripcion:
-                'Superadministrador global de la plataforma SIGR',
-              ambito: AmbitoRol.SISTEMA,
-            },
-          });
-      }
-    } else {
-      rolSuperadmin =
-        await prisma.rol.update({
-          where: {
-            id: rolSuperadmin.id,
-          },
-          data: {
-            nombre: 'SUPERADMIN',
-            descripcion:
-              'Superadministrador global de la plataforma SIGR',
-            ambito: AmbitoRol.SISTEMA,
-            restauranteId: null,
-          },
-        });
-    }
-
-    console.log('Rol SUPERADMIN global configurado.');
+    console.log(
+      'Rol SUPERADMIN global configurado.',
+    );
 
     // ==========================================
     // 6. ADMINISTRADORES POR RESTAURANTE
@@ -573,6 +534,7 @@ async function bootstrap() {
           id: true,
           nombre: true,
         },
+
         orderBy: {
           id: 'asc',
         },
@@ -606,17 +568,22 @@ async function bootstrap() {
           },
         });
 
-      // Solo migramos usuarios que todavía apuntan
-      // al antiguo rol global.
+      // Compatibilidad con datos migrados desde
+      // versiones anteriores de SIGR.
       //
-      // En ejecuciones futuras no modifica usuarios
-      // que ya tengan CAJERO, MESERO, COCINA, etc.
+      // Si algún usuario de restaurante todavía
+      // estuviera apuntando al SUPERADMIN global,
+      // se reasigna al ADMIN de su propio restaurante.
+      //
+      // En ejecuciones posteriores este updateMany
+      // no modifica usuarios que ya tengan su rol correcto.
       const resultado =
         await prisma.usuario.updateMany({
           where: {
             restauranteId: restaurante.id,
             rolId: rolSuperadmin.id,
           },
+
           data: {
             rolId: rolAdminRestaurante.id,
           },
@@ -654,6 +621,9 @@ async function bootstrap() {
           email: 'admin@sigr.com',
           password: passwordHasheada,
           rolId: rolSuperadmin.id,
+          restauranteId: null,
+          sucursalId: null,
+          activo: true,
         },
       });
 

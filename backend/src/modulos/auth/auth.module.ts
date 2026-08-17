@@ -1,5 +1,6 @@
 ﻿import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import { CapabilitiesGuard } from './capabilities.guard';
 
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -26,11 +27,13 @@ import { PermissionsGuard } from './permissions.guard';
     JwtStrategy,
     RolesGuard,
     PermissionsGuard,
+    CapabilitiesGuard,
   ],
 
   exports: [
     RolesGuard,
     PermissionsGuard,
+    CapabilitiesGuard,
   ],
 })
 export class AuthModule {}

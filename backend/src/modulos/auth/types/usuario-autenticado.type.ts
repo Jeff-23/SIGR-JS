@@ -9,4 +9,5 @@
   sucursalId: number | null;
 
   permisos: string[];
+  capacidades: string[];
 };

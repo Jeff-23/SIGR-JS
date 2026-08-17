@@ -63,10 +63,32 @@ export class JwtStrategy extends PassportStrategy(
           },
 
           restaurante: {
-            select: {
-              estado: true,
+  select: {
+    estado: true,
+
+    plan: {
+      select: {
+        activo: true,
+
+        capacidades: {
+          where: {
+            capacidad: {
+              activo: true,
             },
           },
+
+          select: {
+            capacidad: {
+              select: {
+                codigo: true,
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+},
 
           sucursal: {
             select: {
@@ -127,6 +149,13 @@ export class JwtStrategy extends PassportStrategy(
           (rolPermiso) =>
             rolPermiso.permiso.codigo,
         ),
+        capacidades:
+        usuario.restaurante?.plan?.activo
+        ? usuario.restaurante.plan.capacidades.map(
+        (planCapacidad) =>
+         planCapacidad.capacidad.codigo,
+      )
+    : [],
     };
   }
 }

@@ -18,13 +18,20 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
 import { Permisos } from '../auth/permisos.decorator';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import { CapabilitiesGuard } from '../auth/capabilities.guard';
+import { Capacidades } from '../auth/capacidades.decorator';
 
 type RequestAutenticada = {
   user: UsuarioAutenticado;
 };
 
 @Controller('articulos')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(
+  JwtAuthGuard,
+  PermissionsGuard,
+  CapabilitiesGuard,
+)
+@Capacidades('INVENTARIO')
 export class ArticulosController {
   constructor(
     private readonly articulosService: ArticulosService,

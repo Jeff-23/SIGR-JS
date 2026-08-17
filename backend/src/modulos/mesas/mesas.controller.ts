@@ -13,6 +13,8 @@ import { CreateMesaDto } from './dto/create-mesa.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
 import { Permisos } from '../auth/permisos.decorator';
+import { CapabilitiesGuard } from '../auth/capabilities.guard';
+import { Capacidades } from '../auth/capacidades.decorator';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 type RequestAutenticada = {
@@ -20,7 +22,8 @@ type RequestAutenticada = {
 };
 
 @Controller('mesas')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, CapabilitiesGuard)
+@Capacidades('MESAS')
 export class MesasController {
   constructor(
     private readonly mesasService: MesasService,

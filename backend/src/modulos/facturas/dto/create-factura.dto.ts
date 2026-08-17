@@ -1,4 +1,15 @@
-import { IsInt, IsNotEmpty, IsArray, ValidateNested, IsString, IsOptional, IsNumber, Min } from 'class-validator';
+import {
+  ArrayMinSize,
+  IsArray,
+  IsInt,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+
 import { Type } from 'class-transformer';
 
 class PagoDto {
@@ -21,6 +32,7 @@ export class CreateFacturaDto {
   resolucionDian?: string;
 
   @IsArray()
+  @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => PagoDto)
   pagos: PagoDto[];

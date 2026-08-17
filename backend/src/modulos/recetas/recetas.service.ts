@@ -1,33 +1,127 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateRecetaDto } from './dto/create-receta.dto';
+import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 @Injectable()
 export class RecetasService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+  ) {}
 
-  async create(data: CreateRecetaDto) {
-    // 1. Validar existencias
-    const producto = await this.prisma.producto.findUnique({ where: { id: data.productoId } });
-    if (!producto) throw new NotFoundException('Producto no encontrado');
+  private esSuperadmin(
+    usuarioActual: UsuarioAutenticado,
+  ) {
+    return usuarioActual.restauranteId === null;
+  }
 
-    const articulo = await this.prisma.articulo.findUnique({ where: { id: data.articuloId } });
-    if (!articulo) throw new NotFoundException('Artículo no encontrado');
+  async create(
+    data: CreateRecetaDto,
+    usuarioActual: UsuarioAutenticado,
+  ) {
+    const producto =
+      await this.prisma.producto.findFirst({
+        where: {
+          id: data.productoId,
+          estado: true,
 
-    // 2. Prevenir duplicados en la receta
-    const existe = await this.prisma.receta.findUnique({
-      where: {
-        productoId_articuloId: {
-          productoId: data.productoId,
-          articuloId: data.articuloId,
-        }
-      }
-    });
-    
-    if (existe) {
-      throw new ConflictException('Este ingrediente ya está asignado a la receta del producto');
+          categoria: {
+            estado: true,
+
+            sucursal: {
+              estado: true,
+
+              ...(!this.esSuperadmin(usuarioActual)
+                ? {
+                    restauranteId:
+                      usuarioActual.restauranteId!,
+                  }
+                : {}),
+
+              ...(usuarioActual.sucursalId !== null
+                ? {
+                    id: usuarioActual.sucursalId,
+                  }
+                : {}),
+            },
+          },
+        },
+
+        select: {
+          id: true,
+
+          categoria: {
+            select: {
+              sucursalId: true,
+            },
+          },
+        },
+      });
+
+    if (!producto) {
+      throw new NotFoundException(
+        'Producto no encontrado',
+      );
     }
 
-    return this.prisma.receta.create({ data });
+    const sucursalProducto =
+      producto.categoria.sucursalId;
+
+    const articulo =
+      await this.prisma.articulo.findFirst({
+        where: {
+          id: data.articuloId,
+          estado: true,
+          sucursalId: sucursalProducto,
+
+          sucursal: {
+            estado: true,
+
+            ...(!this.esSuperadmin(usuarioActual)
+              ? {
+                  restauranteId:
+                    usuarioActual.restauranteId!,
+                }
+              : {}),
+
+            ...(usuarioActual.sucursalId !== null
+              ? {
+                  id: usuarioActual.sucursalId,
+                }
+              : {}),
+          },
+        },
+      });
+
+    if (!articulo) {
+      throw new NotFoundException(
+        'Artículo no encontrado para la sucursal del producto',
+      );
+    }
+
+    const existe =
+      await this.prisma.receta.findUnique({
+        where: {
+          productoId_articuloId: {
+            productoId: data.productoId,
+            articuloId: data.articuloId,
+          },
+        },
+      });
+
+    if (existe) {
+      throw new ConflictException(
+        'Este ingrediente ya está asignado a la receta del producto',
+      );
+    }
+
+    return this.prisma.receta.create({
+      data,
+    });
   }
 }

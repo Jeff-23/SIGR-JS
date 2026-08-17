@@ -1,34 +1,48 @@
+import 'dotenv/config';
+
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../src/app.module';
-import { PrismaService } from '../src/prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 
+import { AppModule } from '../src/app.module';
+import { PrismaService } from '../src/prisma/prisma.service';
+
 async function bootstrap() {
-  console.log('Iniciando sembrado (Seed) con el motor de NestJS...');
-  
-  // Levantamos el contexto de NestJS sin el servidor HTTP
+  console.log('Iniciando seed de SIGR...');
+
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD;
+
+  if (!adminPassword) {
+    throw new Error(
+      'La variable SEED_ADMIN_PASSWORD no está configurada en backend/.env',
+    );
+  }
+
   const app = await NestFactory.createApplicationContext(AppModule);
-  // Extraemos tu PrismaService ya configurado
   const prisma = app.get(PrismaService);
 
   try {
-    // 1. Asegurar que el Rol ADMIN existe
+    // 1. Asegurar que el rol ADMIN exista.
     const rolAdmin = await prisma.rol.upsert({
-      where: { nombre: 'ADMIN' },
+      where: {
+        nombre: 'ADMIN',
+      },
       update: {},
       create: {
         nombre: 'ADMIN',
         descripcion: 'Administrador maestro del sistema SIGR',
       },
     });
+
     console.log('Rol ADMIN configurado.');
 
-    // 2. Crear el Usuario Super Administrador con contraseña encriptada
-    const saltos = 10;
-    const passwordHasheada = await bcrypt.hash('PasswordSeguro123!', saltos);
+    // 2. Generar el hash de la contraseña definida por entorno.
+    const passwordHasheada = await bcrypt.hash(adminPassword, 10);
 
+    // 3. Crear o mantener el superadministrador.
     const admin = await prisma.usuario.upsert({
-      where: { email: 'admin@sigr.com' },
+      where: {
+        email: 'admin@sigr.com',
+      },
       update: {},
       create: {
         nombres: 'Super',
@@ -38,13 +52,14 @@ async function bootstrap() {
         rolId: rolAdmin.id,
       },
     });
-    console.log(`Super Administrador creado con email: ${admin.email}`);
-  } catch (error) {
-    console.error('Error ejecutando el seed:', error);
+
+    console.log(`Superadministrador configurado: ${admin.email}`);
   } finally {
-    // Apagamos la conexión limpiamente
     await app.close();
   }
 }
 
-bootstrap();
+bootstrap().catch((error) => {
+  console.error('Error ejecutando el seed de SIGR:', error);
+  process.exit(1);
+});

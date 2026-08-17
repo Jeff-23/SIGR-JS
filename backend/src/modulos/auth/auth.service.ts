@@ -24,6 +24,10 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales incorrectas');
     }
 
+    if (!usuario.activo) {
+      throw new UnauthorizedException('Credenciales incorrectas');
+    }
+
     // 3. Comparamos la contraseña enviada con la contraseña encriptada guardada
     const passwordValida = await bcrypt.compare(password, usuario.password);
     if (!passwordValida) {
@@ -31,9 +35,8 @@ export class AuthService {
     }
 
     // 4. Creamos el "Carnet Digital" (Token) con la info clave del usuario
-    const payload = { sub: usuario.id, email: usuario.email, rolId: usuario.rolId };
+    const payload = {sub: usuario.id};
     const token = this.jwtService.sign(payload);
-
     // 5. Ocultamos la contraseña antes de responderle al frontend
     const { password: _, ...usuarioLimpio } = usuario;
     

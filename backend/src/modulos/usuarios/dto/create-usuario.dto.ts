@@ -1,4 +1,11 @@
-import { IsString, IsEmail, IsNotEmpty, MinLength, IsInt, IsOptional } from 'class-validator';
+import {
+  IsEmail,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MinLength,
+} from 'class-validator';
 
 export class CreateUsuarioDto {
   @IsString()
@@ -18,10 +25,13 @@ export class CreateUsuarioDto {
   password: string;
 
   @IsInt()
-  @IsNotEmpty()
   rolId: number;
 
   @IsInt()
   @IsOptional()
-  sucursalId?: number;
+  restauranteId?: number | null;
+
+  @IsInt()
+  @IsOptional()
+  sucursalId?: number | null;
 }

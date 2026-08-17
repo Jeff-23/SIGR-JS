@@ -10,3 +10,5 @@ node_modules/
 dist/
 build/
 .DS_Store
+# Respaldos locales de base de datos
+backups/

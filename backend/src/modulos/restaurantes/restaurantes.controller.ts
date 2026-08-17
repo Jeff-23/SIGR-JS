@@ -26,7 +26,7 @@ type RequestAutenticada = {
 
 @Controller('restaurantes')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('ADMIN')
+@Roles('SUPERADMIN')
 export class RestaurantesController {
   constructor(
     private readonly restaurantesService: RestaurantesService,

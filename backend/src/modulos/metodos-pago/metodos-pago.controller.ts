@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Get,
@@ -11,8 +11,8 @@ import { MetodosPagoService } from './metodos-pago.service';
 import { CreateMetodoPagoDto } from './dto/create-metodo-pago.dto';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { Permisos } from '../auth/permisos.decorator';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 type RequestAutenticada = {
@@ -20,14 +20,14 @@ type RequestAutenticada = {
 };
 
 @Controller('metodos-pago')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class MetodosPagoController {
   constructor(
     private readonly metodosPagoService: MetodosPagoService,
   ) {}
 
   @Post()
-  @Roles('ADMIN')
+  @Permisos('METODOS_PAGO_GESTIONAR')
   create(
     @Body() createMetodoPagoDto: CreateMetodoPagoDto,
     @Req() request: RequestAutenticada,
@@ -39,7 +39,9 @@ export class MetodosPagoController {
   }
 
   @Get()
+  @Permisos('METODOS_PAGO_VER')
   findAll() {
     return this.metodosPagoService.findAll();
   }
 }
+

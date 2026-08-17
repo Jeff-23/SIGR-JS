@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Get,
@@ -14,8 +14,8 @@ import { FacturasService } from './facturas.service';
 import { CreateFacturaDto } from './dto/create-factura.dto';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { Permisos } from '../auth/permisos.decorator';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 type RequestAutenticada = {
@@ -23,14 +23,14 @@ type RequestAutenticada = {
 };
 
 @Controller('facturas')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class FacturasController {
   constructor(
     private readonly facturasService: FacturasService,
   ) {}
 
   @Post()
-  @Roles('ADMIN', 'CAJERO')
+  @Permisos('FACTURAS_EMITIR')
   create(
     @Body() createFacturaDto: CreateFacturaDto,
     @Req() request: RequestAutenticada,
@@ -42,7 +42,7 @@ export class FacturasController {
   }
 
   @Get('corte-caja')
-  @Roles('ADMIN')
+  @Permisos('FACTURAS_VER')
   obtenerCorteCaja(
     @Query('inicio') inicio: string | undefined,
     @Query('fin') fin: string | undefined,
@@ -56,7 +56,7 @@ export class FacturasController {
   }
 
   @Post(':id/emitir-dian')
-  @Roles('ADMIN', 'CAJERO')
+  @Permisos('FACTURAS_EMITIR')
   emitirDian(
     @Param('id', ParseIntPipe) id: number,
     @Req() request: RequestAutenticada,
@@ -67,3 +67,4 @@ export class FacturasController {
     );
   }
 }
+

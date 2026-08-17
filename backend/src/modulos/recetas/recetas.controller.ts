@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Post,
@@ -10,8 +10,10 @@ import { RecetasService } from './recetas.service';
 import { CreateRecetaDto } from './dto/create-receta.dto';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { Permisos } from '../auth/permisos.decorator';
+import { CapabilitiesGuard } from '../auth/capabilities.guard';
+import { Capacidades } from '../auth/capacidades.decorator';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 type RequestAutenticada = {
@@ -19,14 +21,15 @@ type RequestAutenticada = {
 };
 
 @Controller('recetas')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, CapabilitiesGuard)
+@Capacidades('RECETAS')
 export class RecetasController {
   constructor(
     private readonly recetasService: RecetasService,
   ) {}
 
   @Post()
-  @Roles('ADMIN')
+  @Permisos('RECETAS_CREAR')
   create(
     @Body() createRecetaDto: CreateRecetaDto,
     @Req() request: RequestAutenticada,
@@ -37,3 +40,4 @@ export class RecetasController {
     );
   }
 }
+

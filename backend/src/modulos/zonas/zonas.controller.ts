@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Get,
@@ -13,8 +13,8 @@ import { ZonasService } from './zonas.service';
 import { CreateZonaDto } from './dto/create-zona.dto';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { Permisos } from '../auth/permisos.decorator';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 type RequestAutenticada = {
@@ -22,14 +22,14 @@ type RequestAutenticada = {
 };
 
 @Controller('zonas')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class ZonasController {
   constructor(
     private readonly zonasService: ZonasService,
   ) {}
 
   @Post()
-  @Roles('ADMIN')
+  @Permisos('ZONAS_CREAR')
   create(
     @Body() createZonaDto: CreateZonaDto,
     @Req() request: RequestAutenticada,
@@ -41,6 +41,7 @@ export class ZonasController {
   }
 
   @Get('sucursal/:sucursalId')
+  @Permisos('ZONAS_VER')
   findAllPorSucursal(
     @Param('sucursalId', ParseIntPipe)
     sucursalId: number,
@@ -52,3 +53,4 @@ export class ZonasController {
     );
   }
 }
+

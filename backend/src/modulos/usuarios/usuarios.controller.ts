@@ -16,8 +16,8 @@ import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { Permisos } from '../auth/permisos.decorator';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 type RequestAutenticada = {
@@ -25,14 +25,14 @@ type RequestAutenticada = {
 };
 
 @Controller('usuarios')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('ADMIN')
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class UsuariosController {
   constructor(
     private readonly usuariosService: UsuariosService,
   ) {}
 
   @Post()
+  @Permisos('USUARIOS_CREAR')
   create(
     @Body() createUsuarioDto: CreateUsuarioDto,
     @Req() request: RequestAutenticada,
@@ -44,6 +44,7 @@ export class UsuariosController {
   }
 
   @Get()
+  @Permisos('USUARIOS_VER')
   findAll(
     @Req() request: RequestAutenticada,
   ) {
@@ -53,6 +54,7 @@ export class UsuariosController {
   }
 
   @Get(':id')
+  @Permisos('USUARIOS_VER')
   findOne(
     @Param('id', ParseIntPipe) id: number,
     @Req() request: RequestAutenticada,
@@ -64,6 +66,7 @@ export class UsuariosController {
   }
 
   @Patch(':id')
+  @Permisos('USUARIOS_EDITAR')
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateUsuarioDto: UpdateUsuarioDto,
@@ -77,6 +80,7 @@ export class UsuariosController {
   }
 
   @Delete(':id')
+  @Permisos('USUARIOS_DESACTIVAR')
   remove(
     @Param('id', ParseIntPipe) id: number,
     @Req() request: RequestAutenticada,

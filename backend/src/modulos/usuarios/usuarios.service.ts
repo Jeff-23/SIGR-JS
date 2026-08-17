@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
+import { AmbitoRol } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -74,12 +75,22 @@ export class UsuariosService {
     };
   }
 
-  private async validarRol(
+  private async validarRolParaDestino(
     rolId: number,
+    restauranteDestino: number | null,
+    usuarioActual: UsuarioAutenticado,
   ) {
     const rol = await this.prisma.rol.findUnique({
       where: {
         id: rolId,
+      },
+
+      select: {
+        id: true,
+        clave: true,
+        nombre: true,
+        ambito: true,
+        restauranteId: true,
       },
     });
 
@@ -89,7 +100,76 @@ export class UsuariosService {
       );
     }
 
-    return rol;
+    // Todos los roles utilizables deben tener
+    // clave técnica y ámbito configurados.
+    if (!rol.clave || !rol.ambito) {
+      throw new BadRequestException(
+        'El rol indicado no está configurado correctamente',
+      );
+    }
+
+    const esSuperadmin =
+      usuarioActual.restauranteId === null &&
+      usuarioActual.rol === 'SUPERADMIN';
+
+    // ==========================================
+    // ROL GLOBAL DE LA PLATAFORMA
+    // ==========================================
+
+    if (rol.ambito === AmbitoRol.SISTEMA) {
+      if (!esSuperadmin) {
+        throw new ForbiddenException(
+          'No puedes asignar roles de sistema',
+        );
+      }
+
+      if (restauranteDestino !== null) {
+        throw new BadRequestException(
+          'Un rol de sistema solo puede asignarse a un usuario global',
+        );
+      }
+
+      return rol;
+    }
+
+    // ==========================================
+    // ROL PROPIO DE UN RESTAURANTE
+    // ==========================================
+
+    if (rol.ambito === AmbitoRol.RESTAURANTE) {
+      if (restauranteDestino === null) {
+        throw new BadRequestException(
+          'Un rol de restaurante requiere un restaurante',
+        );
+      }
+
+      if (
+        rol.restauranteId === null ||
+        rol.restauranteId !== restauranteDestino
+      ) {
+        throw new ForbiddenException(
+          'El rol no pertenece al restaurante destino',
+        );
+      }
+
+      // Un usuario perteneciente a un restaurante
+      // solo puede asignar roles de su propia empresa.
+      if (
+        !esSuperadmin &&
+        usuarioActual.restauranteId !==
+          rol.restauranteId
+      ) {
+        throw new ForbiddenException(
+          'No puedes asignar roles de otro restaurante',
+        );
+      }
+
+      return rol;
+    }
+
+    throw new BadRequestException(
+      'El ámbito del rol no es válido',
+    );
   }
 
   private async validarRestaurante(
@@ -201,8 +281,6 @@ export class UsuariosService {
       );
     }
 
-    await this.validarRol(rolId);
-
     let restauranteDestino: number | null;
     let sucursalDestino: number | null;
 
@@ -267,6 +345,14 @@ export class UsuariosService {
         restauranteDestino,
       );
     }
+
+    // El rol se valida cuando ya conocemos
+    // el restaurante final del nuevo usuario.
+    await this.validarRolParaDestino(
+      rolId,
+      restauranteDestino,
+      usuarioActual,
+    );
 
     const passwordHasheada =
       await bcrypt.hash(password, 10);
@@ -353,12 +439,6 @@ export class UsuariosService {
     ) {
       throw new BadRequestException(
         'No puedes desactivar tu propio usuario',
-      );
-    }
-
-    if (updateUsuarioDto.rolId !== undefined) {
-      await this.validarRol(
-        updateUsuarioDto.rolId,
       );
     }
 
@@ -454,6 +534,21 @@ export class UsuariosService {
         restauranteDestino,
       );
     }
+
+    // Si no se cambia el rol, validamos el rol actual
+    // contra el restaurante final.
+    //
+    // Esto evita mover un usuario de restaurante
+    // conservando accidentalmente un rol del tenant anterior.
+    const rolDestino =
+      updateUsuarioDto.rolId ??
+      usuarioObjetivo.rolId;
+
+    await this.validarRolParaDestino(
+      rolDestino,
+      restauranteDestino,
+      usuarioActual,
+    );
 
     let emailNormalizado:
       | string

@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Get,
@@ -15,23 +15,30 @@ import { CreateArticuloDto } from './dto/create-articulo.dto';
 import { UpdateArticuloDto } from './dto/update-articulo.dto';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { Permisos } from '../auth/permisos.decorator';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import { CapabilitiesGuard } from '../auth/capabilities.guard';
+import { Capacidades } from '../auth/capacidades.decorator';
 
 type RequestAutenticada = {
   user: UsuarioAutenticado;
 };
 
 @Controller('articulos')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(
+  JwtAuthGuard,
+  PermissionsGuard,
+  CapabilitiesGuard,
+)
+@Capacidades('INVENTARIO')
 export class ArticulosController {
   constructor(
     private readonly articulosService: ArticulosService,
   ) {}
 
   @Post()
-  @Roles('ADMIN')
+  @Permisos('INVENTARIO_AJUSTAR')
   create(
     @Body() createArticuloDto: CreateArticuloDto,
     @Req() request: RequestAutenticada,
@@ -43,6 +50,7 @@ export class ArticulosController {
   }
 
   @Get()
+  @Permisos('INVENTARIO_VER')
   findAll(
     @Req() request: RequestAutenticada,
   ) {
@@ -52,6 +60,7 @@ export class ArticulosController {
   }
 
   @Get(':id')
+  @Permisos('INVENTARIO_VER')
   findOne(
     @Param('id', ParseIntPipe) id: number,
     @Req() request: RequestAutenticada,
@@ -63,7 +72,7 @@ export class ArticulosController {
   }
 
   @Patch(':id')
-  @Roles('ADMIN')
+  @Permisos('INVENTARIO_AJUSTAR')
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateData: UpdateArticuloDto,
@@ -76,3 +85,4 @@ export class ArticulosController {
     );
   }
 }
+

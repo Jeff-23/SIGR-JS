@@ -31,6 +31,11 @@ enum EstadoPedido {
   CANCELADO
 }
 
+enum AmbitoRol {
+  SISTEMA
+  RESTAURANTE
+}
+
 model Restaurante {
   id            Int      @id @default(autoincrement())
   nombre        String   @db.VarChar(100)
@@ -42,31 +47,51 @@ model Restaurante {
   creadoEn      DateTime @default(now())
   actualizadoEn DateTime @updatedAt
 
+  planId Int?
+  plan   Plan? @relation(fields: [planId], references: [id])
+
   sucursales Sucursal[]
   usuarios   Usuario[]
+  roles      Rol[]
+
+  @@index([planId])
 }
 
 model Sucursal {
-  id            Int         @id @default(autoincrement())
-  nombre        String      @db.VarChar(100)
-  direccion     String?     @db.VarChar(200)
-  telefono      String?     @db.VarChar(20)
-  estado        Boolean     @default(true)
-  creadoEn      DateTime    @default(now())
+  id        Int      @id @default(autoincrement())
+  nombre    String   @db.VarChar(100)
+  direccion String?  @db.VarChar(200)
+  telefono  String?  @db.VarChar(20)
+  estado    Boolean  @default(true)
+  creadoEn  DateTime @default(now())
+
   restauranteId Int
   restaurante   Restaurante @relation(fields: [restauranteId], references: [id])
-  usuarios      Usuario[]
-  zonas         Zona[]
-  categorias    Categoria[]
-  articulos     Articulo[] // <-- RELACIÓN FASE 4 AÑADIDA
-  pedidos       Pedido[]
+
+  usuarios   Usuario[]
+  zonas      Zona[]
+  categorias Categoria[]
+  articulos  Articulo[]
+  pedidos    Pedido[]
 }
 
 model Rol {
-  id          Int       @id @default(autoincrement())
-  nombre      String    @unique @db.VarChar(50)
-  descripcion String?   @db.Text
-  usuarios    Usuario[]
+  id          Int     @id @default(autoincrement())
+  clave       String  @unique @db.VarChar(120)
+  nombre      String  @db.VarChar(50)
+  descripcion String? @db.Text
+
+  ambito        AmbitoRol
+  restauranteId Int?
+
+  restaurante Restaurante? @relation(fields: [restauranteId], references: [id], onDelete: Restrict)
+
+  usuarios Usuario[]
+  permisos RolPermiso[]
+
+  @@unique([restauranteId, nombre])
+  @@index([ambito])
+  @@index([restauranteId])
 }
 
 model Usuario {
@@ -94,13 +119,15 @@ model Usuario {
 }
 
 model Zona {
-  id         Int      @id @default(autoincrement())
-  nombre     String   @db.VarChar(50)
-  estado     Boolean  @default(true)
-  creadoEn   DateTime @default(now())
+  id       Int      @id @default(autoincrement())
+  nombre   String   @db.VarChar(50)
+  estado   Boolean  @default(true)
+  creadoEn DateTime @default(now())
+
   sucursalId Int
   sucursal   Sucursal @relation(fields: [sucursalId], references: [id])
-  mesas      Mesa[]
+
+  mesas Mesa[]
 }
 
 model Mesa {
@@ -110,33 +137,39 @@ model Mesa {
   situacion EstadoMesa @default(LIBRE)
   estado    Boolean    @default(true)
   creadoEn  DateTime   @default(now())
-  zonaId    Int
-  zona      Zona       @relation(fields: [zonaId], references: [id])
-  pedidos   Pedido[]
+
+  zonaId Int
+  zona   Zona @relation(fields: [zonaId], references: [id])
+
+  pedidos Pedido[]
 }
 
 model Categoria {
-  id         Int        @id @default(autoincrement())
-  nombre     String     @db.VarChar(50)
-  estado     Boolean    @default(true)
-  creadoEn   DateTime   @default(now())
+  id       Int      @id @default(autoincrement())
+  nombre   String   @db.VarChar(50)
+  estado   Boolean  @default(true)
+  creadoEn DateTime @default(now())
+
   sucursalId Int
-  sucursal   Sucursal   @relation(fields: [sucursalId], references: [id])
-  productos  Producto[]
+  sucursal   Sucursal @relation(fields: [sucursalId], references: [id])
+
+  productos Producto[]
 }
 
 model Producto {
-  id          Int             @id @default(autoincrement())
-  nombre      String          @db.VarChar(100)
-  descripcion String?         @db.Text
-  precio      Decimal         @db.Decimal(10, 2)
+  id          Int      @id @default(autoincrement())
+  nombre      String   @db.VarChar(100)
+  descripcion String?  @db.Text
+  precio      Decimal  @db.Decimal(10, 2)
   stock       Int?
-  estado      Boolean         @default(true)
-  creadoEn    DateTime        @default(now())
+  estado      Boolean  @default(true)
+  creadoEn    DateTime @default(now())
+
   categoriaId Int
-  categoria   Categoria       @relation(fields: [categoriaId], references: [id])
-  detalles    DetallePedido[]
-  recetas     Receta[] // <-- RELACIÓN FASE 4 AÑADIDA
+  categoria   Categoria @relation(fields: [categoriaId], references: [id])
+
+  detalles DetallePedido[]
+  recetas  Receta[]
 }
 
 model Pedido {
@@ -159,14 +192,16 @@ model Pedido {
 }
 
 model DetallePedido {
-  id             Int      @id @default(autoincrement())
+  id             Int     @id @default(autoincrement())
   cantidad       Int
-  precioUnitario Decimal  @db.Decimal(10, 2)
-  subtotal       Decimal  @db.Decimal(10, 2)
-  pedidoId       Int
-  productoId     Int
-  pedido         Pedido   @relation(fields: [pedidoId], references: [id])
-  producto       Producto @relation(fields: [productoId], references: [id])
+  precioUnitario Decimal @db.Decimal(10, 2)
+  subtotal       Decimal @db.Decimal(10, 2)
+
+  pedidoId   Int
+  productoId Int
+
+  pedido   Pedido   @relation(fields: [pedidoId], references: [id])
+  producto Producto @relation(fields: [productoId], references: [id])
 }
 
 // ==========================================
@@ -176,57 +211,57 @@ model DetallePedido {
 model Articulo {
   id          Int      @id @default(autoincrement())
   nombre      String   @db.VarChar(100)
-  unidad      String   @db.VarChar(20) // ej: gramos, mililitros, unidades
+  unidad      String   @db.VarChar(20)
   costoUnidad Decimal  @db.Decimal(10, 2)
   stock       Decimal  @db.Decimal(10, 2)
   estado      Boolean  @default(true)
   creadoEn    DateTime @default(now())
 
-  // Relaciones
   sucursalId Int
   sucursal   Sucursal @relation(fields: [sucursalId], references: [id])
-  recetas    Receta[]
+
+  recetas Receta[]
 }
 
 model Receta {
   id       Int     @id @default(autoincrement())
-  cantidad Decimal @db.Decimal(10, 2) // Cuánto de este artículo usa el producto
+  cantidad Decimal @db.Decimal(10, 2)
 
-  // Relaciones
   productoId Int
   articuloId Int
-  producto   Producto @relation(fields: [productoId], references: [id])
-  articulo   Articulo @relation(fields: [articuloId], references: [id])
 
-  // Restricción: Un producto no puede tener el mismo artículo dos veces en su receta
+  producto Producto @relation(fields: [productoId], references: [id])
+  articulo Articulo @relation(fields: [articuloId], references: [id])
+
   @@unique([productoId, articuloId])
 }
 
 // ==========================================
-// FASE 5: FACTURACIÓN Y PAGOS (DIAN)
+// FASE 5: FACTURACIÓN Y PAGOS
 // ==========================================
 
 model MetodoPago {
   id     Int     @id @default(autoincrement())
-  nombre String  @db.VarChar(50) // Ej: Efectivo, Tarjeta, Nequi, DaviPlata
+  nombre String  @db.VarChar(50)
   activo Boolean @default(true)
-  pagos  Pago[]
+
+  pagos Pago[]
 }
 
 model Factura {
   id             Int      @id @default(autoincrement())
-  numero         String   @unique @db.VarChar(50) // Prefijo + consecutivo (Ej: SET-1)
+  numero         String   @unique @db.VarChar(50)
   total          Decimal  @db.Decimal(10, 2)
-  cufe           String?  @db.VarChar(150) // Código Único de Factura Electrónica (DIAN)
+  cufe           String?  @db.VarChar(150)
   qrCode         String?  @db.Text
   resolucionDian String?  @db.VarChar(100)
-  estado         String   @default("EMITIDA") // EMITIDA, ANULADA
+  estado         String   @default("EMITIDA")
   creadoEn       DateTime @default(now())
 
-  // Relaciones
   pedidoId Int    @unique
   pedido   Pedido @relation(fields: [pedidoId], references: [id])
-  pagos    Pago[]
+
+  pagos Pago[]
 }
 
 model Pago {
@@ -234,9 +269,76 @@ model Pago {
   monto    Decimal  @db.Decimal(10, 2)
   creadoEn DateTime @default(now())
 
-  // Relaciones
   facturaId    Int
   metodoPagoId Int
-  factura      Factura    @relation(fields: [facturaId], references: [id])
-  metodoPago   MetodoPago @relation(fields: [metodoPagoId], references: [id])
+
+  factura    Factura    @relation(fields: [facturaId], references: [id])
+  metodoPago MetodoPago @relation(fields: [metodoPagoId], references: [id])
+}
+
+// ==========================================
+// SPRINT 2: PLANES Y CAPACIDADES SAAS
+// ==========================================
+
+model Plan {
+  id            Int      @id @default(autoincrement())
+  codigo        String   @unique @db.VarChar(30)
+  nombre        String   @db.VarChar(60)
+  descripcion   String?  @db.Text
+  activo        Boolean  @default(true)
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  restaurantes Restaurante[]
+  capacidades  PlanCapacidad[]
+}
+
+model Capacidad {
+  id          Int      @id @default(autoincrement())
+  codigo      String   @unique @db.VarChar(50)
+  nombre      String   @db.VarChar(100)
+  descripcion String?  @db.Text
+  modulo      String?  @db.VarChar(50)
+  activo      Boolean  @default(true)
+  creadoEn    DateTime @default(now())
+
+  planes PlanCapacidad[]
+}
+
+model PlanCapacidad {
+  planId      Int
+  capacidadId Int
+
+  plan      Plan      @relation(fields: [planId], references: [id], onDelete: Cascade)
+  capacidad Capacidad @relation(fields: [capacidadId], references: [id], onDelete: Cascade)
+
+  @@id([planId, capacidadId])
+  @@index([capacidadId])
+}
+
+// ==========================================
+// SPRINT 2: PERMISOS GRANULARES
+// ==========================================
+
+model Permiso {
+  id          Int      @id @default(autoincrement())
+  codigo      String   @unique @db.VarChar(80)
+  nombre      String   @db.VarChar(120)
+  descripcion String?  @db.Text
+  modulo      String   @db.VarChar(50)
+  activo      Boolean  @default(true)
+  creadoEn    DateTime @default(now())
+
+  roles RolPermiso[]
+}
+
+model RolPermiso {
+  rolId     Int
+  permisoId Int
+
+  rol     Rol     @relation(fields: [rolId], references: [id], onDelete: Cascade)
+  permiso Permiso @relation(fields: [permisoId], references: [id], onDelete: Cascade)
+
+  @@id([rolId, permisoId])
+  @@index([permisoId])
 }

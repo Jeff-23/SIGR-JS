@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Get,
@@ -11,8 +11,8 @@ import { MesasService } from './mesas.service';
 import { CreateMesaDto } from './dto/create-mesa.dto';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { Permisos } from '../auth/permisos.decorator';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 type RequestAutenticada = {
@@ -20,14 +20,14 @@ type RequestAutenticada = {
 };
 
 @Controller('mesas')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class MesasController {
   constructor(
     private readonly mesasService: MesasService,
   ) {}
 
   @Post()
-  @Roles('ADMIN')
+  @Permisos('MESAS_CREAR')
   create(
     @Body() createMesaDto: CreateMesaDto,
     @Req() request: RequestAutenticada,
@@ -39,6 +39,7 @@ export class MesasController {
   }
 
   @Get()
+  @Permisos('MESAS_VER')
   findAll(
     @Req() request: RequestAutenticada,
   ) {
@@ -47,3 +48,4 @@ export class MesasController {
     );
   }
 }
+

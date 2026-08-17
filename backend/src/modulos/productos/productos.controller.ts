@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Get,
@@ -15,8 +15,8 @@ import { CreateProductoDto } from './dto/create-producto.dto';
 import { UpdateProductoDto } from './dto/update-producto.dto';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { Permisos } from '../auth/permisos.decorator';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 type RequestAutenticada = {
@@ -24,14 +24,14 @@ type RequestAutenticada = {
 };
 
 @Controller('productos')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class ProductosController {
   constructor(
     private readonly productosService: ProductosService,
   ) {}
 
   @Post()
-  @Roles('ADMIN')
+  @Permisos('PRODUCTOS_CREAR')
   create(
     @Body() createProductoDto: CreateProductoDto,
     @Req() request: RequestAutenticada,
@@ -43,6 +43,7 @@ export class ProductosController {
   }
 
   @Get()
+  @Permisos('PRODUCTOS_VER')
   findAll(
     @Req() request: RequestAutenticada,
   ) {
@@ -52,7 +53,7 @@ export class ProductosController {
   }
 
   @Patch(':id')
-  @Roles('ADMIN')
+  @Permisos('PRODUCTOS_EDITAR')
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateData: UpdateProductoDto,
@@ -65,3 +66,4 @@ export class ProductosController {
     );
   }
 }
+

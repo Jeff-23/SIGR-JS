@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Delete,
@@ -16,8 +16,8 @@ import { CreateSucursalDto } from './dto/create-sucursal.dto';
 import { UpdateSucursalDto } from './dto/update-sucursal.dto';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { Permisos } from '../auth/permisos.decorator';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 type RequestAutenticada = {
@@ -25,14 +25,14 @@ type RequestAutenticada = {
 };
 
 @Controller('sucursales')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('ADMIN')
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class SucursalesController {
   constructor(
     private readonly sucursalesService: SucursalesService,
   ) {}
 
   @Post()
+  @Permisos('SUCURSALES_CREAR')
   create(
     @Body() createSucursalDto: CreateSucursalDto,
     @Req() request: RequestAutenticada,
@@ -44,6 +44,7 @@ export class SucursalesController {
   }
 
   @Get()
+  @Permisos('SUCURSALES_VER')
   findAll(
     @Req() request: RequestAutenticada,
   ) {
@@ -53,6 +54,7 @@ export class SucursalesController {
   }
 
   @Get(':id')
+  @Permisos('SUCURSALES_VER')
   findOne(
     @Param('id', ParseIntPipe) id: number,
     @Req() request: RequestAutenticada,
@@ -64,6 +66,7 @@ export class SucursalesController {
   }
 
   @Patch(':id')
+  @Permisos('SUCURSALES_EDITAR')
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateSucursalDto: UpdateSucursalDto,
@@ -77,6 +80,7 @@ export class SucursalesController {
   }
 
   @Delete(':id')
+  @Permisos('SUCURSALES_EDITAR')
   remove(
     @Param('id', ParseIntPipe) id: number,
     @Req() request: RequestAutenticada,
@@ -87,3 +91,4 @@ export class SucursalesController {
     );
   }
 }
+

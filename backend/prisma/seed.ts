@@ -540,60 +540,97 @@ async function bootstrap() {
         },
       });
 
+      const permisosAdmin =
+  await prisma.permiso.findMany({
+    where: {
+      activo: true,
+    },
+
+    select: {
+      id: true,
+      codigo: true,
+    },
+
+    orderBy: {
+      id: 'asc',
+    },
+  });
+
+console.log(
+  `${permisosAdmin.length} permisos disponibles para roles ADMIN.`,
+);
+
     for (const restaurante of restaurantes) {
-      const claveAdmin =
-        `RESTAURANTE:${restaurante.id}:ADMIN`;
+  const claveAdmin =
+    `RESTAURANTE:${restaurante.id}:ADMIN`;
 
-      const rolAdminRestaurante =
-        await prisma.rol.upsert({
-          where: {
-            clave: claveAdmin,
-          },
+  const rolAdminRestaurante =
+    await prisma.rol.upsert({
+      where: {
+        clave: claveAdmin,
+      },
 
-          update: {
-            nombre: 'ADMIN',
-            descripcion:
-              `Administrador del restaurante ${restaurante.nombre}`,
-            ambito: AmbitoRol.RESTAURANTE,
-            restauranteId: restaurante.id,
-          },
+      update: {
+        nombre: 'ADMIN',
+        descripcion:
+          `Administrador del restaurante ${restaurante.nombre}`,
+        ambito: AmbitoRol.RESTAURANTE,
+        restauranteId: restaurante.id,
+      },
 
-          create: {
-            clave: claveAdmin,
-            nombre: 'ADMIN',
-            descripcion:
-              `Administrador del restaurante ${restaurante.nombre}`,
-            ambito: AmbitoRol.RESTAURANTE,
-            restauranteId: restaurante.id,
-          },
-        });
+      create: {
+        clave: claveAdmin,
+        nombre: 'ADMIN',
+        descripcion:
+          `Administrador del restaurante ${restaurante.nombre}`,
+        ambito: AmbitoRol.RESTAURANTE,
+        restauranteId: restaurante.id,
+      },
+    });
 
-      // Compatibilidad con datos migrados desde
-      // versiones anteriores de SIGR.
-      //
-      // Si algún usuario de restaurante todavía
-      // estuviera apuntando al SUPERADMIN global,
-      // se reasigna al ADMIN de su propio restaurante.
-      //
-      // En ejecuciones posteriores este updateMany
-      // no modifica usuarios que ya tengan su rol correcto.
-      const resultado =
-        await prisma.usuario.updateMany({
-          where: {
-            restauranteId: restaurante.id,
-            rolId: rolSuperadmin.id,
-          },
+  // ==========================================
+  // PERMISOS DEL ADMIN DEL RESTAURANTE
+  // ==========================================
 
-          data: {
-            rolId: rolAdminRestaurante.id,
-          },
-        });
+  await prisma.rolPermiso.deleteMany({
+    where: {
+      rolId: rolAdminRestaurante.id,
+    },
+  });
 
-      console.log(
-        `Rol ADMIN configurado para ${restaurante.nombre}. ` +
-          `Usuarios migrados: ${resultado.count}`,
-      );
-    }
+  if (permisosAdmin.length > 0) {
+    await prisma.rolPermiso.createMany({
+      data: permisosAdmin.map(
+        (permiso) => ({
+          rolId: rolAdminRestaurante.id,
+          permisoId: permiso.id,
+        }),
+      ),
+    });
+  }
+
+  console.log(
+    `${permisosAdmin.length} permisos asignados al ADMIN de ${restaurante.nombre}.`,
+  );
+
+  // Migración heredada de usuarios.
+  const resultado =
+    await prisma.usuario.updateMany({
+      where: {
+        restauranteId: restaurante.id,
+        rolId: rolSuperadmin.id,
+      },
+
+      data: {
+        rolId: rolAdminRestaurante.id,
+      },
+    });
+
+  console.log(
+    `Rol ADMIN configurado para ${restaurante.nombre}. ` +
+      `Usuarios migrados: ${resultado.count}`,
+  );
+}
 
     // ==========================================
     // 7. SUPERADMIN PRINCIPAL

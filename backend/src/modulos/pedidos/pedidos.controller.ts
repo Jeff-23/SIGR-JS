@@ -8,13 +8,9 @@ import {
 
 import { PedidosService } from './pedidos.service';
 import { CreatePedidoDto } from './dto/create-pedido.dto';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
-type UsuarioAutenticado = {
-  id: number;
-  email: string;
-  rolId: number;
-};
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 type RequestAutenticada = {
   user: UsuarioAutenticado;
@@ -23,7 +19,9 @@ type RequestAutenticada = {
 @Controller('pedidos')
 @UseGuards(JwtAuthGuard)
 export class PedidosController {
-  constructor(private readonly pedidosService: PedidosService) {}
+  constructor(
+    private readonly pedidosService: PedidosService,
+  ) {}
 
   @Post()
   create(
@@ -32,7 +30,7 @@ export class PedidosController {
   ) {
     return this.pedidosService.create(
       createPedidoDto,
-      request.user.id,
+      request.user,
     );
   }
 }

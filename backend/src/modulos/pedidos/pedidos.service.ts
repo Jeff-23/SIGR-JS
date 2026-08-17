@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+
 import {
   EstadoMesa,
   EstadoPedido,
@@ -11,16 +12,60 @@ import {
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePedidoDto } from './dto/create-pedido.dto';
+import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 @Injectable()
 export class PedidosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+  ) {}
 
-  async create(data: CreatePedidoDto, usuarioId: number) {
+  private esSuperadmin(
+    usuarioActual: UsuarioAutenticado,
+  ) {
+    return usuarioActual.restauranteId === null;
+  }
+
+  async create(
+    data: CreatePedidoDto,
+    usuarioActual: UsuarioAutenticado,
+  ) {
     return this.prisma.$transaction(async (tx) => {
-      // 1. Buscar la mesa y determinar automáticamente su sucursal.
-      const mesa = await tx.mesa.findUnique({
-        where: { id: data.mesaId },
+      /*
+       * 1. Buscar la mesa únicamente dentro del alcance
+       *    real del usuario autenticado.
+       */
+      const mesa = await tx.mesa.findFirst({
+        where: {
+          id: data.mesaId,
+          estado: true,
+
+          zona: {
+            estado: true,
+
+            sucursal: {
+              estado: true,
+
+              restaurante: {
+                estado: true,
+              },
+
+              ...(!this.esSuperadmin(usuarioActual)
+                ? {
+                    restauranteId:
+                      usuarioActual.restauranteId!,
+                  }
+                : {}),
+
+              ...(usuarioActual.sucursalId !== null
+                ? {
+                    id: usuarioActual.sucursalId,
+                  }
+                : {}),
+            },
+          },
+        },
+
         include: {
           zona: {
             select: {
@@ -31,7 +76,9 @@ export class PedidosService {
       });
 
       if (!mesa) {
-        throw new NotFoundException('Mesa no encontrada');
+        throw new NotFoundException(
+          'Mesa no encontrada',
+        );
       }
 
       if (mesa.situacion !== EstadoMesa.LIBRE) {
@@ -42,37 +89,28 @@ export class PedidosService {
 
       const sucursalId = mesa.zona.sucursalId;
 
-      // 2. Comprobar que el usuario existe y está activo.
-      const usuario = await tx.usuario.findUnique({
-        where: { id: usuarioId },
-        select: {
-          id: true,
-          activo: true,
-          sucursalId: true,
-        },
-      });
-
-      if (!usuario) {
-        throw new NotFoundException('Usuario no encontrado');
-      }
-
-      if (!usuario.activo) {
-        throw new BadRequestException('El usuario está inactivo');
-      }
-
       /*
-       * Si el usuario tiene una sucursal asignada,
-       * solo puede registrar pedidos para esa sucursal.
+       * 2. Reservar la mesa de forma atómica.
        *
-       * Un usuario sin sucursal (por ejemplo el superadministrador)
-       * puede operar de forma global por ahora.
+       * Evita que dos peticiones simultáneas creen
+       * dos pedidos sobre la misma mesa libre.
        */
-      if (
-        usuario.sucursalId !== null &&
-        usuario.sucursalId !== sucursalId
-      ) {
+      const mesaReservada =
+        await tx.mesa.updateMany({
+          where: {
+            id: data.mesaId,
+            estado: true,
+            situacion: EstadoMesa.LIBRE,
+          },
+
+          data: {
+            situacion: EstadoMesa.OCUPADA,
+          },
+        });
+
+      if (mesaReservada.count !== 1) {
         throw new BadRequestException(
-          'El usuario no pertenece a la sucursal de esta mesa',
+          'La mesa acaba de ser ocupada por otro pedido',
         );
       }
 
@@ -85,35 +123,54 @@ export class PedidosService {
         subtotal: number;
       }[] = [];
 
-      // 3. Procesar cada producto.
+      /*
+       * 3. Procesar los productos del pedido.
+       */
       for (const item of data.detalles) {
-        const producto = await tx.producto.findUnique({
-          where: { id: item.productoId },
-          include: {
-            categoria: {
-              select: {
-                sucursalId: true,
+        const producto =
+          await tx.producto.findFirst({
+            where: {
+              id: item.productoId,
+              estado: true,
+
+              categoria: {
+                estado: true,
+                sucursalId,
+
+                sucursal: {
+                  estado: true,
+                },
               },
             },
-            recetas: true,
-          },
-        });
+
+            include: {
+              recetas: {
+                include: {
+                  articulo: {
+                    select: {
+                      id: true,
+                      nombre: true,
+                      estado: true,
+                      sucursalId: true,
+                      stock: true,
+                    },
+                  },
+                },
+              },
+            },
+          });
 
         if (!producto) {
           throw new NotFoundException(
-            `El producto con ID ${item.productoId} no existe`,
+            `Producto con ID ${item.productoId} no encontrado para esta sucursal`,
           );
         }
 
-        // Evitar mezclar productos entre sucursales.
-        if (producto.categoria.sucursalId !== sucursalId) {
-          throw new BadRequestException(
-            `El producto "${producto.nombre}" no pertenece a la sucursal de la mesa`,
-          );
-        }
+        const precioUnitario =
+          producto.precio.toNumber();
 
-        const precioUnitario = producto.precio.toNumber();
-        const subtotal = precioUnitario * item.cantidad;
+        const subtotal =
+          precioUnitario * item.cantidad;
 
         totalPedido += subtotal;
 
@@ -124,13 +181,39 @@ export class PedidosService {
           subtotal,
         });
 
-        // 4. Descontar los ingredientes definidos en la receta.
+        /*
+         * 4. Validar y descontar inventario.
+         */
         for (const receta of producto.recetas) {
+          const articulo = receta.articulo;
+
+          if (
+            !articulo.estado ||
+            articulo.sucursalId !== sucursalId
+          ) {
+            throw new BadRequestException(
+              `La receta del producto "${producto.nombre}" contiene un artículo inválido para esta sucursal`,
+            );
+          }
+
           const cantidadADescontar =
-            receta.cantidad.toNumber() * item.cantidad;
+            receta.cantidad.toNumber() *
+            item.cantidad;
+
+          if (
+            articulo.stock.toNumber() <
+            cantidadADescontar
+          ) {
+            throw new BadRequestException(
+              `Stock insuficiente de "${articulo.nombre}" para preparar "${producto.nombre}"`,
+            );
+          }
 
           await tx.articulo.update({
-            where: { id: receta.articuloId },
+            where: {
+              id: articulo.id,
+            },
+
             data: {
               stock: {
                 decrement: cantidadADescontar,
@@ -140,12 +223,14 @@ export class PedidosService {
         }
       }
 
-      // 5. Crear el pedido.
-      const nuevoPedido = await tx.pedido.create({
+      /*
+       * 5. Crear el pedido.
+       */
+      return tx.pedido.create({
         data: {
           sucursalId,
           mesaId: data.mesaId,
-          usuarioId,
+          usuarioId: usuarioActual.id,
 
           tipo: TipoPedido.MESA,
           estado: EstadoPedido.PENDIENTE,
@@ -161,16 +246,6 @@ export class PedidosService {
           detalles: true,
         },
       });
-
-      // 6. Ocupar la mesa.
-      await tx.mesa.update({
-        where: { id: data.mesaId },
-        data: {
-          situacion: EstadoMesa.OCUPADA,
-        },
-      });
-
-      return nuevoPedido;
     });
   }
 }

@@ -2,6 +2,7 @@ import 'dotenv/config';
 
 import { NestFactory } from '@nestjs/core';
 import * as bcrypt from 'bcrypt';
+import { AmbitoRol } from '@prisma/client';
 
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -491,48 +492,174 @@ async function bootstrap() {
 
     console.log(`${PERMISOS.length} permisos configurados.`);
 
-    // ==========================================
-    // 5. COMPATIBILIDAD CON EL ADMIN ACTUAL
-    // ==========================================
-    //
-    // Todavía NO asignamos los nuevos permisos al rol ADMIN.
-    // El RolesGuard actual continúa funcionando durante
-    // la transición del Sprint 2.
-
-    const rolAdmin = await prisma.rol.upsert({
-      where: {
-        nombre: 'ADMIN',
-      },
-      update: {},
-      create: {
-        nombre: 'ADMIN',
-        descripcion: 'Administrador maestro del sistema SIGR',
-      },
-    });
-
-    console.log('Rol ADMIN heredado verificado.');
-
-    // ==========================================
-    // 6. SUPERADMIN ACTUAL
+        // ==========================================
+    // 5. SUPERADMIN GLOBAL DE SIGR
     // ==========================================
 
-    const passwordHasheada = await bcrypt.hash(adminPassword, 10);
+    let rolSuperadmin =
+      await prisma.rol.findUnique({
+        where: {
+          clave: 'SISTEMA:SUPERADMIN',
+        },
+      });
 
-    const admin = await prisma.usuario.upsert({
-      where: {
-        email: 'admin@sigr.com',
-      },
-      update: {},
-      create: {
-        nombres: 'Super',
-        apellidos: 'Administrador',
-        email: 'admin@sigr.com',
-        password: passwordHasheada,
-        rolId: rolAdmin.id,
-      },
-    });
+    // Primera ejecución después de Sprint 1:
+    // reutilizamos el ADMIN global heredado.
+    if (!rolSuperadmin) {
+      const rolHeredado =
+        await prisma.rol.findFirst({
+          where: {
+            restauranteId: null,
+            nombre: 'ADMIN',
+            clave: null,
+          },
+          orderBy: {
+            id: 'asc',
+          },
+        });
 
-    console.log(`Superadministrador verificado: ${admin.email}`);
+      if (rolHeredado) {
+        rolSuperadmin =
+          await prisma.rol.update({
+            where: {
+              id: rolHeredado.id,
+            },
+            data: {
+              clave: 'SISTEMA:SUPERADMIN',
+              nombre: 'SUPERADMIN',
+              descripcion:
+                'Superadministrador global de la plataforma SIGR',
+              ambito: AmbitoRol.SISTEMA,
+              restauranteId: null,
+            },
+          });
+      } else {
+        rolSuperadmin =
+          await prisma.rol.create({
+            data: {
+              clave: 'SISTEMA:SUPERADMIN',
+              nombre: 'SUPERADMIN',
+              descripcion:
+                'Superadministrador global de la plataforma SIGR',
+              ambito: AmbitoRol.SISTEMA,
+            },
+          });
+      }
+    } else {
+      rolSuperadmin =
+        await prisma.rol.update({
+          where: {
+            id: rolSuperadmin.id,
+          },
+          data: {
+            nombre: 'SUPERADMIN',
+            descripcion:
+              'Superadministrador global de la plataforma SIGR',
+            ambito: AmbitoRol.SISTEMA,
+            restauranteId: null,
+          },
+        });
+    }
+
+    console.log('Rol SUPERADMIN global configurado.');
+
+    // ==========================================
+    // 6. ADMINISTRADORES POR RESTAURANTE
+    // ==========================================
+
+    const restaurantes =
+      await prisma.restaurante.findMany({
+        select: {
+          id: true,
+          nombre: true,
+        },
+        orderBy: {
+          id: 'asc',
+        },
+      });
+
+    for (const restaurante of restaurantes) {
+      const claveAdmin =
+        `RESTAURANTE:${restaurante.id}:ADMIN`;
+
+      const rolAdminRestaurante =
+        await prisma.rol.upsert({
+          where: {
+            clave: claveAdmin,
+          },
+
+          update: {
+            nombre: 'ADMIN',
+            descripcion:
+              `Administrador del restaurante ${restaurante.nombre}`,
+            ambito: AmbitoRol.RESTAURANTE,
+            restauranteId: restaurante.id,
+          },
+
+          create: {
+            clave: claveAdmin,
+            nombre: 'ADMIN',
+            descripcion:
+              `Administrador del restaurante ${restaurante.nombre}`,
+            ambito: AmbitoRol.RESTAURANTE,
+            restauranteId: restaurante.id,
+          },
+        });
+
+      // Solo migramos usuarios que todavía apuntan
+      // al antiguo rol global.
+      //
+      // En ejecuciones futuras no modifica usuarios
+      // que ya tengan CAJERO, MESERO, COCINA, etc.
+      const resultado =
+        await prisma.usuario.updateMany({
+          where: {
+            restauranteId: restaurante.id,
+            rolId: rolSuperadmin.id,
+          },
+          data: {
+            rolId: rolAdminRestaurante.id,
+          },
+        });
+
+      console.log(
+        `Rol ADMIN configurado para ${restaurante.nombre}. ` +
+          `Usuarios migrados: ${resultado.count}`,
+      );
+    }
+
+    // ==========================================
+    // 7. SUPERADMIN PRINCIPAL
+    // ==========================================
+
+    const passwordHasheada =
+      await bcrypt.hash(adminPassword, 10);
+
+    const admin =
+      await prisma.usuario.upsert({
+        where: {
+          email: 'admin@sigr.com',
+        },
+
+        update: {
+          rolId: rolSuperadmin.id,
+          restauranteId: null,
+          sucursalId: null,
+          activo: true,
+        },
+
+        create: {
+          nombres: 'Super',
+          apellidos: 'Administrador',
+          email: 'admin@sigr.com',
+          password: passwordHasheada,
+          rolId: rolSuperadmin.id,
+        },
+      });
+
+    console.log(
+      `Superadministrador verificado: ${admin.email}`,
+    );
 
     console.log('Seed de SIGR completado correctamente.');
   } finally {

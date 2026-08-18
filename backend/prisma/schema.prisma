@@ -43,6 +43,14 @@ enum EstadoPedido {
   CANCELADO
 }
 
+enum EstadoComanda {
+  PENDIENTE
+  EN_PREPARACION
+  LISTA
+  ENTREGADA
+  CANCELADA
+}
+
 enum AmbitoRol {
   SISTEMA
   RESTAURANTE
@@ -212,6 +220,7 @@ model Pedido {
   usuario  Usuario  @relation(fields: [usuarioId], references: [id])
 
   detalles DetallePedido[]
+  comandas Comanda[]
   factura  Factura?
   venta    Venta?
 }
@@ -227,6 +236,47 @@ model DetallePedido {
 
   pedido   Pedido   @relation(fields: [pedidoId], references: [id])
   producto Producto @relation(fields: [productoId], references: [id])
+
+  comandas DetalleComanda[]
+
+  @@index([pedidoId])
+  @@index([productoId])
+}
+
+model Comanda {
+  id Int @id @default(autoincrement())
+
+  estado EstadoComanda @default(PENDIENTE)
+
+  fechaEnvio   DateTime  @default(now())
+  fechaInicio  DateTime?
+  fechaLista   DateTime?
+  fechaEntrega DateTime?
+
+  pedidoId Int
+
+  pedido   Pedido           @relation(fields: [pedidoId], references: [id], onDelete: Restrict)
+  detalles DetalleComanda[]
+
+  @@index([pedidoId])
+  @@index([estado])
+  @@index([fechaEnvio])
+}
+
+model DetalleComanda {
+  id Int @id @default(autoincrement())
+
+  cantidad Int
+
+  comandaId       Int
+  detallePedidoId Int
+
+  comanda       Comanda       @relation(fields: [comandaId], references: [id], onDelete: Restrict)
+  detallePedido DetallePedido @relation(fields: [detallePedidoId], references: [id], onDelete: Restrict)
+
+  @@unique([comandaId, detallePedidoId])
+  @@index([comandaId])
+  @@index([detallePedidoId])
 }
 
 model Venta {

@@ -48,6 +48,15 @@ enum AmbitoRol {
   RESTAURANTE
 }
 
+enum EstadoDocumentoElectronico {
+  PREPARADO
+  ENVIANDO
+  ENVIADO
+  ACEPTADO
+  RECHAZADO
+  ERROR
+}
+
 model Restaurante {
   id            Int      @id @default(autoincrement())
   nombre        String   @db.VarChar(100)
@@ -343,6 +352,13 @@ model Factura {
   ventaId Int?   @unique
   venta   Venta? @relation(fields: [ventaId], references: [id])
 
+  /**
+   * Documento electrónico separado de la factura.
+   * Crear una factura NO implica crear ni enviar
+   * automáticamente un documento electrónico.
+   */
+  documentoElectronico DocumentoElectronico?
+
   pagos Pago[]
 }
 
@@ -440,4 +456,47 @@ model RolPermiso {
 
   @@id([rolId, permisoId])
   @@index([permisoId])
+}
+
+// ==========================================
+// SPRINT 3: DOCUMENTO ELECTRÓNICO
+// ==========================================
+
+model DocumentoElectronico {
+  id Int @id @default(autoincrement())
+
+  estado EstadoDocumentoElectronico @default(PREPARADO)
+
+  /**
+   * Datos fiscales.
+   * Estos campos solamente deben completarse
+   * cuando exista una respuesta REAL del
+   * proveedor electrónico / DIAN.
+   */
+  cufe   String?
+  qrCode String?
+
+  /**
+   * Respuesta técnica original del proveedor.
+   * No debe utilizarse para fabricar una
+   * aceptación electrónica ficticia.
+   */
+  respuestaProveedor Json?
+
+  enviadoEn    DateTime?
+  respondidoEn DateTime?
+
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  /**
+   * Relación 1:1.
+   * Una factura puede tener como máximo
+   * un documento electrónico asociado.
+   */
+  facturaId Int     @unique
+  factura   Factura @relation(fields: [facturaId], references: [id], onDelete: Restrict)
+
+  @@index([estado])
+  @@index([creadoEn])
 }

@@ -287,6 +287,28 @@ const PERMISOS = [
     modulo: 'PEDIDOS',
   },
 
+    // Ventas
+  {
+    codigo: 'VENTAS_VER',
+    nombre: 'Ver ventas',
+    modulo: 'VENTAS',
+  },
+  {
+    codigo: 'VENTAS_CREAR',
+    nombre: 'Crear ventas',
+    modulo: 'VENTAS',
+  },
+  {
+    codigo: 'VENTAS_REGISTRAR_MANUAL',
+    nombre: 'Registrar ventas manuales',
+    modulo: 'VENTAS',
+  },
+  {
+    codigo: 'VENTAS_ANULAR',
+    nombre: 'Anular ventas',
+    modulo: 'VENTAS',
+  },
+
   // Facturación
   {
     codigo: 'FACTURAS_VER',

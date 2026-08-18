@@ -22,6 +22,18 @@ enum TipoPedido {
   MANUAL
 }
 
+enum OrigenVenta {
+  PEDIDO
+  DIRECTA
+  MANUAL_CIERRE
+}
+
+enum EstadoVenta {
+  PENDIENTE_PAGO
+  PAGADA
+  ANULADA
+}
+
 enum EstadoPedido {
   PENDIENTE
   EN_PREPARACION
@@ -34,6 +46,15 @@ enum EstadoPedido {
 enum AmbitoRol {
   SISTEMA
   RESTAURANTE
+}
+
+enum EstadoDocumentoElectronico {
+  PREPARADO
+  ENVIANDO
+  ENVIADO
+  ACEPTADO
+  RECHAZADO
+  ERROR
 }
 
 model Restaurante {
@@ -73,6 +94,7 @@ model Sucursal {
   categorias Categoria[]
   articulos  Articulo[]
   pedidos    Pedido[]
+  ventas     Venta[]
 }
 
 model Rol {
@@ -113,6 +135,7 @@ model Usuario {
   sucursal    Sucursal?    @relation(fields: [sucursalId], references: [id])
 
   pedidos Pedido[]
+  ventas  Venta[]
 
   @@index([restauranteId])
   @@index([sucursalId])
@@ -168,8 +191,9 @@ model Producto {
   categoriaId Int
   categoria   Categoria @relation(fields: [categoriaId], references: [id])
 
-  detalles DetallePedido[]
-  recetas  Receta[]
+  detalles      DetallePedido[]
+  detallesVenta DetalleVenta[]
+  recetas       Receta[]
 }
 
 model Pedido {
@@ -189,6 +213,7 @@ model Pedido {
 
   detalles DetallePedido[]
   factura  Factura?
+  venta    Venta?
 }
 
 model DetallePedido {
@@ -202,6 +227,61 @@ model DetallePedido {
 
   pedido   Pedido   @relation(fields: [pedidoId], references: [id])
   producto Producto @relation(fields: [productoId], references: [id])
+}
+
+model Venta {
+  id Int @id @default(autoincrement())
+
+  origen OrigenVenta @default(PEDIDO)
+  estado EstadoVenta @default(PENDIENTE_PAGO)
+
+  subtotal    Decimal @db.Decimal(12, 2)
+  descuentos  Decimal @default(0) @db.Decimal(12, 2)
+  impuestos   Decimal @default(0) @db.Decimal(12, 2)
+  impoconsumo Decimal @default(0) @db.Decimal(12, 2)
+  propina     Decimal @default(0) @db.Decimal(12, 2)
+  total       Decimal @db.Decimal(12, 2)
+
+  // Momento real en que ocurrió la venta.
+  fechaOperacion DateTime
+
+  // Momento en que fue registrada/modificada en SIGR.
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  sucursalId Int
+  usuarioId  Int
+  pedidoId   Int? @unique
+
+  sucursal Sucursal @relation(fields: [sucursalId], references: [id])
+  usuario  Usuario  @relation(fields: [usuarioId], references: [id])
+  pedido   Pedido?  @relation(fields: [pedidoId], references: [id])
+
+  detalles DetalleVenta[]
+  pagos    Pago[]
+  factura  Factura?
+
+  @@index([sucursalId])
+  @@index([usuarioId])
+  @@index([fechaOperacion])
+  @@index([estado])
+}
+
+model DetalleVenta {
+  id Int @id @default(autoincrement())
+
+  cantidad       Int
+  precioUnitario Decimal @db.Decimal(12, 2)
+  subtotal       Decimal @db.Decimal(12, 2)
+
+  ventaId    Int
+  productoId Int
+
+  venta    Venta    @relation(fields: [ventaId], references: [id], onDelete: Restrict)
+  producto Producto @relation(fields: [productoId], references: [id], onDelete: Restrict)
+
+  @@index([ventaId])
+  @@index([productoId])
 }
 
 // ==========================================
@@ -258,22 +338,57 @@ model Factura {
   estado         String   @default("EMITIDA")
   creadoEn       DateTime @default(now())
 
-  pedidoId Int    @unique
-  pedido   Pedido @relation(fields: [pedidoId], references: [id])
+  /**
+   * Relación heredada.
+   * Se mantiene opcional para facturas provenientes
+   * del flujo antiguo Pedido -> Factura.
+   */
+  pedidoId Int?    @unique
+  pedido   Pedido? @relation(fields: [pedidoId], references: [id])
+
+  /**
+   * Relación comercial principal.
+   */
+  ventaId Int?   @unique
+  venta   Venta? @relation(fields: [ventaId], references: [id])
+
+  /**
+   * Documento electrónico separado de la factura.
+   * Crear una factura NO implica crear ni enviar
+   * automáticamente un documento electrónico.
+   */
+  documentoElectronico DocumentoElectronico?
 
   pagos Pago[]
 }
 
 model Pago {
-  id       Int      @id @default(autoincrement())
-  monto    Decimal  @db.Decimal(10, 2)
-  creadoEn DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  monto      Decimal  @db.Decimal(12, 2)
+  referencia String?  @db.VarChar(150)
+  creadoEn   DateTime @default(now())
 
-  facturaId    Int
   metodoPagoId Int
 
-  factura    Factura    @relation(fields: [facturaId], references: [id])
+  /**
+   * Relación heredada.
+   * Se conserva temporalmente para no romper
+   * las facturas y pagos existentes.
+   */
+  facturaId Int?
+
+  /**
+   * Nueva relación comercial principal.
+   */
+  ventaId Int?
+
+  factura    Factura?   @relation(fields: [facturaId], references: [id])
+  venta      Venta?     @relation(fields: [ventaId], references: [id])
   metodoPago MetodoPago @relation(fields: [metodoPagoId], references: [id])
+
+  @@index([facturaId])
+  @@index([ventaId])
+  @@index([metodoPagoId])
 }
 
 // ==========================================
@@ -341,4 +456,47 @@ model RolPermiso {
 
   @@id([rolId, permisoId])
   @@index([permisoId])
+}
+
+// ==========================================
+// SPRINT 3: DOCUMENTO ELECTRÓNICO
+// ==========================================
+
+model DocumentoElectronico {
+  id Int @id @default(autoincrement())
+
+  estado EstadoDocumentoElectronico @default(PREPARADO)
+
+  /**
+   * Datos fiscales.
+   * Estos campos solamente deben completarse
+   * cuando exista una respuesta REAL del
+   * proveedor electrónico / DIAN.
+   */
+  cufe   String?
+  qrCode String?
+
+  /**
+   * Respuesta técnica original del proveedor.
+   * No debe utilizarse para fabricar una
+   * aceptación electrónica ficticia.
+   */
+  respuestaProveedor Json?
+
+  enviadoEn    DateTime?
+  respondidoEn DateTime?
+
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  /**
+   * Relación 1:1.
+   * Una factura puede tener como máximo
+   * un documento electrónico asociado.
+   */
+  facturaId Int     @unique
+  factura   Factura @relation(fields: [facturaId], references: [id], onDelete: Restrict)
+
+  @@index([estado])
+  @@index([creadoEn])
 }

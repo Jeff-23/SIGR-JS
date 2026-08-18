@@ -11,8 +11,6 @@ import {
   Prisma,
 } from '@prisma/client';
 
-import * as crypto from 'crypto';
-
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateFacturaDto } from './dto/create-factura.dto';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
@@ -589,68 +587,4 @@ export class FacturasService {
    * como con factura originada desde Venta.
    * =====================================================
    */
-  async emitirDian(
-    id: number,
-    usuarioActual: UsuarioAutenticado,
-  ) {
-    const factura =
-      await this.prisma.factura.findFirst({
-        where: {
-          AND: [
-            {
-              id,
-            },
-
-            this.filtroFacturaTenant(
-              usuarioActual,
-            ),
-          ],
-        },
-      });
-
-    if (!factura) {
-      throw new NotFoundException(
-        'Factura no encontrada',
-      );
-    }
-
-    if (factura.cufe) {
-      throw new BadRequestException(
-        'Esta factura ya fue procesada en la simulación electrónica',
-      );
-    }
-
-    /*
-     * Continúa siendo únicamente
-     * una simulación técnica.
-     */
-    const dataToHash =
-      `${factura.numero}` +
-      `${factura.total}` +
-      `${factura.resolucionDian ?? ''}` +
-      `${factura.creadoEn.toISOString()}`;
-
-    const cufeGenerado =
-      crypto
-        .createHash('sha384')
-        .update(dataToHash)
-        .digest('hex');
-
-    const qrGenerado =
-      `https://catalogo-vpfe.dian.gov.co/document/searchqr?documentkey=${cufeGenerado}`;
-
-    return this.prisma.factura.update({
-      where: {
-        id: factura.id,
-      },
-
-      data: {
-        cufe:
-          cufeGenerado,
-
-        qrCode:
-          qrGenerado,
-      },
-    });
-  }
 }

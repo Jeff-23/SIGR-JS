@@ -2,8 +2,6 @@
   Body,
   Controller,
   Get,
-  Param,
-  ParseIntPipe,
   Post,
   Query,
   Req,
@@ -35,17 +33,13 @@ type RequestAutenticada = {
 )
 export class FacturasController {
   constructor(
-    private readonly facturasService: FacturasService,
+    private readonly facturasService:
+      FacturasService,
   ) {}
 
   /*
-   * ==========================================
-   * FLUJO LEGACY
-   *
-   * Pedido -> Factura -> Pago
-   *
-   * Se mantiene temporalmente.
-   * ==========================================
+   * Flujo legacy temporal:
+   * Pedido -> Factura -> Pago.
    */
   @Post()
   @Permisos('FACTURAS_EMITIR')
@@ -63,11 +57,8 @@ export class FacturasController {
   }
 
   /*
-   * ==========================================
-   * NUEVO FLUJO
-   *
-   * Venta -> Factura
-   * ==========================================
+   * Nuevo flujo:
+   * Venta -> Factura.
    */
   @Post('venta')
   @Permisos('FACTURAS_EMITIR')
@@ -84,12 +75,6 @@ export class FacturasController {
     );
   }
 
-  /*
-   * Corte temporal.
-   *
-   * Posteriormente esta responsabilidad
-   * pasará al módulo formal de Caja.
-   */
   @Get('corte-caja')
   @Permisos('FACTURAS_VER')
   obtenerCorteCaja(
@@ -105,29 +90,6 @@ export class FacturasController {
     return this.facturasService.obtenerCorteCaja(
       inicio,
       fin,
-      request.user,
-    );
-  }
-
-  /*
-   * Simulación electrónica actual.
-   *
-   * NO significa aceptación real DIAN.
-   */
-  @Post(':id/emitir-dian')
-  @Permisos('FACTURAS_EMITIR')
-  emitirDian(
-    @Param(
-      'id',
-      ParseIntPipe,
-    )
-    id: number,
-
-    @Req()
-    request: RequestAutenticada,
-  ) {
-    return this.facturasService.emitirDian(
-      id,
       request.user,
     );
   }

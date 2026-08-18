@@ -1,9 +1,7 @@
 ﻿import {
   Body,
   Controller,
-  Get,
   Post,
-  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -71,25 +69,6 @@ export class FacturasController {
   ) {
     return this.facturasService.crearDesdeVenta(
       data.ventaId,
-      request.user,
-    );
-  }
-
-  @Get('corte-caja')
-  @Permisos('FACTURAS_VER')
-  obtenerCorteCaja(
-    @Query('inicio')
-    inicio: string | undefined,
-
-    @Query('fin')
-    fin: string | undefined,
-
-    @Req()
-    request: RequestAutenticada,
-  ) {
-    return this.facturasService.obtenerCorteCaja(
-      inicio,
-      fin,
       request.user,
     );
   }

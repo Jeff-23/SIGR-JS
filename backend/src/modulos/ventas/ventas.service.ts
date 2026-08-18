@@ -248,6 +248,284 @@ export class VentasService {
     );
   }
 
+    /*
+   * =====================================================
+   * CORTE COMERCIAL
+   *
+   * Utiliza Venta.fechaOperacion.
+   *
+   * Esto permite que una venta registrada posteriormente
+   * mediante MANUAL_CIERRE pertenezca al día real en que
+   * ocurrió y no al día en que fue digitada.
+   *
+   * IMPORTANTE:
+   * esto NO es todavía el módulo formal de Caja.
+   * =====================================================
+   */
+  async obtenerCorteComercial(
+    fechaInicio: string | undefined,
+    fechaFin: string | undefined,
+    usuarioActual: UsuarioAutenticado,
+  ) {
+    const hoy = new Date();
+
+    hoy.setHours(
+      0,
+      0,
+      0,
+      0,
+    );
+
+    const inicio =
+      fechaInicio
+        ? new Date(fechaInicio)
+        : hoy;
+
+    const fin =
+      fechaFin
+        ? new Date(fechaFin)
+        : new Date();
+
+    if (
+      Number.isNaN(
+        inicio.getTime(),
+      ) ||
+      Number.isNaN(
+        fin.getTime(),
+      )
+    ) {
+      throw new BadRequestException(
+        'Las fechas indicadas no son válidas',
+      );
+    }
+
+    if (inicio > fin) {
+      throw new BadRequestException(
+        'La fecha inicial no puede ser posterior a la fecha final',
+      );
+    }
+
+    const ventas =
+      await this.prisma.venta.findMany({
+        where: {
+          /*
+           * REGLA PRINCIPAL:
+           *
+           * La fecha comercial es fechaOperacion,
+           * NO creadoEn y NO Factura.creadoEn.
+           */
+          fechaOperacion: {
+            gte: inicio,
+            lte: fin,
+          },
+
+          /*
+           * Una venta anulada no forma parte
+           * del total comercial.
+           */
+          estado: {
+            not: EstadoVenta.ANULADA,
+          },
+
+          /*
+           * Aislamiento multiempresa/multisucursal.
+           */
+          sucursal:
+            this.filtroSucursal(
+              usuarioActual,
+            ),
+        },
+
+        include: {
+          pagos: {
+            include: {
+              metodoPago: true,
+            },
+          },
+        },
+
+        orderBy: {
+          fechaOperacion: 'asc',
+        },
+      });
+
+    let totalVentas =
+      new Prisma.Decimal(0);
+
+    let totalPagado =
+      new Prisma.Decimal(0);
+
+    const desglosePagosDecimal:
+      Record<
+        string,
+        Prisma.Decimal
+      > = {};
+
+    const desgloseOrigenDecimal:
+      Record<
+        string,
+        Prisma.Decimal
+      > = {};
+
+    const ventasPorEstado:
+      Record<string, number> = {};
+
+    for (
+      const venta of ventas
+    ) {
+      totalVentas =
+        totalVentas.add(
+          venta.total,
+        );
+
+      /*
+       * Agrupar ventas por origen.
+       *
+       * PEDIDO
+       * DIRECTA
+       * MANUAL_CIERRE
+       */
+      if (
+        !desgloseOrigenDecimal[
+          venta.origen
+        ]
+      ) {
+        desgloseOrigenDecimal[
+          venta.origen
+        ] = new Prisma.Decimal(0);
+      }
+
+      desgloseOrigenDecimal[
+        venta.origen
+      ] =
+        desgloseOrigenDecimal[
+          venta.origen
+        ].add(
+          venta.total,
+        );
+
+      /*
+       * Cantidad de ventas por estado.
+       */
+      if (
+        !ventasPorEstado[
+          venta.estado
+        ]
+      ) {
+        ventasPorEstado[
+          venta.estado
+        ] = 0;
+      }
+
+      ventasPorEstado[
+        venta.estado
+      ] += 1;
+
+      /*
+       * Pagos asociados a las ventas
+       * comerciales seleccionadas.
+       */
+      for (
+        const pago of venta.pagos
+      ) {
+        totalPagado =
+          totalPagado.add(
+            pago.monto,
+          );
+
+        const metodo =
+          pago.metodoPago.nombre;
+
+        if (
+          !desglosePagosDecimal[
+            metodo
+          ]
+        ) {
+          desglosePagosDecimal[
+            metodo
+          ] =
+            new Prisma.Decimal(0);
+        }
+
+        desglosePagosDecimal[
+          metodo
+        ] =
+          desglosePagosDecimal[
+            metodo
+          ].add(
+            pago.monto,
+          );
+      }
+    }
+
+    const totalPendiente =
+      totalVentas.sub(
+        totalPagado,
+      );
+
+    /*
+     * Convertir Decimal únicamente
+     * al preparar la respuesta HTTP.
+     */
+    const desglosePagos:
+      Record<string, number> = {};
+
+    for (
+      const [
+        metodo,
+        monto,
+      ] of Object.entries(
+        desglosePagosDecimal,
+      )
+    ) {
+      desglosePagos[
+        metodo
+      ] = monto.toNumber();
+    }
+
+    const desgloseOrigen:
+      Record<string, number> = {};
+
+    for (
+      const [
+        origen,
+        monto,
+      ] of Object.entries(
+        desgloseOrigenDecimal,
+      )
+    ) {
+      desgloseOrigen[
+        origen
+      ] = monto.toNumber();
+    }
+
+    return {
+      fechaInicio:
+        inicio,
+
+      fechaFin:
+        fin,
+
+      cantidadVentas:
+        ventas.length,
+
+      totalVentas:
+        totalVentas.toNumber(),
+
+      totalPagado:
+        totalPagado.toNumber(),
+
+      totalPendiente:
+        totalPendiente.toNumber(),
+
+      desglosePagos,
+
+      desgloseOrigen,
+
+      ventasPorEstado,
+    };
+  }
+
   private async crearSinPedido(
     data:
       | CrearVentaDirectaDto

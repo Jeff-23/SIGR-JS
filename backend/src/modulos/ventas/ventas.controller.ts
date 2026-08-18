@@ -6,6 +6,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -43,8 +44,11 @@ export class VentasController {
   @Post('pedido')
   @Permisos('VENTAS_CREAR')
   crearDesdePedido(
-    @Body() data: CrearVentaPedidoDto,
-    @Req() request: RequestAutenticada,
+    @Body()
+    data: CrearVentaPedidoDto,
+
+    @Req()
+    request: RequestAutenticada,
   ) {
     return this.ventasService.crearDesdePedido(
       data,
@@ -55,8 +59,11 @@ export class VentasController {
   @Post('directa')
   @Permisos('VENTAS_CREAR')
   crearDirecta(
-    @Body() data: CrearVentaDirectaDto,
-    @Req() request: RequestAutenticada,
+    @Body()
+    data: CrearVentaDirectaDto,
+
+    @Req()
+    request: RequestAutenticada,
   ) {
     return this.ventasService.crearDirecta(
       data,
@@ -70,8 +77,11 @@ export class VentasController {
     'VENTAS_REGISTRAR_MANUAL',
   )
   crearManual(
-    @Body() data: CrearVentaManualDto,
-    @Req() request: RequestAutenticada,
+    @Body()
+    data: CrearVentaManualDto,
+
+    @Req()
+    request: RequestAutenticada,
   ) {
     return this.ventasService.crearManual(
       data,
@@ -82,20 +92,57 @@ export class VentasController {
   @Get()
   @Permisos('VENTAS_VER')
   findAll(
-    @Req() request: RequestAutenticada,
+    @Req()
+    request: RequestAutenticada,
   ) {
     return this.ventasService.findAll(
       request.user,
     );
   }
 
+  /*
+   * Corte COMERCIAL.
+   *
+   * Se basa en Venta.fechaOperacion.
+   *
+   * No representa todavía un cierre
+   * formal de caja.
+   */
+  @Get('corte-comercial')
+  @Permisos('VENTAS_VER')
+  obtenerCorteComercial(
+    @Query('inicio')
+    inicio: string | undefined,
+
+    @Query('fin')
+    fin: string | undefined,
+
+    @Req()
+    request: RequestAutenticada,
+  ) {
+    return this.ventasService.obtenerCorteComercial(
+      inicio,
+      fin,
+      request.user,
+    );
+  }
+
+  /*
+   * IMPORTANTE:
+   * dejar esta ruta después de
+   * /corte-comercial.
+   */
   @Get(':id')
   @Permisos('VENTAS_VER')
   findOne(
-    @Param('id', ParseIntPipe)
+    @Param(
+      'id',
+      ParseIntPipe,
+    )
     id: number,
 
-    @Req() request: RequestAutenticada,
+    @Req()
+    request: RequestAutenticada,
   ) {
     return this.ventasService.findOne(
       id,
@@ -106,13 +153,17 @@ export class VentasController {
   @Post(':id/pagos')
   @Permisos('PAGOS_REGISTRAR')
   registrarPago(
-    @Param('id', ParseIntPipe)
+    @Param(
+      'id',
+      ParseIntPipe,
+    )
     id: number,
 
     @Body()
     data: RegistrarPagoDto,
 
-    @Req() request: RequestAutenticada,
+    @Req()
+    request: RequestAutenticada,
   ) {
     return this.ventasService.registrarPago(
       id,
@@ -124,10 +175,14 @@ export class VentasController {
   @Patch(':id/anular')
   @Permisos('VENTAS_ANULAR')
   anular(
-    @Param('id', ParseIntPipe)
+    @Param(
+      'id',
+      ParseIntPipe,
+    )
     id: number,
 
-    @Req() request: RequestAutenticada,
+    @Req()
+    request: RequestAutenticada,
   ) {
     return this.ventasService.anular(
       id,

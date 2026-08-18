@@ -287,6 +287,20 @@ const PERMISOS = [
     modulo: 'PEDIDOS',
   },
 
+  // Comandas / KDS
+  {
+    codigo: 'COMANDAS_VER',
+    nombre: 'Ver comandas de cocina',
+    modulo: 'KDS',
+  },
+  {
+    codigo: 'COMANDAS_GESTIONAR',
+    nombre: 'Gestionar comandas de cocina',
+    modulo: 'KDS',
+  },
+
+  
+
     // Ventas
   {
     codigo: 'VENTAS_VER',

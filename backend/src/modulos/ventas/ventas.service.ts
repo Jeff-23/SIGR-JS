@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 
 import {
+  EstadoMesa,
   EstadoPedido,
   EstadoVenta,
   OrigenVenta,
@@ -177,6 +178,7 @@ export class VentasService {
           pedido.detalles.reduce(
             (total, detalle) =>
               total.plus(detalle.subtotal),
+
             new Prisma.Decimal(0),
           );
 
@@ -187,68 +189,119 @@ export class VentasService {
             usuarioActual,
           );
 
-        return tx.venta.create({
-          data: {
-            origen: OrigenVenta.PEDIDO,
+        const venta =
+          await tx.venta.create({
+            data: {
+              origen:
+                OrigenVenta.PEDIDO,
 
-            estado: ajustes.total.eq(0)
-              ? EstadoVenta.PAGADA
-              : EstadoVenta.PENDIENTE_PAGO,
+              estado:
+                ajustes.total.eq(0)
+                  ? EstadoVenta.PAGADA
+                  : EstadoVenta.PENDIENTE_PAGO,
 
-            subtotal,
-            descuentos:
-              ajustes.descuentos,
-            impuestos:
-              ajustes.impuestos,
-            impoconsumo:
-              ajustes.impoconsumo,
-            propina:
-              ajustes.propina,
-            total:
-              ajustes.total,
+              subtotal,
 
-            fechaOperacion: new Date(),
+              descuentos:
+                ajustes.descuentos,
 
-            sucursalId:
-              pedido.sucursalId,
+              impuestos:
+                ajustes.impuestos,
 
-            usuarioId:
-              usuarioActual.id,
+              impoconsumo:
+                ajustes.impoconsumo,
 
-            pedidoId:
-              pedido.id,
+              propina:
+                ajustes.propina,
 
-            detalles: {
-              create:
-                pedido.detalles.map(
-                  (detalle) => ({
-                    productoId:
-                      detalle.productoId,
+              total:
+                ajustes.total,
 
-                    cantidad:
-                      detalle.cantidad,
+              fechaOperacion:
+                new Date(),
 
-                    precioUnitario:
-                      detalle.precioUnitario,
+              sucursalId:
+                pedido.sucursalId,
 
-                    subtotal:
-                      detalle.subtotal,
-                  }),
-                ),
+              usuarioId:
+                usuarioActual.id,
+
+              pedidoId:
+                pedido.id,
+
+              detalles: {
+                create:
+                  pedido.detalles.map(
+                    (detalle) => ({
+                      productoId:
+                        detalle.productoId,
+
+                      cantidad:
+                        detalle.cantidad,
+
+                      precioUnitario:
+                        detalle.precioUnitario,
+
+                      subtotal:
+                        detalle.subtotal,
+                    }),
+                  ),
+              },
             },
-          },
 
-          include: {
-            detalles: true,
-            pagos: true,
-            factura: true,
-          },
-        });
+            include: {
+              detalles: true,
+              pagos: true,
+              factura: true,
+            },
+          });
+
+        /*
+         * =================================================
+         * ESTADO DE MESA AL PASAR A COBRO
+         * =================================================
+         *
+         * Crear una venta NO libera automáticamente
+         * la mesa.
+         *
+         * Si existe saldo pendiente:
+         * OCUPADA -> PENDIENTE_PAGO
+         *
+         * Si la venta queda pagada inmediatamente:
+         * OCUPADA -> LIBRE
+         */
+        if (pedido.mesaId !== null) {
+          await tx.mesa.updateMany({
+            where: {
+              id:
+                pedido.mesaId,
+
+              estado: true,
+
+              situacion: {
+                in: [
+                  EstadoMesa.OCUPADA,
+                  EstadoMesa.PENDIENTE_PAGO,
+                ],
+              },
+            },
+
+            data: {
+              situacion:
+                venta.estado ===
+                EstadoVenta.PAGADA
+                  ? EstadoMesa.LIBRE
+                  : EstadoMesa.PENDIENTE_PAGO,
+            },
+          });
+        }
+
+        return venta;
       },
     );
   }
 
-    /*
+  /*
    * =====================================================
    * CORTE COMERCIAL
    *
@@ -308,28 +361,16 @@ export class VentasService {
     const ventas =
       await this.prisma.venta.findMany({
         where: {
-          /*
-           * REGLA PRINCIPAL:
-           *
-           * La fecha comercial es fechaOperacion,
-           * NO creadoEn y NO Factura.creadoEn.
-           */
           fechaOperacion: {
             gte: inicio,
             lte: fin,
           },
 
-          /*
-           * Una venta anulada no forma parte
-           * del total comercial.
-           */
           estado: {
-            not: EstadoVenta.ANULADA,
+            not:
+              EstadoVenta.ANULADA,
           },
 
-          /*
-           * Aislamiento multiempresa/multisucursal.
-           */
           sucursal:
             this.filtroSucursal(
               usuarioActual,
@@ -378,13 +419,6 @@ export class VentasService {
           venta.total,
         );
 
-      /*
-       * Agrupar ventas por origen.
-       *
-       * PEDIDO
-       * DIRECTA
-       * MANUAL_CIERRE
-       */
       if (
         !desgloseOrigenDecimal[
           venta.origen
@@ -392,7 +426,8 @@ export class VentasService {
       ) {
         desgloseOrigenDecimal[
           venta.origen
-        ] = new Prisma.Decimal(0);
+        ] =
+          new Prisma.Decimal(0);
       }
 
       desgloseOrigenDecimal[
@@ -404,9 +439,6 @@ export class VentasService {
           venta.total,
         );
 
-      /*
-       * Cantidad de ventas por estado.
-       */
       if (
         !ventasPorEstado[
           venta.estado
@@ -421,10 +453,6 @@ export class VentasService {
         venta.estado
       ] += 1;
 
-      /*
-       * Pagos asociados a las ventas
-       * comerciales seleccionadas.
-       */
       for (
         const pago of venta.pagos
       ) {
@@ -463,10 +491,6 @@ export class VentasService {
         totalPagado,
       );
 
-    /*
-     * Convertir Decimal únicamente
-     * al preparar la respuesta HTTP.
-     */
     const desglosePagos:
       Record<string, number> = {};
 
@@ -480,7 +504,8 @@ export class VentasService {
     ) {
       desglosePagos[
         metodo
-      ] = monto.toNumber();
+      ] =
+        monto.toNumber();
     }
 
     const desgloseOrigen:
@@ -496,7 +521,8 @@ export class VentasService {
     ) {
       desgloseOrigen[
         origen
-      ] = monto.toNumber();
+      ] =
+        monto.toNumber();
     }
 
     return {
@@ -542,7 +568,8 @@ export class VentasService {
             where: {
               AND: [
                 {
-                  id: data.sucursalId,
+                  id:
+                    data.sucursalId,
                 },
 
                 this.filtroSucursal(
@@ -592,18 +619,15 @@ export class VentasService {
           }
         }
 
-        /*
-         * Agrupar productos repetidos.
-         *
-         * Evita guardar varias líneas del
-         * mismo producto accidentalmente.
-         */
         const cantidades =
           new Map<number, number>();
 
-        for (const detalle of data.detalles) {
+        for (
+          const detalle of data.detalles
+        ) {
           cantidades.set(
             detalle.productoId,
+
             (cantidades.get(
               detalle.productoId,
             ) ?? 0) +
@@ -619,13 +643,15 @@ export class VentasService {
           await tx.producto.findMany({
             where: {
               id: {
-                in: idsProductos,
+                in:
+                  idsProductos,
               },
 
               estado: true,
 
               categoria: {
                 estado: true,
+
                 sucursalId:
                   sucursal.id,
               },
@@ -705,19 +731,25 @@ export class VentasService {
           data: {
             origen,
 
-            estado: ajustes.total.eq(0)
-              ? EstadoVenta.PAGADA
-              : EstadoVenta.PENDIENTE_PAGO,
+            estado:
+              ajustes.total.eq(0)
+                ? EstadoVenta.PAGADA
+                : EstadoVenta.PENDIENTE_PAGO,
 
             subtotal,
+
             descuentos:
               ajustes.descuentos,
+
             impuestos:
               ajustes.impuestos,
+
             impoconsumo:
               ajustes.impoconsumo,
+
             propina:
               ajustes.propina,
+
             total:
               ajustes.total,
 
@@ -852,7 +884,8 @@ export class VentasService {
         const venta =
           await tx.venta.findFirst({
             where: {
-              id: ventaId,
+              id:
+                ventaId,
 
               sucursal:
                 this.filtroSucursal(
@@ -862,6 +895,13 @@ export class VentasService {
 
             include: {
               pagos: true,
+
+              pedido: {
+                select: {
+                  id: true,
+                  mesaId: true,
+                },
+              },
             },
           });
 
@@ -892,7 +932,9 @@ export class VentasService {
         const metodoPago =
           await tx.metodoPago.findFirst({
             where: {
-              id: data.metodoPagoId,
+              id:
+                data.metodoPagoId,
+
               activo: true,
             },
           });
@@ -906,7 +948,9 @@ export class VentasService {
         const pagadoActual =
           venta.pagos.reduce(
             (total, pago) =>
-              total.plus(pago.monto),
+              total.plus(
+                pago.monto,
+              ),
 
             new Prisma.Decimal(0),
           );
@@ -955,7 +999,8 @@ export class VentasService {
         ) {
           await tx.venta.update({
             where: {
-              id: venta.id,
+              id:
+                venta.id,
             },
 
             data: {
@@ -963,11 +1008,41 @@ export class VentasService {
                 EstadoVenta.PAGADA,
             },
           });
+
+          /*
+           * Si la venta proviene de un pedido
+           * asociado a una mesa, completar
+           * el pago libera la mesa.
+           */
+          if (
+            venta.pedido?.mesaId !==
+              null &&
+            venta.pedido?.mesaId !==
+              undefined
+          ) {
+            await tx.mesa.updateMany({
+              where: {
+                id:
+                  venta.pedido.mesaId,
+
+                estado: true,
+
+                situacion:
+                  EstadoMesa.PENDIENTE_PAGO,
+              },
+
+              data: {
+                situacion:
+                  EstadoMesa.LIBRE,
+              },
+            });
+          }
         }
 
         return tx.venta.findUnique({
           where: {
-            id: venta.id,
+            id:
+              venta.id,
           },
 
           include: {
@@ -980,6 +1055,8 @@ export class VentasService {
             },
 
             factura: true,
+
+            pedido: true,
           },
         });
       },
@@ -1036,7 +1113,9 @@ export class VentasService {
           );
         }
 
-        if (venta.pagos.length > 0) {
+        if (
+          venta.pagos.length > 0
+        ) {
           throw new BadRequestException(
             'Una venta con pagos registrados requiere un flujo de devolución',
           );
@@ -1044,7 +1123,8 @@ export class VentasService {
 
         return tx.venta.update({
           where: {
-            id: venta.id,
+            id:
+              venta.id,
           },
 
           data: {

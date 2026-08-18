@@ -329,13 +329,16 @@ model Factura {
   estado         String   @default("EMITIDA")
   creadoEn       DateTime @default(now())
 
-  pedidoId Int    @unique
-  pedido   Pedido @relation(fields: [pedidoId], references: [id])
+  /**
+   * Relación heredada.
+   * Se mantiene opcional para facturas provenientes
+   * del flujo antiguo Pedido -> Factura.
+   */
+  pedidoId Int?    @unique
+  pedido   Pedido? @relation(fields: [pedidoId], references: [id])
 
   /**
-   * Relación nueva.
-   * Temporalmente opcional mientras migramos
-   * el flujo antiguo Pedido -> Factura.
+   * Relación comercial principal.
    */
   ventaId Int?   @unique
   venta   Venta? @relation(fields: [ventaId], references: [id])

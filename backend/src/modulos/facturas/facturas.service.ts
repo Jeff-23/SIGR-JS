@@ -7,6 +7,8 @@ import {
 import {
   EstadoMesa,
   EstadoPedido,
+  EstadoVenta,
+  Prisma,
 } from '@prisma/client';
 
 import * as crypto from 'crypto';
@@ -27,220 +29,413 @@ export class FacturasService {
     return usuarioActual.restauranteId === null;
   }
 
+  /*
+   * Filtro centralizado de sucursal.
+   *
+   * Garantiza aislamiento:
+   * Restaurante -> Sucursal.
+   */
+  private filtroSucursal(
+    usuarioActual: UsuarioAutenticado,
+  ): Prisma.SucursalWhereInput {
+    return {
+      estado: true,
+
+      restaurante: {
+        estado: true,
+
+        ...(!this.esSuperadmin(usuarioActual)
+          ? {
+              id: usuarioActual.restauranteId!,
+            }
+          : {}),
+      },
+
+      ...(usuarioActual.sucursalId !== null
+        ? {
+            id: usuarioActual.sucursalId,
+          }
+        : {}),
+    };
+  }
+
+  /*
+   * Permite localizar tanto:
+   *
+   * LEGACY:
+   * Pedido -> Factura
+   *
+   * NUEVO:
+   * Venta -> Factura
+   *
+   * sin romper aislamiento multiempresa.
+   */
+  private filtroFacturaTenant(
+    usuarioActual: UsuarioAutenticado,
+  ): Prisma.FacturaWhereInput {
+    const sucursal =
+      this.filtroSucursal(usuarioActual);
+
+    return {
+      OR: [
+        {
+          venta: {
+            is: {
+              sucursal,
+            },
+          },
+        },
+
+        {
+          pedido: {
+            is: {
+              sucursal,
+            },
+          },
+        },
+      ],
+    };
+  }
+
+  /*
+   * =====================================================
+   * FLUJO LEGACY
+   * Pedido -> Factura -> Pago
+   *
+   * Se conserva temporalmente para compatibilidad.
+   * =====================================================
+   */
   async create(
     data: CreateFacturaDto,
     usuarioActual: UsuarioAutenticado,
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      /*
-       * 1. Buscar el pedido únicamente dentro
-       *    del alcance del usuario autenticado.
-       */
-      const pedido = await tx.pedido.findFirst({
-        where: {
-          id: data.pedidoId,
+    return this.prisma.$transaction(
+      async (tx) => {
+        const pedido =
+          await tx.pedido.findFirst({
+            where: {
+              id: data.pedidoId,
 
-          sucursal: {
-            estado: true,
-
-            restaurante: {
-              estado: true,
+              sucursal:
+                this.filtroSucursal(
+                  usuarioActual,
+                ),
             },
 
-            ...(!this.esSuperadmin(usuarioActual)
-              ? {
-                  restauranteId:
-                    usuarioActual.restauranteId!,
-                }
-              : {}),
+            include: {
+              factura: true,
+            },
+          });
 
-            ...(usuarioActual.sucursalId !== null
-              ? {
-                  id: usuarioActual.sucursalId,
-                }
-              : {}),
-          },
-        },
+        if (!pedido) {
+          throw new NotFoundException(
+            'Pedido no encontrado',
+          );
+        }
 
-        include: {
-          factura: true,
-        },
-      });
+        if (
+          pedido.factura ||
+          pedido.estado ===
+            EstadoPedido.FACTURADO
+        ) {
+          throw new BadRequestException(
+            'Este pedido ya fue facturado',
+          );
+        }
 
-      if (!pedido) {
-        throw new NotFoundException(
-          'Pedido no encontrado',
-        );
-      }
+        if (
+          pedido.estado ===
+          EstadoPedido.CANCELADO
+        ) {
+          throw new BadRequestException(
+            'No se puede facturar un pedido cancelado',
+          );
+        }
 
-      /*
-       * 2. Impedir doble facturación.
-       */
-      if (
-        pedido.factura ||
-        pedido.estado === EstadoPedido.FACTURADO
-      ) {
-        throw new BadRequestException(
-          'Este pedido ya fue facturado',
-        );
-      }
-
-      /*
-       * 3. No permitir facturar pedidos cancelados.
-       */
-      if (
-        pedido.estado === EstadoPedido.CANCELADO
-      ) {
-        throw new BadRequestException(
-          'No se puede facturar un pedido cancelado',
-        );
-      }
-
-      /*
-       * 4. Validar métodos de pago.
-       *
-       * Por ahora MetodoPago funciona como catálogo
-       * global de plataforma.
-       */
-      const idsMetodosPago = [
-        ...new Set(
-          data.pagos.map(
-            (pago) => pago.metodoPagoId,
+        /*
+         * Validar métodos de pago legacy.
+         */
+        const idsMetodosPago = [
+          ...new Set(
+            data.pagos.map(
+              (pago) =>
+                pago.metodoPagoId,
+            ),
           ),
-        ),
-      ];
+        ];
 
-      const metodosPagoActivos =
-        await tx.metodoPago.findMany({
-          where: {
-            id: {
-              in: idsMetodosPago,
+        const metodosPagoActivos =
+          await tx.metodoPago.findMany({
+            where: {
+              id: {
+                in: idsMetodosPago,
+              },
+
+              activo: true,
             },
 
-            activo: true,
-          },
-
-          select: {
-            id: true,
-          },
-        });
-
-      if (
-        metodosPagoActivos.length !==
-        idsMetodosPago.length
-      ) {
-        throw new BadRequestException(
-          'Uno o más métodos de pago no existen o están inactivos',
-        );
-      }
-
-      /*
-       * 5. Calcular y validar el total pagado.
-       */
-      const totalPedido =
-        pedido.total.toNumber();
-
-      const sumaPagos =
-        data.pagos.reduce(
-          (sum, pago) =>
-            sum + pago.monto,
-          0,
-        );
-
-      if (sumaPagos < totalPedido) {
-        throw new BadRequestException(
-          `El monto pagado (${sumaPagos}) es menor al total del pedido (${totalPedido})`,
-        );
-      }
-
-      /*
-       * 6. Generar número temporal de factura.
-       *
-       * Esto NO representa todavía el consecutivo
-       * fiscal definitivo de la DIAN.
-       */
-      const conteo =
-        await tx.factura.count();
-
-      const numeroFactura =
-        `SET-${conteo + 1}`;
-
-      /*
-       * 7. Crear factura y pagos.
-       */
-      const nuevaFactura =
-        await tx.factura.create({
-          data: {
-            numero: numeroFactura,
-
-            total: totalPedido,
-
-            resolucionDian:
-              data.resolucionDian ||
-              '18760000001',
-
-            pedidoId: pedido.id,
-
-            pagos: {
-              create: data.pagos.map(
-                (pago) => ({
-                  monto: pago.monto,
-                  metodoPagoId:
-                    pago.metodoPagoId,
-                }),
-              ),
+            select: {
+              id: true,
             },
-          },
+          });
 
-          include: {
-            pagos: true,
-          },
-        });
+        if (
+          metodosPagoActivos.length !==
+          idsMetodosPago.length
+        ) {
+          throw new BadRequestException(
+            'Uno o más métodos de pago no existen o están inactivos',
+          );
+        }
 
-      /*
-       * 8. Marcar el pedido como facturado.
-       */
-      await tx.pedido.update({
-        where: {
-          id: pedido.id,
-        },
+        const totalPedido =
+          pedido.total.toNumber();
 
-        data: {
-          estado: EstadoPedido.FACTURADO,
-        },
-      });
+        const sumaPagos =
+          data.pagos.reduce(
+            (sum, pago) =>
+              sum + pago.monto,
+            0,
+          );
 
-      /*
-       * 9. Liberar la mesa únicamente
-       *    si el pedido tiene una asociada.
-       */
-      if (pedido.mesaId !== null) {
-        await tx.mesa.update({
+        if (
+          sumaPagos < totalPedido
+        ) {
+          throw new BadRequestException(
+            `El monto pagado (${sumaPagos}) es menor al total del pedido (${totalPedido})`,
+          );
+        }
+
+        /*
+         * Numeración LEGACY.
+         *
+         * Se conserva únicamente mientras
+         * migramos completamente al nuevo flujo.
+         */
+        const conteo =
+          await tx.factura.count();
+
+        const numeroFactura =
+          `SET-${conteo + 1}`;
+
+        const nuevaFactura =
+          await tx.factura.create({
+            data: {
+              numero:
+                numeroFactura,
+
+              total:
+                totalPedido,
+
+              resolucionDian:
+                data.resolucionDian ||
+                '18760000001',
+
+              pedidoId:
+                pedido.id,
+
+              pagos: {
+                create:
+                  data.pagos.map(
+                    (pago) => ({
+                      monto:
+                        pago.monto,
+
+                      metodoPagoId:
+                        pago.metodoPagoId,
+                    }),
+                  ),
+              },
+            },
+
+            include: {
+              pagos: true,
+            },
+          });
+
+        /*
+         * Comportamiento legacy:
+         * marcar pedido como facturado.
+         */
+        await tx.pedido.update({
           where: {
-            id: pedido.mesaId,
+            id: pedido.id,
           },
 
           data: {
-            situacion: EstadoMesa.LIBRE,
+            estado:
+              EstadoPedido.FACTURADO,
           },
         });
-      }
 
-      return nuevaFactura;
-    });
+        /*
+         * Comportamiento legacy:
+         * liberar mesa.
+         */
+        if (
+          pedido.mesaId !== null
+        ) {
+          await tx.mesa.update({
+            where: {
+              id: pedido.mesaId,
+            },
+
+            data: {
+              situacion:
+                EstadoMesa.LIBRE,
+            },
+          });
+        }
+
+        return nuevaFactura;
+      },
+    );
   }
 
+  /*
+   * =====================================================
+   * NUEVO FLUJO
+   *
+   * Venta -> Factura
+   *
+   * Los pagos pertenecen a Venta.
+   * Factura NO vuelve a crear pagos.
+   * =====================================================
+   */
+  async crearDesdeVenta(
+    ventaId: number,
+    usuarioActual: UsuarioAutenticado,
+  ) {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const venta =
+          await tx.venta.findFirst({
+            where: {
+              id: ventaId,
+
+              sucursal:
+                this.filtroSucursal(
+                  usuarioActual,
+                ),
+            },
+
+            include: {
+              factura: true,
+
+              pagos: {
+                include: {
+                  metodoPago: true,
+                },
+              },
+
+              detalles: true,
+              pedido: true,
+            },
+          });
+
+        if (!venta) {
+          throw new NotFoundException(
+            'Venta no encontrada',
+          );
+        }
+
+        if (
+          venta.estado ===
+          EstadoVenta.ANULADA
+        ) {
+          throw new BadRequestException(
+            'No se puede facturar una venta anulada',
+          );
+        }
+
+        if (venta.factura) {
+          throw new BadRequestException(
+            'La venta ya tiene una factura asociada',
+          );
+        }
+
+        /*
+         * Número interno único.
+         *
+         * NO corresponde todavía a numeración
+         * fiscal autorizada por la DIAN.
+         */
+        const numeroFactura =
+          `INT-${crypto.randomUUID()}`;
+
+        const factura =
+          await tx.factura.create({
+            data: {
+              numero:
+                numeroFactura,
+
+              total:
+                venta.total,
+
+              ventaId:
+                venta.id,
+
+              /*
+               * Si la venta nació desde un pedido,
+               * conservamos temporalmente también
+               * esa referencia.
+               *
+               * DIRECTA / MANUAL_CIERRE:
+               * pedidoId = null.
+               */
+              pedidoId:
+                venta.pedidoId,
+            },
+
+            include: {
+              venta: {
+                include: {
+                  detalles: {
+                    include: {
+                      producto: true,
+                    },
+                  },
+
+                  pagos: {
+                    include: {
+                      metodoPago: true,
+                    },
+                  },
+                },
+              },
+            },
+          });
+
+        return factura;
+      },
+    );
+  }
+
+  /*
+   * =====================================================
+   * CORTE TEMPORAL
+   *
+   * Sigue viviendo en Facturas mientras construimos
+   * el módulo formal de Caja.
+   *
+   * Soporta:
+   * - facturas legacy;
+   * - facturas provenientes de Venta.
+   * =====================================================
+   */
   async obtenerCorteCaja(
     fechaInicio: string | undefined,
     fechaFin: string | undefined,
     usuarioActual: UsuarioAutenticado,
   ) {
-    /*
-     * Si no se indican fechas:
-     * desde las 00:00 de hoy hasta ahora.
-     */
     const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0);
+
+    hoy.setHours(
+      0,
+      0,
+      0,
+      0,
+    );
 
     const inicio =
       fechaInicio
@@ -252,12 +447,13 @@ export class FacturasService {
         ? new Date(fechaFin)
         : new Date();
 
-    /*
-     * Validar fechas.
-     */
     if (
-      Number.isNaN(inicio.getTime()) ||
-      Number.isNaN(fin.getTime())
+      Number.isNaN(
+        inicio.getTime(),
+      ) ||
+      Number.isNaN(
+        fin.getTime(),
+      )
     ) {
       throw new BadRequestException(
         'Las fechas indicadas no son válidas',
@@ -270,49 +466,47 @@ export class FacturasService {
       );
     }
 
-    /*
-     * Consultar solamente las facturas
-     * pertenecientes al tenant actual.
-     */
     const facturas =
       await this.prisma.factura.findMany({
         where: {
-          creadoEn: {
-            gte: inicio,
-            lte: fin,
-          },
-
-          estado: 'EMITIDA',
-
-          pedido: {
-            sucursal: {
-              estado: true,
-
-              restaurante: {
-                estado: true,
+          AND: [
+            {
+              creadoEn: {
+                gte: inicio,
+                lte: fin,
               },
-
-              ...(!this.esSuperadmin(usuarioActual)
-                ? {
-                    restauranteId:
-                      usuarioActual.restauranteId!,
-                  }
-                : {}),
-
-              ...(usuarioActual.sucursalId !== null
-                ? {
-                    id:
-                      usuarioActual.sucursalId,
-                  }
-                : {}),
             },
-          },
+
+            {
+              estado: 'EMITIDA',
+            },
+
+            this.filtroFacturaTenant(
+              usuarioActual,
+            ),
+          ],
         },
 
         include: {
+          /*
+           * Pagos legacy.
+           */
           pagos: {
             include: {
               metodoPago: true,
+            },
+          },
+
+          /*
+           * Pagos del nuevo núcleo comercial.
+           */
+          venta: {
+            include: {
+              pagos: {
+                include: {
+                  metodoPago: true,
+                },
+              },
             },
           },
         },
@@ -327,73 +521,90 @@ export class FacturasService {
     const desglosePorMetodo:
       Record<string, number> = {};
 
-    for (const factura of facturas) {
+    for (
+      const factura of facturas
+    ) {
       totalVentas +=
         factura.total.toNumber();
 
-      for (const pago of factura.pagos) {
+      /*
+       * Nueva factura:
+       * pagos pertenecen a Venta.
+       *
+       * Factura legacy:
+       * pagos pertenecen directamente a Factura.
+       */
+      const pagos =
+        factura.venta
+          ? factura.venta.pagos
+          : factura.pagos;
+
+      for (
+        const pago of pagos
+      ) {
         const metodo =
           pago.metodoPago.nombre;
 
         const monto =
           pago.monto.toNumber();
 
-        if (!desglosePorMetodo[metodo]) {
-          desglosePorMetodo[metodo] = 0;
+        if (
+          !desglosePorMetodo[
+            metodo
+          ]
+        ) {
+          desglosePorMetodo[
+            metodo
+          ] = 0;
         }
 
-        desglosePorMetodo[metodo] +=
-          monto;
+        desglosePorMetodo[
+          metodo
+        ] += monto;
       }
     }
 
     return {
       fechaInicio: inicio,
       fechaFin: fin,
+
       cantidadFacturas:
         facturas.length,
+
       totalVentas,
+
       desglosePagos:
         desglosePorMetodo,
     };
   }
 
+  /*
+   * =====================================================
+   * SIMULACIÓN DIAN
+   *
+   * IMPORTANTE:
+   * esto NO representa aceptación real de la DIAN.
+   *
+   * Funciona tanto con factura legacy
+   * como con factura originada desde Venta.
+   * =====================================================
+   */
   async emitirDian(
     id: number,
     usuarioActual: UsuarioAutenticado,
   ) {
-    /*
-     * Buscar únicamente una factura que
-     * pertenezca al tenant del usuario.
-     */
     const factura =
       await this.prisma.factura.findFirst({
         where: {
-          id,
-
-          pedido: {
-            sucursal: {
-              estado: true,
-
-              restaurante: {
-                estado: true,
-              },
-
-              ...(!this.esSuperadmin(usuarioActual)
-                ? {
-                    restauranteId:
-                      usuarioActual.restauranteId!,
-                  }
-                : {}),
-
-              ...(usuarioActual.sucursalId !== null
-                ? {
-                    id:
-                      usuarioActual.sucursalId,
-                  }
-                : {}),
+          AND: [
+            {
+              id,
             },
-          },
+
+            this.filtroFacturaTenant(
+              usuarioActual,
+            ),
+          ],
         },
       });
 
@@ -410,16 +621,13 @@ export class FacturasService {
     }
 
     /*
-     * IMPORTANTE:
-     * Esto continúa siendo una simulación.
-     *
-     * No significa que la DIAN haya
-     * aceptado realmente el documento.
+     * Continúa siendo únicamente
+     * una simulación técnica.
      */
     const dataToHash =
       `${factura.numero}` +
       `${factura.total}` +
-      `${factura.resolucionDian}` +
+      `${factura.resolucionDian ?? ''}` +
       `${factura.creadoEn.toISOString()}`;
 
     const cufeGenerado =
@@ -437,8 +645,11 @@ export class FacturasService {
       },
 
       data: {
-        cufe: cufeGenerado,
-        qrCode: qrGenerado,
+        cufe:
+          cufeGenerado,
+
+        qrCode:
+          qrGenerado,
       },
     });
   }

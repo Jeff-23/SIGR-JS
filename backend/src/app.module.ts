@@ -17,6 +17,8 @@ import { ArticulosModule } from './modulos/articulos/articulos.module';
 import { RecetasModule } from './modulos/recetas/recetas.module'; 
 import { MetodosPagoModule } from './modulos/metodos-pago/metodos-pago.module'; // <-- NUEVO
 import { FacturasModule } from './modulos/facturas/facturas.module'; // <-- NUEVO
+import { VentasModule } from './modulos/ventas/ventas.module';
+
 
 @Module({
   imports: [
@@ -37,7 +39,8 @@ import { FacturasModule } from './modulos/facturas/facturas.module'; // <-- NUEV
     ArticulosModule, 
     RecetasModule,
     MetodosPagoModule, // <-- INYECTADO
-    FacturasModule     // <-- INYECTADO
+    FacturasModule,     // <-- INYECTADO
+    VentasModule
   ],
   controllers: [AppController],
   providers: [

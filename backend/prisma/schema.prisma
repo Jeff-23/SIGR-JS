@@ -344,9 +344,10 @@ model Factura {
 }
 
 model Pago {
-  id       Int      @id @default(autoincrement())
-  monto    Decimal  @db.Decimal(12, 2)
-  creadoEn DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  monto      Decimal  @db.Decimal(12, 2)
+  referencia String?  @db.VarChar(150)
+  creadoEn   DateTime @default(now())
 
   metodoPagoId Int
 

@@ -1,38 +1,97 @@
 ﻿import {
   Body,
   Controller,
+  Get,
+  Param,
+  ParseIntPipe,
   Post,
   Req,
   UseGuards,
 } from '@nestjs/common';
 
-import { PedidosService } from './pedidos.service';
-import { CreatePedidoDto } from './dto/create-pedido.dto';
+import {
+  PedidosService,
+} from './pedidos.service';
 
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { PermissionsGuard } from '../auth/permissions.guard';
-import { Permisos } from '../auth/permisos.decorator';
-import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import {
+  CreatePedidoDto,
+} from './dto/create-pedido.dto';
+
+import {
+  JwtAuthGuard,
+} from '../auth/jwt-auth.guard';
+
+import {
+  PermissionsGuard,
+} from '../auth/permissions.guard';
+
+import {
+  Permisos,
+} from '../auth/permisos.decorator';
+
+import {
+  UsuarioAutenticado,
+} from '../auth/types/usuario-autenticado.type';
 
 type RequestAutenticada = {
   user: UsuarioAutenticado;
 };
 
 @Controller('pedidos')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(
+  JwtAuthGuard,
+  PermissionsGuard,
+)
 export class PedidosController {
   constructor(
-    private readonly pedidosService: PedidosService,
+    private readonly pedidosService:
+      PedidosService,
   ) {}
 
   @Post()
   @Permisos('PEDIDOS_CREAR')
   create(
-    @Body() createPedidoDto: CreatePedidoDto,
-    @Req() request: RequestAutenticada,
+    @Body()
+    createPedidoDto:
+      CreatePedidoDto,
+
+    @Req()
+    request:
+      RequestAutenticada,
   ) {
     return this.pedidosService.create(
       createPedidoDto,
+      request.user,
+    );
+  }
+
+  @Get()
+  @Permisos('PEDIDOS_VER')
+  findAll(
+    @Req()
+    request:
+      RequestAutenticada,
+  ) {
+    return this.pedidosService.findAll(
+      request.user,
+    );
+  }
+
+  @Get(':id')
+  @Permisos('PEDIDOS_VER')
+  findOne(
+    @Param(
+      'id',
+      ParseIntPipe,
+    )
+    id: number,
+
+    @Req()
+    request:
+      RequestAutenticada,
+  ) {
+    return this.pedidosService.findOne(
+      id,
       request.user,
     );
   }

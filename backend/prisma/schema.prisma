@@ -65,6 +65,24 @@ enum EstadoDocumentoElectronico {
   ERROR
 }
 
+enum TipoMetodoPago {
+  EFECTIVO
+  TARJETA
+  TRANSFERENCIA
+  QR
+  OTRO
+}
+
+enum EstadoCaja {
+  ABIERTA
+  CERRADA
+}
+
+enum TipoMovimientoCaja {
+  INGRESO
+  EGRESO
+}
+
 model Restaurante {
   id            Int      @id @default(autoincrement())
   nombre        String   @db.VarChar(100)
@@ -103,6 +121,7 @@ model Sucursal {
   articulos  Articulo[]
   pedidos    Pedido[]
   ventas     Venta[]
+  cajas      Caja[]
 }
 
 model Rol {
@@ -144,6 +163,11 @@ model Usuario {
 
   pedidos Pedido[]
   ventas  Venta[]
+
+  cajasAbiertas    Caja[]           @relation("CajaAbiertaPor")
+  cajasCerradas    Caja[]           @relation("CajaCerradaPor")
+  movimientosCaja  MovimientoCaja[]
+  pagosRegistrados Pago[]
 
   @@index([restauranteId])
   @@index([sucursalId])
@@ -371,11 +395,14 @@ model Receta {
 // ==========================================
 
 model MetodoPago {
-  id     Int     @id @default(autoincrement())
-  nombre String  @db.VarChar(50)
-  activo Boolean @default(true)
+  id     Int            @id @default(autoincrement())
+  nombre String         @db.VarChar(50)
+  tipo   TipoMetodoPago @default(OTRO)
+  activo Boolean        @default(true)
 
   pagos Pago[]
+
+  @@index([tipo])
 }
 
 model Factura {
@@ -428,17 +455,94 @@ model Pago {
   facturaId Int?
 
   /**
-   * Nueva relación comercial principal.
+   * Relación comercial principal.
    */
   ventaId Int?
+
+  /**
+   * Desde Sprint 5, los nuevos pagos pueden
+   * asociarse a la sesión de caja que los recibió
+   * y al usuario que los registró.
+   * Se mantienen opcionales para compatibilidad
+   * con pagos creados antes de Caja.
+   */
+  cajaId    Int?
+  usuarioId Int?
 
   factura    Factura?   @relation(fields: [facturaId], references: [id])
   venta      Venta?     @relation(fields: [ventaId], references: [id])
   metodoPago MetodoPago @relation(fields: [metodoPagoId], references: [id])
+  caja       Caja?      @relation(fields: [cajaId], references: [id], onDelete: Restrict)
+  usuario    Usuario?   @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
 
   @@index([facturaId])
   @@index([ventaId])
   @@index([metodoPagoId])
+  @@index([cajaId])
+  @@index([usuarioId])
+}
+
+// ==========================================
+// SPRINT 5: CAJA Y CUADRE OPERATIVO
+// ==========================================
+
+model Caja {
+  id     Int        @id @default(autoincrement())
+  nombre String     @db.VarChar(80)
+  estado EstadoCaja @default(ABIERTA)
+
+  saldoInicial  Decimal  @db.Decimal(12, 2)
+  saldoEsperado Decimal? @db.Decimal(12, 2)
+  saldoContado  Decimal? @db.Decimal(12, 2)
+  diferencia    Decimal? @db.Decimal(12, 2)
+
+  totalEfectivoSistema Decimal? @db.Decimal(12, 2)
+  totalOtrosPagos      Decimal? @db.Decimal(12, 2)
+  totalIngresos        Decimal? @db.Decimal(12, 2)
+  totalEgresos         Decimal? @db.Decimal(12, 2)
+
+  fechaApertura DateTime  @default(now())
+  fechaCierre   DateTime?
+
+  observacionApertura String? @db.VarChar(250)
+  observacionCierre   String? @db.VarChar(250)
+
+  sucursalId   Int
+  abiertaPorId Int
+  cerradaPorId Int?
+
+  sucursal   Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  abiertaPor Usuario  @relation("CajaAbiertaPor", fields: [abiertaPorId], references: [id], onDelete: Restrict)
+  cerradaPor Usuario? @relation("CajaCerradaPor", fields: [cerradaPorId], references: [id], onDelete: Restrict)
+
+  movimientos MovimientoCaja[]
+  pagos       Pago[]
+
+  @@index([sucursalId])
+  @@index([estado])
+  @@index([fechaApertura])
+  @@index([abiertaPorId])
+  @@index([cerradaPorId])
+}
+
+model MovimientoCaja {
+  id          Int                @id @default(autoincrement())
+  tipo        TipoMovimientoCaja
+  monto       Decimal            @db.Decimal(12, 2)
+  concepto    String             @db.VarChar(120)
+  observacion String?            @db.VarChar(250)
+  creadoEn    DateTime           @default(now())
+
+  cajaId    Int
+  usuarioId Int
+
+  caja    Caja    @relation(fields: [cajaId], references: [id], onDelete: Restrict)
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+
+  @@index([cajaId])
+  @@index([usuarioId])
+  @@index([tipo])
+  @@index([creadoEn])
 }
 
 // ==========================================

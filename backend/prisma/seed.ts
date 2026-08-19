@@ -2,7 +2,7 @@ import 'dotenv/config';
 
 import { NestFactory } from '@nestjs/core';
 import * as bcrypt from 'bcrypt';
-import { AmbitoRol } from '@prisma/client';
+import { AmbitoRol, TipoMetodoPago } from '@prisma/client';
 
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -93,6 +93,26 @@ const CAPACIDADES = [
     modulo: 'PRODUCTOS',
     descripcion:
       'Habilita imágenes de productos y modo visual para tablets y POS.',
+  },
+] as const;
+
+
+const METODOS_PAGO_BASE = [
+  {
+    nombre: 'Efectivo',
+    tipo: TipoMetodoPago.EFECTIVO,
+  },
+  {
+    nombre: 'Tarjeta',
+    tipo: TipoMetodoPago.TARJETA,
+  },
+  {
+    nombre: 'Transferencia',
+    tipo: TipoMetodoPago.TRANSFERENCIA,
+  },
+  {
+    nombre: 'QR',
+    tipo: TipoMetodoPago.QR,
   },
 ] as const;
 
@@ -366,6 +386,11 @@ const PERMISOS = [
 
   // Caja
   {
+    codigo: 'CAJA_VER',
+    nombre: 'Ver cajas e historial de caja',
+    modulo: 'CAJA',
+  },
+  {
     codigo: 'CAJA_ABRIR',
     nombre: 'Abrir caja',
     modulo: 'CAJA',
@@ -534,7 +559,43 @@ async function bootstrap() {
     console.log(`${PERMISOS.length} permisos configurados.`);
 
     // ==========================================
-    // 4.1. RETIRO DE PERMISOS OBSOLETOS
+    // 4.1. MÉTODOS DE PAGO BASE
+    // ==========================================
+
+    for (const metodo of METODOS_PAGO_BASE) {
+      const actualizados =
+        await prisma.metodoPago.updateMany({
+          where: {
+            nombre: {
+              equals: metodo.nombre,
+              mode: 'insensitive',
+            },
+          },
+
+          data: {
+            nombre: metodo.nombre,
+            tipo: metodo.tipo,
+            activo: true,
+          },
+        });
+
+      if (actualizados.count === 0) {
+        await prisma.metodoPago.create({
+          data: {
+            nombre: metodo.nombre,
+            tipo: metodo.tipo,
+            activo: true,
+          },
+        });
+      }
+    }
+
+    console.log(
+      `${METODOS_PAGO_BASE.length} métodos de pago base verificados.`,
+    );
+
+    // ==========================================
+    // 4.2. RETIRO DE PERMISOS OBSOLETOS
     // ==========================================
 
     const codigosPermisosObsoletos = [

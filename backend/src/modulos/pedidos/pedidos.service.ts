@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 
 import {
+  EstadoComanda,
   EstadoMesa,
   EstadoPedido,
   Prisma,
@@ -114,30 +115,6 @@ export class PedidosService {
     }
   }
 
-  /*
-   * =====================================================
-   * AGRUPAR PRODUCTOS DE UNA MISMA OPERACION
-   * =====================================================
-   *
-   * Si una misma llamada contiene:
-   *
-   * producto 1 x1
-   * producto 1 x2
-   *
-   * se procesa como:
-   *
-   * producto 1 x3
-   *
-   * IMPORTANTE:
-   *
-   * Esto solo agrupa dentro de LA MISMA llamada.
-   *
-   * Si el producto ya existia anteriormente en
-   * el pedido, se crea un NUEVO DetallePedido.
-   *
-   * De esta manera las comandas anteriores
-   * conservan su trazabilidad.
-   */
   private agruparCantidades(
     detalles:
       DetalleEntrada[],
@@ -164,25 +141,6 @@ export class PedidosService {
     return cantidades;
   }
 
-  /*
-   * =====================================================
-   * PREPARAR DETALLES + INVENTARIO
-   * =====================================================
-   *
-   * Funciona tanto para:
-   *
-   * - crear un Pedido
-   * - agregar productos posteriormente
-   *
-   * El descuento de inventario por receta es
-   * atomico:
-   *
-   * UPDATE articulo
-   * WHERE stock >= consumo
-   *
-   * Esto evita dejar stock negativo por
-   * concurrencia.
-   */
   private async prepararDetallesYDescontarInventario(
     tx:
       Prisma.TransactionClient,
@@ -309,10 +267,6 @@ export class PedidosService {
         subtotal,
       });
 
-      /*
-       * Descontar los articulos asociados
-       * mediante receta.
-       */
       for (
         const receta of
           producto.recetas
@@ -372,6 +326,7 @@ export class PedidosService {
 
     return {
       total,
+
       detalles:
         detallesPreparados,
     };
@@ -387,9 +342,6 @@ export class PedidosService {
     usuarioActual:
       UsuarioAutenticado,
   ) {
-    /*
-     * Usuario ligado a sucursal.
-     */
     if (
       usuarioActual.sucursalId !==
       null
@@ -431,10 +383,6 @@ export class PedidosService {
       return sucursal.id;
     }
 
-    /*
-     * ADMIN de restaurante o SUPERADMIN
-     * sin sucursal fija.
-     */
     if (
       data.sucursalId === undefined
     ) {
@@ -481,11 +429,6 @@ export class PedidosService {
     sucursalId: number;
     mesaId: number | null;
   }> {
-    /*
-     * MANUAL pertenece al flujo comercial:
-     *
-     * Venta.MANUAL_CIERRE
-     */
     if (
       data.tipo ===
       TipoPedido.MANUAL
@@ -495,11 +438,6 @@ export class PedidosService {
       );
     }
 
-    /*
-     * ===================================================
-     * PEDIDO DE MESA
-     * ===================================================
-     */
     if (
       data.tipo ===
       TipoPedido.MESA
@@ -571,9 +509,6 @@ export class PedidosService {
         );
       }
 
-      /*
-       * Reserva atomica de mesa.
-       */
       const mesaReservada =
         await tx.mesa.updateMany({
           where: {
@@ -610,11 +545,6 @@ export class PedidosService {
       };
     }
 
-    /*
-     * ===================================================
-     * PEDIDO SIN MESA
-     * ===================================================
-     */
     if (
       data.mesaId !==
       undefined
@@ -637,11 +567,6 @@ export class PedidosService {
     };
   }
 
-  /*
-   * =====================================================
-   * CREAR PEDIDO
-   * =====================================================
-   */
   async create(
     data:
       CreatePedidoDto,
@@ -716,26 +641,6 @@ export class PedidosService {
     );
   }
 
-  /*
-   * =====================================================
-   * AGREGAR PRODUCTOS A PEDIDO EXISTENTE
-   * =====================================================
-   *
-   * Caso real:
-   *
-   * Mesa pide:
-   *   Hamburguesa x1
-   *
-   * Se envia a cocina.
-   *
-   * Minutos despues pide:
-   *   Gaseosa x1
-   *   Hamburguesa x2
-   *
-   * Estas nuevas unidades se crean como nuevos
-   * DetallePedido y posteriormente pueden enviarse
-   * en una nueva Comanda.
-   */
   async agregarDetalles(
     pedidoId:
       number,
@@ -748,10 +653,6 @@ export class PedidosService {
   ) {
     return this.prisma.$transaction(
       async (tx) => {
-        /*
-         * Buscar exclusivamente dentro del
-         * tenant/sucursal autorizados.
-         */
         const pedido =
           await tx.pedido.findFirst({
             where: {
@@ -785,10 +686,6 @@ export class PedidosService {
           );
         }
 
-        /*
-         * Una vez cancelado no puede reabrirse
-         * agregando productos.
-         */
         if (
           pedido.estado ===
           EstadoPedido.CANCELADO
@@ -798,9 +695,6 @@ export class PedidosService {
           );
         }
 
-        /*
-         * Flujo comercial antiguo.
-         */
         if (
           pedido.estado ===
             EstadoPedido.FACTURADO ||
@@ -811,14 +705,6 @@ export class PedidosService {
           );
         }
 
-        /*
-         * Una Venta es un snapshot comercial
-         * del Pedido.
-         *
-         * Si ya existe Venta no modificamos
-         * posteriormente el Pedido porque los
-         * totales dejarian de coincidir.
-         */
         if (
           pedido.venta
         ) {
@@ -827,9 +713,6 @@ export class PedidosService {
           );
         }
 
-        /*
-         * Validar productos, sucursal e inventario.
-         */
         const preparado =
           await this
             .prepararDetallesYDescontarInventario(
@@ -838,14 +721,6 @@ export class PedidosService {
               data.detalles,
             );
 
-        /*
-         * Si el pedido ya habia terminado una ronda
-         * de servicio (LISTO / ENTREGADO), una nueva
-         * adicion lo reabre como PENDIENTE.
-         *
-         * Si ya existen preparaciones activas,
-         * conservamos EN_PREPARACION.
-         */
         const estadoNuevo =
           pedido.estado ===
             EstadoPedido.LISTO ||
@@ -854,15 +729,6 @@ export class PedidosService {
             ? EstadoPedido.PENDIENTE
             : pedido.estado;
 
-        /*
-         * La transaccion garantiza que:
-         *
-         * - inventario
-         * - nuevas lineas
-         * - nuevo total
-         *
-         * se confirmen juntos o se reviertan juntos.
-         */
         return tx.pedido.update({
           where: {
             id:
@@ -926,9 +792,382 @@ export class PedidosService {
 
   /*
    * =====================================================
-   * LISTAR PEDIDOS
+   * CANCELAR PEDIDO
    * =====================================================
+   *
+   * Se permite cancelar cuando:
+   *
+   * - no existe Venta
+   * - no existe Factura
+   * - ninguna Comanda ha iniciado preparacion
+   *
+   * Las comandas PENDIENTE se convierten
+   * automaticamente en CANCELADA.
+   *
+   * Tambien:
+   *
+   * - se repone inventario
+   * - se libera la mesa
+   * - Pedido pasa a CANCELADO
    */
+  async cancelar(
+    pedidoId:
+      number,
+
+    usuarioActual:
+      UsuarioAutenticado,
+  ) {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const pedido =
+          await tx.pedido.findFirst({
+            where: {
+              id:
+                pedidoId,
+
+              sucursal:
+                this.filtroSucursal(
+                  usuarioActual,
+                ),
+            },
+
+            include: {
+              venta: {
+                select: {
+                  id: true,
+                  estado: true,
+                },
+              },
+
+              factura: {
+                select: {
+                  id: true,
+                },
+              },
+
+              mesa: {
+                select: {
+                  id: true,
+                  situacion: true,
+                },
+              },
+
+              comandas: {
+                select: {
+                  id: true,
+                  estado: true,
+                },
+              },
+
+              detalles: {
+                include: {
+                  producto: {
+                    include: {
+                      recetas: {
+                        include: {
+                          articulo: {
+                            select: {
+                              id: true,
+                              nombre: true,
+                              sucursalId: true,
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          });
+
+        if (!pedido) {
+          throw new NotFoundException(
+            'Pedido no encontrado',
+          );
+        }
+
+        if (
+          pedido.estado ===
+          EstadoPedido.CANCELADO
+        ) {
+          throw new BadRequestException(
+            'El pedido ya esta cancelado',
+          );
+        }
+
+        if (
+          pedido.estado ===
+            EstadoPedido.FACTURADO ||
+          pedido.factura
+        ) {
+          throw new BadRequestException(
+            'No se puede cancelar un pedido facturado',
+          );
+        }
+
+        if (
+          pedido.venta
+        ) {
+          throw new BadRequestException(
+            'No se puede cancelar el pedido despues de generar su venta',
+          );
+        }
+
+        if (
+          pedido.estado ===
+            EstadoPedido.EN_PREPARACION ||
+          pedido.estado ===
+            EstadoPedido.LISTO ||
+          pedido.estado ===
+            EstadoPedido.ENTREGADO
+        ) {
+          throw new BadRequestException(
+            'No se puede cancelar el pedido porque su preparacion ya avanzo',
+          );
+        }
+
+        const comandaAvanzada =
+          pedido.comandas.find(
+            (comanda) =>
+              comanda.estado ===
+                EstadoComanda.EN_PREPARACION ||
+              comanda.estado ===
+                EstadoComanda.LISTA ||
+              comanda.estado ===
+                EstadoComanda.ENTREGADA,
+          );
+
+        if (comandaAvanzada) {
+          throw new BadRequestException(
+            'No se puede cancelar el pedido porque existe una comanda que ya inicio preparacion',
+          );
+        }
+
+        /*
+         * Cancelar todas las comandas que
+         * aun no han iniciado preparacion.
+         */
+        await tx.comanda.updateMany({
+          where: {
+            pedidoId:
+              pedido.id,
+
+            estado:
+              EstadoComanda.PENDIENTE,
+          },
+
+          data: {
+            estado:
+              EstadoComanda.CANCELADA,
+          },
+        });
+
+        /*
+         * =================================================
+         * REPONER INVENTARIO
+         * =================================================
+         *
+         * Agrupamos por articulo para evitar realizar
+         * varias actualizaciones del mismo stock.
+         */
+        const reposicionPorArticulo =
+          new Map<
+            number,
+            {
+              nombre: string;
+              sucursalId: number;
+              cantidad:
+                Prisma.Decimal;
+            }
+          >();
+
+        for (
+          const detalle of
+            pedido.detalles
+        ) {
+          for (
+            const receta of
+              detalle.producto.recetas
+          ) {
+            const articulo =
+              receta.articulo;
+
+            if (
+              articulo.sucursalId !==
+              pedido.sucursalId
+            ) {
+              throw new BadRequestException(
+                `El articulo "${articulo.nombre}" no pertenece a la sucursal del pedido`,
+              );
+            }
+
+            const cantidad =
+              receta.cantidad.mul(
+                detalle.cantidad,
+              );
+
+            const existente =
+              reposicionPorArticulo.get(
+                articulo.id,
+              );
+
+            if (existente) {
+              existente.cantidad =
+                existente.cantidad.plus(
+                  cantidad,
+                );
+            } else {
+              reposicionPorArticulo.set(
+                articulo.id,
+                {
+                  nombre:
+                    articulo.nombre,
+
+                  sucursalId:
+                    articulo.sucursalId,
+
+                  cantidad,
+                },
+              );
+            }
+          }
+        }
+
+        for (
+          const [
+            articuloId,
+            reposicion,
+          ] of reposicionPorArticulo
+        ) {
+          const actualizado =
+            await tx.articulo.updateMany({
+              where: {
+                id:
+                  articuloId,
+
+                sucursalId:
+                  reposicion.sucursalId,
+              },
+
+              data: {
+                stock: {
+                  increment:
+                    reposicion.cantidad,
+                },
+              },
+            });
+
+          if (
+            actualizado.count !==
+            1
+          ) {
+            throw new BadRequestException(
+              `No fue posible reponer el inventario de "${reposicion.nombre}"`,
+            );
+          }
+        }
+
+        /*
+         * =================================================
+         * LIBERAR MESA
+         * =================================================
+         *
+         * Solo corresponde cuando esta mesa sigue
+         * ocupada por este pedido.
+         */
+        if (
+          pedido.mesaId !==
+          null
+        ) {
+          if (
+            pedido.mesa?.situacion ===
+            EstadoMesa.PENDIENTE_PAGO
+          ) {
+            /*
+             * En condiciones normales esto no puede
+             * ocurrir sin Venta. Aun asi evitamos
+             * liberar silenciosamente una mesa en
+             * estado comercial inconsistente.
+             */
+            throw new BadRequestException(
+              'La mesa esta pendiente de pago y el pedido no puede cancelarse desde este flujo',
+            );
+          }
+
+          await tx.mesa.updateMany({
+            where: {
+              id:
+                pedido.mesaId,
+
+              situacion:
+                EstadoMesa.OCUPADA,
+            },
+
+            data: {
+              situacion:
+                EstadoMesa.LIBRE,
+            },
+          });
+        }
+
+        /*
+         * =================================================
+         * CANCELAR PEDIDO
+         * =================================================
+         */
+        return tx.pedido.update({
+          where: {
+            id:
+              pedido.id,
+          },
+
+          data: {
+            estado:
+              EstadoPedido.CANCELADO,
+          },
+
+          include: {
+            sucursal: true,
+
+            mesa: {
+              include: {
+                zona: true,
+              },
+            },
+
+            detalles: {
+              include: {
+                producto: true,
+              },
+
+              orderBy: {
+                id: 'asc',
+              },
+            },
+
+            comandas: {
+              include: {
+                detalles: true,
+              },
+
+              orderBy: {
+                fechaEnvio:
+                  'asc',
+              },
+            },
+          },
+        });
+      },
+
+      {
+        isolationLevel:
+          Prisma.TransactionIsolationLevel
+            .Serializable,
+      },
+    );
+  }
+
   findAll(
     usuarioActual:
       UsuarioAutenticado,
@@ -985,11 +1224,6 @@ export class PedidosService {
     });
   }
 
-  /*
-   * =====================================================
-   * CONSULTAR PEDIDO
-   * =====================================================
-   */
   async findOne(
     id:
       number,

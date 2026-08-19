@@ -4,6 +4,7 @@
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Req,
   UseGuards,
@@ -69,20 +70,6 @@ export class PedidosController {
     );
   }
 
-  /*
-   * Agregar nuevas lineas a un pedido existente.
-   *
-   * Ejemplo:
-   *
-   * Pedido inicial:
-   * Hamburguesa x1
-   *
-   * Mas tarde:
-   * Hamburguesa x2
-   *
-   * Se crea un nuevo DetallePedido para conservar
-   * la trazabilidad de las comandas anteriores.
-   */
   @Post(':id/detalles')
   @Permisos('PEDIDOS_EDITAR')
   agregarDetalles(
@@ -103,6 +90,25 @@ export class PedidosController {
     return this.pedidosService.agregarDetalles(
       id,
       data,
+      request.user,
+    );
+  }
+
+  @Patch(':id/cancelar')
+  @Permisos('PEDIDOS_CANCELAR')
+  cancelar(
+    @Param(
+      'id',
+      ParseIntPipe,
+    )
+    id: number,
+
+    @Req()
+    request:
+      RequestAutenticada,
+  ) {
+    return this.pedidosService.cancelar(
+      id,
       request.user,
     );
   }

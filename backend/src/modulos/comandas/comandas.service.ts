@@ -23,9 +23,15 @@ export class ComandasService {
   ) {}
 
   private esSuperadmin(
-    usuario: UsuarioAutenticado,
+    usuario:
+      UsuarioAutenticado,
   ) {
-    return usuario.restauranteId === null;
+    return (
+      usuario.rol ===
+        'SUPERADMIN' &&
+      usuario.restauranteId ===
+        null
+    );
   }
 
   private filtroSucursal(

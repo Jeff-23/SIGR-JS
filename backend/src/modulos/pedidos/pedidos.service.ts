@@ -55,8 +55,10 @@ export class PedidosService {
       UsuarioAutenticado,
   ) {
     return (
+      usuarioActual.rol ===
+        'SUPERADMIN' &&
       usuarioActual.restauranteId ===
-      null
+        null
     );
   }
 

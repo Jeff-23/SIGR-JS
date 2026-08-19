@@ -21,8 +21,26 @@ import {
 } from './dto/create-pedido.dto';
 
 import {
+  AgregarDetallesPedidoDto,
+} from './dto/agregar-detalles-pedido.dto';
+
+import {
   UsuarioAutenticado,
 } from '../auth/types/usuario-autenticado.type';
+
+type DetalleEntrada = {
+  productoId: number;
+  cantidad: number;
+};
+
+type DetallePreparado = {
+  productoId: number;
+  cantidad: number;
+  precioUnitario:
+    Prisma.Decimal;
+  subtotal:
+    Prisma.Decimal;
+};
 
 @Injectable()
 export class PedidosService {
@@ -77,10 +95,6 @@ export class PedidosService {
     usuarioActual:
       UsuarioAutenticado,
   ) {
-    /*
-     * SUPERADMIN global posee bypass,
-     * igual que CapabilitiesGuard.
-     */
     if (
       this.esSuperadmin(
         usuarioActual,
@@ -95,9 +109,272 @@ export class PedidosService {
       )
     ) {
       throw new ForbiddenException(
-        'La gestión de mesas no está incluida en el plan del restaurante',
+        'La gestion de mesas no esta incluida en el plan del restaurante',
       );
     }
+  }
+
+  /*
+   * =====================================================
+   * AGRUPAR PRODUCTOS DE UNA MISMA OPERACION
+   * =====================================================
+   *
+   * Si una misma llamada contiene:
+   *
+   * producto 1 x1
+   * producto 1 x2
+   *
+   * se procesa como:
+   *
+   * producto 1 x3
+   *
+   * IMPORTANTE:
+   *
+   * Esto solo agrupa dentro de LA MISMA llamada.
+   *
+   * Si el producto ya existia anteriormente en
+   * el pedido, se crea un NUEVO DetallePedido.
+   *
+   * De esta manera las comandas anteriores
+   * conservan su trazabilidad.
+   */
+  private agruparCantidades(
+    detalles:
+      DetalleEntrada[],
+  ) {
+    const cantidades =
+      new Map<
+        number,
+        number
+      >();
+
+    for (
+      const detalle of detalles
+    ) {
+      cantidades.set(
+        detalle.productoId,
+
+        (cantidades.get(
+          detalle.productoId,
+        ) ?? 0) +
+          detalle.cantidad,
+      );
+    }
+
+    return cantidades;
+  }
+
+  /*
+   * =====================================================
+   * PREPARAR DETALLES + INVENTARIO
+   * =====================================================
+   *
+   * Funciona tanto para:
+   *
+   * - crear un Pedido
+   * - agregar productos posteriormente
+   *
+   * El descuento de inventario por receta es
+   * atomico:
+   *
+   * UPDATE articulo
+   * WHERE stock >= consumo
+   *
+   * Esto evita dejar stock negativo por
+   * concurrencia.
+   */
+  private async prepararDetallesYDescontarInventario(
+    tx:
+      Prisma.TransactionClient,
+
+    sucursalId:
+      number,
+
+    detalles:
+      DetalleEntrada[],
+  ): Promise<{
+    total:
+      Prisma.Decimal;
+
+    detalles:
+      DetallePreparado[];
+  }> {
+    const cantidades =
+      this.agruparCantidades(
+        detalles,
+      );
+
+    const productosIds = [
+      ...cantidades.keys(),
+    ];
+
+    const productos =
+      await tx.producto.findMany({
+        where: {
+          id: {
+            in:
+              productosIds,
+          },
+
+          estado: true,
+
+          categoria: {
+            estado: true,
+
+            sucursalId,
+
+            sucursal: {
+              estado: true,
+            },
+          },
+        },
+
+        include: {
+          recetas: {
+            include: {
+              articulo: {
+                select: {
+                  id: true,
+                  nombre: true,
+                  estado: true,
+                  sucursalId: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+    if (
+      productos.length !==
+      productosIds.length
+    ) {
+      throw new NotFoundException(
+        'Uno o mas productos no existen o no pertenecen a la sucursal',
+      );
+    }
+
+    const productosPorId =
+      new Map(
+        productos.map(
+          (producto) => [
+            producto.id,
+            producto,
+          ],
+        ),
+      );
+
+    let total =
+      new Prisma.Decimal(0);
+
+    const detallesPreparados:
+      DetallePreparado[] = [];
+
+    for (
+      const [
+        productoId,
+        cantidad,
+      ] of cantidades
+    ) {
+      const producto =
+        productosPorId.get(
+          productoId,
+        );
+
+      if (!producto) {
+        throw new NotFoundException(
+          `Producto con ID ${productoId} no encontrado`,
+        );
+      }
+
+      const subtotal =
+        producto.precio.mul(
+          cantidad,
+        );
+
+      total =
+        total.plus(
+          subtotal,
+        );
+
+      detallesPreparados.push({
+        productoId:
+          producto.id,
+
+        cantidad,
+
+        precioUnitario:
+          producto.precio,
+
+        subtotal,
+      });
+
+      /*
+       * Descontar los articulos asociados
+       * mediante receta.
+       */
+      for (
+        const receta of
+          producto.recetas
+      ) {
+        const articulo =
+          receta.articulo;
+
+        if (
+          !articulo.estado ||
+          articulo.sucursalId !==
+            sucursalId
+        ) {
+          throw new BadRequestException(
+            `La receta del producto "${producto.nombre}" contiene un articulo invalido para esta sucursal`,
+          );
+        }
+
+        const cantidadADescontar =
+          receta.cantidad.mul(
+            cantidad,
+          );
+
+        const actualizado =
+          await tx.articulo.updateMany({
+            where: {
+              id:
+                articulo.id,
+
+              estado: true,
+
+              sucursalId,
+
+              stock: {
+                gte:
+                  cantidadADescontar,
+              },
+            },
+
+            data: {
+              stock: {
+                decrement:
+                  cantidadADescontar,
+              },
+            },
+          });
+
+        if (
+          actualizado.count !==
+          1
+        ) {
+          throw new BadRequestException(
+            `Stock insuficiente de "${articulo.nombre}" para preparar "${producto.nombre}"`,
+          );
+        }
+      }
+    }
+
+    return {
+      total,
+      detalles:
+        detallesPreparados,
+    };
   }
 
   private async resolverSucursalSinMesa(
@@ -111,11 +388,7 @@ export class PedidosService {
       UsuarioAutenticado,
   ) {
     /*
-     * Usuario ligado directamente
-     * a una sucursal:
-     *
-     * esa sucursal es siempre la
-     * autoridad del request.
+     * Usuario ligado a sucursal.
      */
     if (
       usuarioActual.sucursalId !==
@@ -160,10 +433,7 @@ export class PedidosService {
 
     /*
      * ADMIN de restaurante o SUPERADMIN
-     * sin sucursal fija:
-     *
-     * debe indicar explícitamente
-     * en cuál sucursal ocurre el pedido.
+     * sin sucursal fija.
      */
     if (
       data.sucursalId === undefined
@@ -212,11 +482,7 @@ export class PedidosService {
     mesaId: number | null;
   }> {
     /*
-     * MANUAL no representa un canal
-     * operativo normal.
-     *
-     * El cierre manual pertenece al
-     * flujo comercial:
+     * MANUAL pertenece al flujo comercial:
      *
      * Venta.MANUAL_CIERRE
      */
@@ -229,6 +495,11 @@ export class PedidosService {
       );
     }
 
+    /*
+     * ===================================================
+     * PEDIDO DE MESA
+     * ===================================================
+     */
     if (
       data.tipo ===
       TipoPedido.MESA
@@ -296,12 +567,12 @@ export class PedidosService {
         EstadoMesa.LIBRE
       ) {
         throw new BadRequestException(
-          'La mesa ya está ocupada o no está disponible',
+          'La mesa ya esta ocupada o no esta disponible',
         );
       }
 
       /*
-       * Reserva atómica de la mesa.
+       * Reserva atomica de mesa.
        */
       const mesaReservada =
         await tx.mesa.updateMany({
@@ -340,7 +611,9 @@ export class PedidosService {
     }
 
     /*
-     * Pedidos sin mesa.
+     * ===================================================
+     * PEDIDO SIN MESA
+     * ===================================================
      */
     if (
       data.mesaId !==
@@ -364,6 +637,11 @@ export class PedidosService {
     };
   }
 
+  /*
+   * =====================================================
+   * CREAR PEDIDO
+   * =====================================================
+   */
   async create(
     data:
       CreatePedidoDto,
@@ -380,262 +658,54 @@ export class PedidosService {
             usuarioActual,
           );
 
-        /*
-         * Agrupar productos repetidos.
-         *
-         * Evita múltiples líneas del mismo
-         * producto dentro del mismo pedido.
-         */
-        const cantidades =
-          new Map<
-            number,
-            number
-          >();
+        const preparado =
+          await this
+            .prepararDetallesYDescontarInventario(
+              tx,
+              contexto.sucursalId,
+              data.detalles,
+            );
 
-        for (
-          const item of data.detalles
-        ) {
-          cantidades.set(
-            item.productoId,
+        return tx.pedido.create({
+          data: {
+            sucursalId:
+              contexto.sucursalId,
 
-            (cantidades.get(
-              item.productoId,
-            ) ?? 0) +
-              item.cantidad,
-          );
-        }
+            mesaId:
+              contexto.mesaId,
 
-        const productosIds = [
-          ...cantidades.keys(),
-        ];
+            usuarioId:
+              usuarioActual.id,
 
-        const productos =
-          await tx.producto.findMany({
-            where: {
-              id: {
-                in:
-                  productosIds,
-              },
+            tipo:
+              data.tipo,
 
-              estado: true,
+            estado:
+              EstadoPedido.PENDIENTE,
 
-              categoria: {
-                estado: true,
+            total:
+              preparado.total,
 
-                sucursalId:
-                  contexto.sucursalId,
+            detalles: {
+              create:
+                preparado.detalles,
+            },
+          },
 
-                sucursal: {
-                  estado: true,
-                },
+          include: {
+            detalles: {
+              include: {
+                producto: true,
               },
             },
 
-            include: {
-              recetas: {
-                include: {
-                  articulo: {
-                    select: {
-                      id: true,
-                      nombre: true,
-                      estado: true,
-                      sucursalId: true,
-                    },
-                  },
-                },
+            mesa: {
+              include: {
+                zona: true,
               },
             },
-          });
-
-        if (
-          productos.length !==
-          productosIds.length
-        ) {
-          throw new NotFoundException(
-            'Uno o más productos no existen o no pertenecen a la sucursal',
-          );
-        }
-
-        const productosPorId =
-          new Map(
-            productos.map(
-              (producto) => [
-                producto.id,
-                producto,
-              ],
-            ),
-          );
-
-        let totalPedido =
-          new Prisma.Decimal(0);
-
-        const detallesPreparados: {
-          productoId: number;
-          cantidad: number;
-          precioUnitario:
-            Prisma.Decimal;
-          subtotal:
-            Prisma.Decimal;
-        }[] = [];
-
-        /*
-         * Preparar detalles y descontar
-         * inventario por receta.
-         */
-        for (
-          const [
-            productoId,
-            cantidad,
-          ] of cantidades
-        ) {
-          const producto =
-            productosPorId.get(
-              productoId,
-            );
-
-          if (!producto) {
-            throw new NotFoundException(
-              `Producto con ID ${productoId} no encontrado`,
-            );
-          }
-
-          const subtotal =
-            producto.precio.mul(
-              cantidad,
-            );
-
-          totalPedido =
-            totalPedido.plus(
-              subtotal,
-            );
-
-          detallesPreparados.push({
-            productoId:
-              producto.id,
-
-            cantidad,
-
-            precioUnitario:
-              producto.precio,
-
-            subtotal,
-          });
-
-          for (
-            const receta of
-              producto.recetas
-          ) {
-            const articulo =
-              receta.articulo;
-
-            if (
-              !articulo.estado ||
-              articulo.sucursalId !==
-                contexto.sucursalId
-            ) {
-              throw new BadRequestException(
-                `La receta del producto "${producto.nombre}" contiene un artículo inválido para esta sucursal`,
-              );
-            }
-
-            const cantidadADescontar =
-              receta.cantidad.mul(
-                cantidad,
-              );
-
-            /*
-             * Descuento atómico.
-             *
-             * La condición stock >= cantidad
-             * y el decrement ocurren en una
-             * sola operación SQL.
-             *
-             * Esto evita la carrera:
-             *
-             * request A lee 10
-             * request B lee 10
-             * ambos descuentan
-             * y dejan stock negativo.
-             */
-            const actualizado =
-              await tx.articulo.updateMany({
-                where: {
-                  id:
-                    articulo.id,
-
-                  estado: true,
-
-                  sucursalId:
-                    contexto.sucursalId,
-
-                  stock: {
-                    gte:
-                      cantidadADescontar,
-                  },
-                },
-
-                data: {
-                  stock: {
-                    decrement:
-                      cantidadADescontar,
-                  },
-                },
-              });
-
-            if (
-              actualizado.count !==
-              1
-            ) {
-              throw new BadRequestException(
-                `Stock insuficiente de "${articulo.nombre}" para preparar "${producto.nombre}"`,
-              );
-            }
-          }
-        }
-
-        const pedido =
-          await tx.pedido.create({
-            data: {
-              sucursalId:
-                contexto.sucursalId,
-
-              mesaId:
-                contexto.mesaId,
-
-              usuarioId:
-                usuarioActual.id,
-
-              tipo:
-                data.tipo,
-
-              estado:
-                EstadoPedido.PENDIENTE,
-
-              total:
-                totalPedido,
-
-              detalles: {
-                create:
-                  detallesPreparados,
-              },
-            },
-
-            include: {
-              detalles: {
-                include: {
-                  producto: true,
-                },
-              },
-
-              mesa: {
-                include: {
-                  zona: true,
-                },
-              },
-            },
-          });
-
-        return pedido;
+          },
+        });
       },
 
       {
@@ -646,6 +716,219 @@ export class PedidosService {
     );
   }
 
+  /*
+   * =====================================================
+   * AGREGAR PRODUCTOS A PEDIDO EXISTENTE
+   * =====================================================
+   *
+   * Caso real:
+   *
+   * Mesa pide:
+   *   Hamburguesa x1
+   *
+   * Se envia a cocina.
+   *
+   * Minutos despues pide:
+   *   Gaseosa x1
+   *   Hamburguesa x2
+   *
+   * Estas nuevas unidades se crean como nuevos
+   * DetallePedido y posteriormente pueden enviarse
+   * en una nueva Comanda.
+   */
+  async agregarDetalles(
+    pedidoId:
+      number,
+
+    data:
+      AgregarDetallesPedidoDto,
+
+    usuarioActual:
+      UsuarioAutenticado,
+  ) {
+    return this.prisma.$transaction(
+      async (tx) => {
+        /*
+         * Buscar exclusivamente dentro del
+         * tenant/sucursal autorizados.
+         */
+        const pedido =
+          await tx.pedido.findFirst({
+            where: {
+              id:
+                pedidoId,
+
+              sucursal:
+                this.filtroSucursal(
+                  usuarioActual,
+                ),
+            },
+
+            include: {
+              venta: {
+                select: {
+                  id: true,
+                },
+              },
+
+              factura: {
+                select: {
+                  id: true,
+                },
+              },
+            },
+          });
+
+        if (!pedido) {
+          throw new NotFoundException(
+            'Pedido no encontrado',
+          );
+        }
+
+        /*
+         * Una vez cancelado no puede reabrirse
+         * agregando productos.
+         */
+        if (
+          pedido.estado ===
+          EstadoPedido.CANCELADO
+        ) {
+          throw new BadRequestException(
+            'No se pueden agregar productos a un pedido cancelado',
+          );
+        }
+
+        /*
+         * Flujo comercial antiguo.
+         */
+        if (
+          pedido.estado ===
+            EstadoPedido.FACTURADO ||
+          pedido.factura
+        ) {
+          throw new BadRequestException(
+            'No se pueden agregar productos a un pedido facturado',
+          );
+        }
+
+        /*
+         * Una Venta es un snapshot comercial
+         * del Pedido.
+         *
+         * Si ya existe Venta no modificamos
+         * posteriormente el Pedido porque los
+         * totales dejarian de coincidir.
+         */
+        if (
+          pedido.venta
+        ) {
+          throw new BadRequestException(
+            'No se pueden agregar productos despues de generar la venta del pedido',
+          );
+        }
+
+        /*
+         * Validar productos, sucursal e inventario.
+         */
+        const preparado =
+          await this
+            .prepararDetallesYDescontarInventario(
+              tx,
+              pedido.sucursalId,
+              data.detalles,
+            );
+
+        /*
+         * Si el pedido ya habia terminado una ronda
+         * de servicio (LISTO / ENTREGADO), una nueva
+         * adicion lo reabre como PENDIENTE.
+         *
+         * Si ya existen preparaciones activas,
+         * conservamos EN_PREPARACION.
+         */
+        const estadoNuevo =
+          pedido.estado ===
+            EstadoPedido.LISTO ||
+          pedido.estado ===
+            EstadoPedido.ENTREGADO
+            ? EstadoPedido.PENDIENTE
+            : pedido.estado;
+
+        /*
+         * La transaccion garantiza que:
+         *
+         * - inventario
+         * - nuevas lineas
+         * - nuevo total
+         *
+         * se confirmen juntos o se reviertan juntos.
+         */
+        return tx.pedido.update({
+          where: {
+            id:
+              pedido.id,
+          },
+
+          data: {
+            total: {
+              increment:
+                preparado.total,
+            },
+
+            estado:
+              estadoNuevo,
+
+            detalles: {
+              create:
+                preparado.detalles,
+            },
+          },
+
+          include: {
+            detalles: {
+              include: {
+                producto: true,
+              },
+
+              orderBy: {
+                id: 'asc',
+              },
+            },
+
+            mesa: {
+              include: {
+                zona: true,
+              },
+            },
+
+            comandas: {
+              select: {
+                id: true,
+                estado: true,
+                fechaEnvio: true,
+              },
+
+              orderBy: {
+                fechaEnvio: 'asc',
+              },
+            },
+          },
+        });
+      },
+
+      {
+        isolationLevel:
+          Prisma.TransactionIsolationLevel
+            .Serializable,
+      },
+    );
+  }
+
+  /*
+   * =====================================================
+   * LISTAR PEDIDOS
+   * =====================================================
+   */
   findAll(
     usuarioActual:
       UsuarioAutenticado,
@@ -702,8 +985,14 @@ export class PedidosService {
     });
   }
 
+  /*
+   * =====================================================
+   * CONSULTAR PEDIDO
+   * =====================================================
+   */
   async findOne(
-    id: number,
+    id:
+      number,
 
     usuarioActual:
       UsuarioAutenticado,

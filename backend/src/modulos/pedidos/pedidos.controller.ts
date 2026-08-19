@@ -18,6 +18,10 @@ import {
 } from './dto/create-pedido.dto';
 
 import {
+  AgregarDetallesPedidoDto,
+} from './dto/agregar-detalles-pedido.dto';
+
+import {
   JwtAuthGuard,
 } from '../auth/jwt-auth.guard';
 
@@ -61,6 +65,44 @@ export class PedidosController {
   ) {
     return this.pedidosService.create(
       createPedidoDto,
+      request.user,
+    );
+  }
+
+  /*
+   * Agregar nuevas lineas a un pedido existente.
+   *
+   * Ejemplo:
+   *
+   * Pedido inicial:
+   * Hamburguesa x1
+   *
+   * Mas tarde:
+   * Hamburguesa x2
+   *
+   * Se crea un nuevo DetallePedido para conservar
+   * la trazabilidad de las comandas anteriores.
+   */
+  @Post(':id/detalles')
+  @Permisos('PEDIDOS_EDITAR')
+  agregarDetalles(
+    @Param(
+      'id',
+      ParseIntPipe,
+    )
+    id: number,
+
+    @Body()
+    data:
+      AgregarDetallesPedidoDto,
+
+    @Req()
+    request:
+      RequestAutenticada,
+  ) {
+    return this.pedidosService.agregarDetalles(
+      id,
+      data,
       request.user,
     );
   }

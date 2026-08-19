@@ -1,4 +1,9 @@
 import {
+  EstrategiaInventario,
+  UnidadInventario,
+} from '@prisma/client';
+import {
+  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
@@ -14,8 +19,16 @@ export class UpdateProductoDto {
   @IsOptional()
   descripcion?: string;
 
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @IsOptional()
   @Min(0)
   precio?: number;
+
+  @IsEnum(EstrategiaInventario)
+  @IsOptional()
+  estrategiaInventario?: EstrategiaInventario;
+
+  @IsEnum(UnidadInventario)
+  @IsOptional()
+  unidadInventario?: UnidadInventario;
 }

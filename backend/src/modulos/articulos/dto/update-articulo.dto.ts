@@ -1,4 +1,6 @@
+import { UnidadInventario } from '@prisma/client';
 import {
+  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
@@ -10,17 +12,12 @@ export class UpdateArticuloDto {
   @IsOptional()
   nombre?: string;
 
-  @IsString()
+  @IsEnum(UnidadInventario)
   @IsOptional()
-  unidad?: string;
+  unidad?: UnidadInventario;
 
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @IsOptional()
   @Min(0)
   costoUnidad?: number;
-
-  @IsNumber()
-  @IsOptional()
-  @Min(0)
-  stock?: number;
 }

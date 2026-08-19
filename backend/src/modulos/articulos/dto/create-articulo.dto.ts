@@ -1,19 +1,26 @@
-import { IsString, IsNotEmpty, IsNumber, IsInt, Min } from 'class-validator';
+import { UnidadInventario } from '@prisma/client';
+import {
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsNumber,
+  IsString,
+  Min,
+} from 'class-validator';
 
 export class CreateArticuloDto {
   @IsString()
   @IsNotEmpty()
   nombre: string;
 
-  @IsString()
-  @IsNotEmpty()
-  unidad: string;
+  @IsEnum(UnidadInventario)
+  unidad: UnidadInventario;
 
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   costoUnidad: number;
 
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 4 })
   @Min(0)
   stock: number;
 

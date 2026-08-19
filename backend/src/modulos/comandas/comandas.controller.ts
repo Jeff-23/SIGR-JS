@@ -41,7 +41,7 @@ export class ComandasController {
   ) {}
 
   @Post('pedidos/:pedidoId/comandas')
-  @Permisos('COMANDAS_GESTIONAR')
+  @Permisos('COMANDAS_ENVIAR')
   crear(
     @Param('pedidoId', ParseIntPipe)
     pedidoId: number,
@@ -71,7 +71,7 @@ export class ComandasController {
   }
 
   @Patch('comandas/:id/estado')
-  @Permisos('COMANDAS_GESTIONAR')
+  @Permisos('COMANDAS_ACTUALIZAR_ESTADO')
   actualizarEstado(
     @Param('id', ParseIntPipe)
     id: number,

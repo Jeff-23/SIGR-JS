@@ -287,6 +287,25 @@ const PERMISOS = [
     modulo: 'PEDIDOS',
   },
 
+  // Comandas / KDS
+  {
+    codigo: 'COMANDAS_VER',
+    nombre: 'Ver comandas de cocina',
+    modulo: 'KDS',
+  },
+  {
+    codigo: 'COMANDAS_ENVIAR',
+    nombre: 'Enviar comandas a cocina',
+    modulo: 'KDS',
+  },
+  {
+    codigo: 'COMANDAS_ACTUALIZAR_ESTADO',
+    nombre: 'Actualizar estado de comandas',
+    modulo: 'KDS',
+  },
+
+  
+
     // Ventas
   {
     codigo: 'VENTAS_VER',
@@ -513,6 +532,58 @@ async function bootstrap() {
     }
 
     console.log(`${PERMISOS.length} permisos configurados.`);
+
+    // ==========================================
+    // 4.1. RETIRO DE PERMISOS OBSOLETOS
+    // ==========================================
+
+    const codigosPermisosObsoletos = [
+      'COMANDAS_GESTIONAR',
+    ];
+
+    const permisosObsoletos =
+      await prisma.permiso.findMany({
+        where: {
+          codigo: {
+            in: codigosPermisosObsoletos,
+          },
+        },
+
+        select: {
+          id: true,
+        },
+      });
+
+    if (permisosObsoletos.length > 0) {
+      const idsPermisosObsoletos =
+        permisosObsoletos.map(
+          (permiso) => permiso.id,
+        );
+
+      await prisma.rolPermiso.deleteMany({
+        where: {
+          permisoId: {
+            in: idsPermisosObsoletos,
+          },
+        },
+      });
+
+      await prisma.permiso.updateMany({
+        where: {
+          id: {
+            in: idsPermisosObsoletos,
+          },
+        },
+
+        data: {
+          activo: false,
+        },
+      });
+    }
+
+    console.log(
+      'Permisos obsoletos retirados de roles y desactivados.',
+    );
 
           // ==========================================
     // 5. SUPERADMIN GLOBAL DE SIGR

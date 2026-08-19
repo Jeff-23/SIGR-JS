@@ -17,9 +17,15 @@ export class SucursalesService {
   ) {}
 
   private esSuperadmin(
-    usuarioActual: UsuarioAutenticado,
+    usuarioActual:
+      UsuarioAutenticado,
   ) {
-    return usuarioActual.restauranteId === null;
+    return (
+      usuarioActual.rol ===
+        'SUPERADMIN' &&
+      usuarioActual.restauranteId ===
+        null
+    );
   }
 
   private async validarRestauranteActivo(

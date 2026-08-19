@@ -1,15 +1,22 @@
 import {
+  ArrayMinSize,
   IsArray,
+  IsEnum,
   IsInt,
-  IsNotEmpty,
+  IsOptional,
   Min,
   ValidateNested,
 } from 'class-validator';
+
 import { Type } from 'class-transformer';
 
-class DetallePedidoDto {
+import {
+  TipoPedido,
+} from '@prisma/client';
+
+export class DetallePedidoDto {
   @IsInt()
-  @IsNotEmpty()
+  @Min(1)
   productoId: number;
 
   @IsInt()
@@ -18,12 +25,41 @@ class DetallePedidoDto {
 }
 
 export class CreatePedidoDto {
+  @IsEnum(TipoPedido)
+  tipo: TipoPedido;
+
+  /*
+   * Obligatorio únicamente para pedidos MESA.
+   *
+   * Para MOSTRADOR / PARA_LLEVAR / DOMICILIO
+   * debe omitirse.
+   */
+  @IsOptional()
   @IsInt()
-  @IsNotEmpty()
-  mesaId: number;
+  @Min(1)
+  mesaId?: number;
+
+  /*
+   * Permite identificar la sucursal cuando
+   * el usuario no está ligado a una sucursal
+   * concreta, por ejemplo un ADMIN del
+   * restaurante.
+   *
+   * Para pedidos MESA la sucursal se deriva
+   * directamente de la mesa.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  sucursalId?: number;
 
   @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => DetallePedidoDto)
+  @ArrayMinSize(1)
+  @ValidateNested({
+    each: true,
+  })
+  @Type(
+    () => DetallePedidoDto,
+  )
   detalles: DetallePedidoDto[];
 }

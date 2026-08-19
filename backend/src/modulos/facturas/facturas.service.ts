@@ -5,36 +5,55 @@ import {
 } from '@nestjs/common';
 
 import {
-  EstadoMesa,
-  EstadoPedido,
   EstadoVenta,
   Prisma,
 } from '@prisma/client';
 
-import { PrismaService } from '../../prisma/prisma.service';
-import { CreateFacturaDto } from './dto/create-factura.dto';
-import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import {
+  randomUUID,
+} from 'crypto';
+
+import {
+  PrismaService,
+} from '../../prisma/prisma.service';
+
+import {
+  CreateFacturaDto,
+} from './dto/create-factura.dto';
+
+import {
+  UsuarioAutenticado,
+} from '../auth/types/usuario-autenticado.type';
 
 @Injectable()
 export class FacturasService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly prisma:
+      PrismaService,
   ) {}
 
   private esSuperadmin(
-    usuarioActual: UsuarioAutenticado,
+    usuarioActual:
+      UsuarioAutenticado,
   ) {
-    return usuarioActual.restauranteId === null;
+    return (
+      usuarioActual.rol ===
+        'SUPERADMIN' &&
+      usuarioActual.restauranteId ===
+        null
+    );
   }
 
   /*
-   * Filtro centralizado de sucursal.
+   * =====================================================
+   * AISLAMIENTO MULTITENANT
+   * =====================================================
    *
-   * Garantiza aislamiento:
    * Restaurante -> Sucursal.
    */
   private filtroSucursal(
-    usuarioActual: UsuarioAutenticado,
+    usuarioActual:
+      UsuarioAutenticado,
   ): Prisma.SucursalWhereInput {
     return {
       estado: true,
@@ -42,235 +61,109 @@ export class FacturasService {
       restaurante: {
         estado: true,
 
-        ...(!this.esSuperadmin(usuarioActual)
+        ...(!this.esSuperadmin(
+          usuarioActual,
+        )
           ? {
-              id: usuarioActual.restauranteId!,
+              id:
+                usuarioActual
+                  .restauranteId!,
             }
           : {}),
       },
 
-      ...(usuarioActual.sucursalId !== null
+      ...(usuarioActual.sucursalId !==
+      null
         ? {
-            id: usuarioActual.sucursalId,
+            id:
+              usuarioActual
+                .sucursalId,
           }
         : {}),
     };
   }
+
   /*
    * =====================================================
-   * FLUJO LEGACY
-   * Pedido -> Factura -> Pago
-   *
-   * Se conserva temporalmente para compatibilidad.
+   * FLUJO LEGACY RETIRADO
    * =====================================================
+   *
+   * Anteriormente:
+   *
+   * Pedido
+   * -> Factura
+   * -> Pago ligado a Factura
+   * -> Pedido FACTURADO
+   * -> Mesa LIBRE
+   *
+   * Ese comportamiento entra en conflicto con
+   * el nucleo comercial vigente:
+   *
+   * Pedido
+   * -> Venta
+   * -> Pago
+   * -> Venta PAGADA
+   * -> Mesa LIBRE
+   *
+   * Las relaciones antiguas de Prisma se mantienen
+   * temporalmente para consultar información histórica,
+   * pero ya no se generan nuevas operaciones legacy.
    */
-  async create(
-    data: CreateFacturaDto,
-    usuarioActual: UsuarioAutenticado,
-  ) {
-    return this.prisma.$transaction(
-      async (tx) => {
-        const pedido =
-          await tx.pedido.findFirst({
-            where: {
-              id: data.pedidoId,
+  createLegacy(
+    _data:
+      CreateFacturaDto,
 
-              sucursal:
-                this.filtroSucursal(
-                  usuarioActual,
-                ),
-            },
-
-            include: {
-              factura: true,
-            },
-          });
-
-        if (!pedido) {
-          throw new NotFoundException(
-            'Pedido no encontrado',
-          );
-        }
-
-        if (
-          pedido.factura ||
-          pedido.estado ===
-            EstadoPedido.FACTURADO
-        ) {
-          throw new BadRequestException(
-            'Este pedido ya fue facturado',
-          );
-        }
-
-        if (
-          pedido.estado ===
-          EstadoPedido.CANCELADO
-        ) {
-          throw new BadRequestException(
-            'No se puede facturar un pedido cancelado',
-          );
-        }
-
-        /*
-         * Validar métodos de pago legacy.
-         */
-        const idsMetodosPago = [
-          ...new Set(
-            data.pagos.map(
-              (pago) =>
-                pago.metodoPagoId,
-            ),
-          ),
-        ];
-
-        const metodosPagoActivos =
-          await tx.metodoPago.findMany({
-            where: {
-              id: {
-                in: idsMetodosPago,
-              },
-
-              activo: true,
-            },
-
-            select: {
-              id: true,
-            },
-          });
-
-        if (
-          metodosPagoActivos.length !==
-          idsMetodosPago.length
-        ) {
-          throw new BadRequestException(
-            'Uno o más métodos de pago no existen o están inactivos',
-          );
-        }
-
-        const totalPedido =
-          pedido.total.toNumber();
-
-        const sumaPagos =
-          data.pagos.reduce(
-            (sum, pago) =>
-              sum + pago.monto,
-            0,
-          );
-
-        if (
-          sumaPagos < totalPedido
-        ) {
-          throw new BadRequestException(
-            `El monto pagado (${sumaPagos}) es menor al total del pedido (${totalPedido})`,
-          );
-        }
-
-        /*
-         * Numeración LEGACY.
-         *
-         * Se conserva únicamente mientras
-         * migramos completamente al nuevo flujo.
-         */
-        const conteo =
-          await tx.factura.count();
-
-        const numeroFactura =
-          `SET-${conteo + 1}`;
-
-        const nuevaFactura =
-          await tx.factura.create({
-            data: {
-              numero:
-                numeroFactura,
-
-              total:
-                totalPedido,
-
-              resolucionDian:
-                data.resolucionDian ||
-                '18760000001',
-
-              pedidoId:
-                pedido.id,
-
-              pagos: {
-                create:
-                  data.pagos.map(
-                    (pago) => ({
-                      monto:
-                        pago.monto,
-
-                      metodoPagoId:
-                        pago.metodoPagoId,
-                    }),
-                  ),
-              },
-            },
-
-            include: {
-              pagos: true,
-            },
-          });
-
-        /*
-         * Comportamiento legacy:
-         * marcar pedido como facturado.
-         */
-        await tx.pedido.update({
-          where: {
-            id: pedido.id,
-          },
-
-          data: {
-            estado:
-              EstadoPedido.FACTURADO,
-          },
-        });
-
-        /*
-         * Comportamiento legacy:
-         * liberar mesa.
-         */
-        if (
-          pedido.mesaId !== null
-        ) {
-          await tx.mesa.update({
-            where: {
-              id: pedido.mesaId,
-            },
-
-            data: {
-              situacion:
-                EstadoMesa.LIBRE,
-            },
-          });
-        }
-
-        return nuevaFactura;
-      },
+    _usuarioActual:
+      UsuarioAutenticado,
+  ): never {
+    throw new BadRequestException(
+      'El flujo Pedido -> Factura -> Pago fue retirado. Primero debe generar la Venta del pedido, registrar sus pagos y emitir la Factura desde la Venta.',
     );
   }
 
   /*
    * =====================================================
-   * NUEVO FLUJO
+   * FLUJO VIGENTE
+   * =====================================================
    *
    * Venta -> Factura
    *
-   * Los pagos pertenecen a Venta.
-   * Factura NO vuelve a crear pagos.
-   * =====================================================
+   * Responsabilidades:
+   *
+   * Factura:
+   * - documenta la Venta
+   *
+   * Venta:
+   * - representa la operación comercial
+   *
+   * Pago:
+   * - representa el dinero recibido
+   *
+   * Mesa:
+   * - se libera exclusivamente por el flujo
+   *   comercial de Venta/Pago
+   *
+   * Crear una Factura:
+   *
+   * NO crea pagos.
+   * NO libera mesas.
+   * NO cambia EstadoVenta.
+   * NO cambia EstadoPedido.
    */
   async crearDesdeVenta(
-    ventaId: number,
-    usuarioActual: UsuarioAutenticado,
+    ventaId:
+      number,
+
+    usuarioActual:
+      UsuarioAutenticado,
   ) {
     return this.prisma.$transaction(
       async (tx) => {
         const venta =
           await tx.venta.findFirst({
             where: {
-              id: ventaId,
+              id:
+                ventaId,
 
               sucursal:
                 this.filtroSucursal(
@@ -288,7 +181,14 @@ export class FacturasService {
               },
 
               detalles: true,
-              pedido: true,
+
+              pedido: {
+                select: {
+                  id: true,
+                  estado: true,
+                  mesaId: true,
+                },
+              },
             },
           });
 
@@ -307,65 +207,90 @@ export class FacturasService {
           );
         }
 
-        if (venta.factura) {
+        if (
+          venta.factura
+        ) {
           throw new BadRequestException(
             'La venta ya tiene una factura asociada',
           );
         }
 
         /*
-         * Número interno único.
+         * La Factura puede emitirse tanto para
+         * una Venta PENDIENTE_PAGO como PAGADA.
          *
-         * NO corresponde todavía a numeración
-         * fiscal autorizada por la DIAN.
+         * Esto es intencional:
+         *
+         * facturación y recaudo son dominios
+         * independientes.
+         *
+         * En ningún caso emitir la factura
+         * cambia el estado del pago o de la mesa.
          */
+
         const numeroFactura =
-          `INT-${crypto.randomUUID()}`;
+          `INT-${randomUUID()}`;
 
-        const factura =
-          await tx.factura.create({
-            data: {
-              numero:
-                numeroFactura,
+        return tx.factura.create({
+          data: {
+            numero:
+              numeroFactura,
 
-              total:
-                venta.total,
+            total:
+              venta.total,
 
-              ventaId:
-                venta.id,
+            ventaId:
+              venta.id,
 
-              /*
-               * Si la venta nació desde un pedido,
-               * conservamos temporalmente también
-               * esa referencia.
-               *
-               * DIRECTA / MANUAL_CIERRE:
-               * pedidoId = null.
-               */
-              pedidoId:
-                venta.pedidoId,
-            },
+            /*
+             * Si la Venta nació desde un Pedido,
+             * conservamos también la referencia.
+             *
+             * Para:
+             *
+             * DIRECTA
+             * MANUAL_CIERRE
+             *
+             * pedidoId permanece null.
+             */
+            pedidoId:
+              venta.pedidoId,
+          },
 
-            include: {
-              venta: {
-                include: {
-                  detalles: {
-                    include: {
-                      producto: true,
-                    },
+          include: {
+            venta: {
+              include: {
+                detalles: {
+                  include: {
+                    producto: true,
                   },
+                },
 
-                  pagos: {
-                    include: {
-                      metodoPago: true,
+                pagos: {
+                  include: {
+                    metodoPago: true,
+                  },
+                },
+
+                pedido: {
+                  include: {
+                    mesa: {
+                      include: {
+                        zona: true,
+                      },
                     },
                   },
                 },
               },
             },
-          });
+          },
+        });
+      },
 
-        return factura;
+      {
+        isolationLevel:
+          Prisma.TransactionIsolationLevel
+            .Serializable,
       },
     );
   }

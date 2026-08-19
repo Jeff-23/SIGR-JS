@@ -7,22 +7,21 @@ import {
   Min,
 } from 'class-validator';
 
-export class RegistrarPagoDto {
+export class AbrirCajaDto {
   @IsInt()
   @Min(1)
-  metodoPagoId: number;
-
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0.01)
-  monto: number;
+  sucursalId: number;
 
   @IsString()
-  @MaxLength(150)
-  @IsOptional()
-  referencia?: string;
+  @MaxLength(80)
+  nombre: string;
 
-  @IsInt()
-  @Min(1)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  saldoInicial: number;
+
+  @IsString()
+  @MaxLength(250)
   @IsOptional()
-  cajaId?: number;
+  observacion?: string;
 }

@@ -3,6 +3,8 @@ import {
   Injectable,
 } from '@nestjs/common';
 
+import { TipoMetodoPago } from '@prisma/client';
+
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateMetodoPagoDto } from './dto/create-metodo-pago.dto';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
@@ -18,14 +20,13 @@ export class MetodosPagoService {
     usuarioActual: UsuarioAutenticado,
   ) {
     /*
-     * MetodoPago es, por ahora, un catálogo
+     * MetodoPago continúa siendo un catálogo
      * global de la plataforma SIGR.
      *
-     * Por eso únicamente el SUPERADMIN SIGR
-     * puede modificarlo.
-     *
-     * SUPERADMIN:
-     * restauranteId === null
+     * Desde Sprint 5 también se clasifica por
+     * tipo para que Caja pueda separar efectivo
+     * de pagos electrónicos sin depender del
+     * texto visible del método de pago.
      */
     if (usuarioActual.restauranteId !== null) {
       throw new ForbiddenException(
@@ -36,6 +37,7 @@ export class MetodosPagoService {
     return this.prisma.metodoPago.create({
       data: {
         nombre: data.nombre.trim(),
+        tipo: data.tipo ?? TipoMetodoPago.OTRO,
       },
     });
   }
@@ -46,9 +48,14 @@ export class MetodosPagoService {
         activo: true,
       },
 
-      orderBy: {
-        nombre: 'asc',
-      },
+      orderBy: [
+        {
+          tipo: 'asc',
+        },
+        {
+          nombre: 'asc',
+        },
+      ],
     });
   }
 }

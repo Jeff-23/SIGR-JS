@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 
 import {
+  EstadoCaja,
   EstadoMesa,
   EstadoPedido,
   EstadoVenta,
@@ -890,8 +891,7 @@ export class VentasService {
         const venta =
           await tx.venta.findFirst({
             where: {
-              id:
-                ventaId,
+              id: ventaId,
 
               sucursal:
                 this.filtroSucursal(
@@ -938,9 +938,7 @@ export class VentasService {
         const metodoPago =
           await tx.metodoPago.findFirst({
             where: {
-              id:
-                data.metodoPagoId,
-
+              id: data.metodoPagoId,
               activo: true,
             },
           });
@@ -948,6 +946,105 @@ export class VentasService {
         if (!metodoPago) {
           throw new BadRequestException(
             'El método de pago no existe o está inactivo',
+          );
+        }
+
+        /*
+         * =================================================
+         * RESOLUCIÓN DE CAJA
+         * =================================================
+         *
+         * Todo pago nuevo debe pertenecer a una caja
+         * ABIERTA de la misma sucursal de la Venta.
+         *
+         * - Si el cliente envía cajaId, se valida.
+         * - Si existe una sola caja abierta, se infiere.
+         * - Si existen varias, cajaId es obligatorio.
+         * - Si no existe ninguna, el cobro se bloquea.
+         *
+         * Esto evita mezclar recaudos cuando MULTICAJA
+         * está habilitado.
+         */
+        const cajasAbiertas =
+          await tx.caja.findMany({
+            where: {
+              sucursalId:
+                venta.sucursalId,
+              estado:
+                EstadoCaja.ABIERTA,
+            },
+            select: {
+              id: true,
+              nombre: true,
+            },
+            orderBy: {
+              id: 'asc',
+            },
+          });
+
+        if (
+          cajasAbiertas.length === 0
+        ) {
+          throw new BadRequestException(
+            'Debe existir una caja abierta en la sucursal para registrar el pago',
+          );
+        }
+
+        let cajaId: number;
+
+        if (data.cajaId !== undefined) {
+          const cajaSolicitada =
+            cajasAbiertas.find(
+              (caja) =>
+                caja.id ===
+                data.cajaId,
+            );
+
+          if (!cajaSolicitada) {
+            throw new BadRequestException(
+              'La caja seleccionada no existe, está cerrada o no pertenece a la sucursal de la venta',
+            );
+          }
+
+          cajaId = cajaSolicitada.id;
+        } else if (
+          cajasAbiertas.length === 1
+        ) {
+          cajaId = cajasAbiertas[0].id;
+        } else {
+          throw new BadRequestException(
+            'Hay varias cajas abiertas. Debes indicar cajaId para registrar el pago',
+          );
+        }
+
+        /*
+         * Bloqueo de fila para coordinar cobro y cierre.
+         * Si otra transacción está cerrando la caja,
+         * esperamos y luego volvemos a verificar su estado.
+         */
+        await tx.$queryRaw(
+          Prisma.sql`
+            SELECT "id"
+            FROM "Caja"
+            WHERE "id" = ${cajaId}
+            FOR UPDATE
+          `,
+        );
+
+        const caja =
+          await tx.caja.findFirst({
+            where: {
+              id: cajaId,
+              sucursalId:
+                venta.sucursalId,
+              estado:
+                EstadoCaja.ABIERTA,
+            },
+          });
+
+        if (!caja) {
+          throw new BadRequestException(
+            'La caja seleccionada ya no se encuentra abierta',
           );
         }
 
@@ -995,6 +1092,12 @@ export class VentasService {
             referencia:
               data.referencia
                 ?.trim() || null,
+
+            cajaId:
+              caja.id,
+
+            usuarioId:
+              usuarioActual.id,
           },
         });
 
@@ -1057,6 +1160,13 @@ export class VentasService {
             pagos: {
               include: {
                 metodoPago: true,
+                caja: {
+                  select: {
+                    id: true,
+                    nombre: true,
+                    estado: true,
+                  },
+                },
               },
             },
 

@@ -1089,6 +1089,13 @@ export class VentasService {
             include: {
               pagos: true,
               factura: true,
+              pedido: {
+                select: {
+                  id: true,
+                  estado: true,
+                  mesaId: true,
+                },
+              },
             },
           });
 
@@ -1103,16 +1110,32 @@ export class VentasService {
           EstadoVenta.ANULADA
         ) {
           throw new BadRequestException(
-            'La venta ya está anulada',
+            'La venta ya esta anulada',
           );
         }
 
+        /*
+         * Una factura emitida implica que la
+         * operación ya posee un documento comercial.
+         *
+         * No se permite cambiar simplemente Venta
+         * a ANULADA porque eso requiere un flujo
+         * formal de reversión de facturación.
+         */
         if (venta.factura) {
           throw new BadRequestException(
-            'Una venta facturada debe anularse mediante el flujo de facturación',
+            'Una venta facturada requiere un flujo de reversión de facturación',
           );
         }
 
+        /*
+         * Cualquier dinero registrado impide
+         * la anulación directa.
+         *
+         * El movimiento deberá resolverse mediante
+         * devolución/reversión cuando dicho flujo
+         * sea implementado.
+         */
         if (
           venta.pagos.length > 0
         ) {
@@ -1121,6 +1144,59 @@ export class VentasService {
           );
         }
 
+        /*
+         * Incluso una Venta PAGADA sin registros
+         * de Pago puede existir cuando su total
+         * es cero.
+         *
+         * PAGADA es un estado comercial cerrado
+         * y no debe pasar directamente a ANULADA.
+         */
+        if (
+          venta.estado ===
+          EstadoVenta.PAGADA
+        ) {
+          throw new BadRequestException(
+            'Una venta pagada requiere un flujo de reversión comercial',
+          );
+        }
+
+        /*
+         * Las ventas originadas desde Pedido tienen
+         * una relación uno-a-uno con dicho Pedido.
+         *
+         * Anularlas y reabrir la Mesa dejaría al
+         * Pedido con una Venta ANULADA asociada y
+         * sin posibilidad segura de generar un
+         * nuevo cobro.
+         *
+         * Hasta implementar el flujo formal de
+         * reapertura/reversión, la anulación directa
+         * de estas ventas queda bloqueada.
+         *
+         * No se modifica Pedido.
+         * No se modifica Mesa.
+         */
+        if (
+          venta.origen ===
+          OrigenVenta.PEDIDO
+        ) {
+          throw new BadRequestException(
+            'Una venta originada en un pedido requiere el flujo de reapertura o reversión del cobro',
+          );
+        }
+
+        /*
+         * Solo llegan aquí:
+         *
+         * DIRECTA / MANUAL_CIERRE
+         * +
+         * PENDIENTE_PAGO
+         * +
+         * sin pagos
+         * +
+         * sin factura
+         */
         return tx.venta.update({
           where: {
             id:
@@ -1131,7 +1207,19 @@ export class VentasService {
             estado:
               EstadoVenta.ANULADA,
           },
+
+          include: {
+            detalles: true,
+            pagos: true,
+            factura: true,
+          },
         });
+      },
+
+      {
+        isolationLevel:
+          Prisma.TransactionIsolationLevel
+            .Serializable,
       },
     );
   }

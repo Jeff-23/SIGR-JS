@@ -1,7 +1,12 @@
 import {
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import {
+  Prisma,
+  TipoMovimientoInventario,
+} from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateArticuloDto } from './dto/create-articulo.dto';
@@ -110,9 +115,48 @@ export class ArticulosService {
       usuarioActual,
     );
 
-    return this.prisma.articulo.create({
-      data,
-    });
+    return this.prisma.$transaction(
+      async (tx) => {
+        const articulo =
+          await tx.articulo.create({
+            data,
+          });
+
+        if (
+          articulo.stock.gt(0)
+        ) {
+          await tx.movimientoInventario.create({
+            data: {
+              tipo:
+                TipoMovimientoInventario.ENTRADA,
+              cantidad:
+                articulo.stock,
+              unidad:
+                articulo.unidad,
+              stockAnterior:
+                new Prisma.Decimal(0),
+              stockNuevo:
+                articulo.stock,
+              motivo:
+                'Stock inicial del artículo',
+              sucursalId:
+                articulo.sucursalId,
+              usuarioId:
+                usuarioActual.id,
+              articuloId:
+                articulo.id,
+            },
+          });
+        }
+
+        return articulo;
+      },
+      {
+        isolationLevel:
+          Prisma.TransactionIsolationLevel
+            .Serializable,
+      },
+    );
   }
 
   async findAll(
@@ -161,10 +205,21 @@ export class ArticulosService {
     data: UpdateArticuloDto,
     usuarioActual: UsuarioAutenticado,
   ) {
-    await this.buscarDentroDelAlcance(
-      id,
-      usuarioActual,
-    );
+    const articulo =
+      await this.buscarDentroDelAlcance(
+        id,
+        usuarioActual,
+      );
+
+    if (
+      data.unidad !== undefined &&
+      data.unidad !== articulo.unidad &&
+      articulo.stock.gt(0)
+    ) {
+      throw new BadRequestException(
+        'No se puede cambiar la unidad de un artículo con stock existente. Ajuste primero el stock a cero.',
+      );
+    }
 
     return this.prisma.articulo.update({
       where: {

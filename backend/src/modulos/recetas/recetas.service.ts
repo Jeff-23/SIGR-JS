@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -7,6 +8,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateRecetaDto } from './dto/create-receta.dto';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import { unidadesCompatibles } from '../inventario/inventario-unidades.util';
 
 @Injectable()
 export class RecetasService {
@@ -110,6 +112,21 @@ export class RecetasService {
       );
     }
 
+    const unidadReceta =
+      data.unidad ??
+      articulo.unidad;
+
+    if (
+      !unidadesCompatibles(
+        unidadReceta,
+        articulo.unidad,
+      )
+    ) {
+      throw new BadRequestException(
+        `La unidad ${unidadReceta} no es compatible con la unidad base ${articulo.unidad} del artículo`,
+      );
+    }
+
     const existe =
       await this.prisma.receta.findUnique({
         where: {
@@ -127,7 +144,13 @@ export class RecetasService {
     }
 
     return this.prisma.receta.create({
-      data,
+      data: {
+        productoId: data.productoId,
+        articuloId: data.articuloId,
+        cantidad: data.cantidad,
+        unidad:
+          unidadReceta,
+      },
     });
   }
 }

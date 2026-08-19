@@ -13,6 +13,7 @@ import { CategoriasModule } from './modulos/categorias/categorias.module';
 import { ComandasModule } from './modulos/comandas/comandas.module';
 import { DocumentosElectronicosModule } from './modulos/documentos-electronicos/documentos-electronicos.module';
 import { FacturasModule } from './modulos/facturas/facturas.module';
+import { InventarioModule } from './modulos/inventario/inventario.module';
 import { MesasModule } from './modulos/mesas/mesas.module';
 import { MetodosPagoModule } from './modulos/metodos-pago/metodos-pago.module';
 import { PedidosModule } from './modulos/pedidos/pedidos.module';
@@ -41,6 +42,7 @@ import { ZonasModule } from './modulos/zonas/zonas.module';
     MesasModule,
     ZonasModule,
     ProductosModule,
+    InventarioModule,
     PedidosModule,
     ArticulosModule,
     RecetasModule,

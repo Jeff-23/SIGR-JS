@@ -143,7 +143,7 @@ export class PedidosService {
     return cantidades;
   }
 
-  private async prepararDetallesYDescontarInventario(
+  private async prepararDetalles(
     tx:
       Prisma.TransactionClient,
 
@@ -185,21 +185,6 @@ export class PedidosService {
 
             sucursal: {
               estado: true,
-            },
-          },
-        },
-
-        include: {
-          recetas: {
-            include: {
-              articulo: {
-                select: {
-                  id: true,
-                  nombre: true,
-                  estado: true,
-                  sucursalId: true,
-                },
-              },
             },
           },
         },
@@ -268,62 +253,6 @@ export class PedidosService {
 
         subtotal,
       });
-
-      for (
-        const receta of
-          producto.recetas
-      ) {
-        const articulo =
-          receta.articulo;
-
-        if (
-          !articulo.estado ||
-          articulo.sucursalId !==
-            sucursalId
-        ) {
-          throw new BadRequestException(
-            `La receta del producto "${producto.nombre}" contiene un articulo invalido para esta sucursal`,
-          );
-        }
-
-        const cantidadADescontar =
-          receta.cantidad.mul(
-            cantidad,
-          );
-
-        const actualizado =
-          await tx.articulo.updateMany({
-            where: {
-              id:
-                articulo.id,
-
-              estado: true,
-
-              sucursalId,
-
-              stock: {
-                gte:
-                  cantidadADescontar,
-              },
-            },
-
-            data: {
-              stock: {
-                decrement:
-                  cantidadADescontar,
-              },
-            },
-          });
-
-        if (
-          actualizado.count !==
-          1
-        ) {
-          throw new BadRequestException(
-            `Stock insuficiente de "${articulo.nombre}" para preparar "${producto.nombre}"`,
-          );
-        }
-      }
     }
 
     return {
@@ -587,7 +516,7 @@ export class PedidosService {
 
         const preparado =
           await this
-            .prepararDetallesYDescontarInventario(
+            .prepararDetalles(
               tx,
               contexto.sucursalId,
               data.detalles,
@@ -717,7 +646,7 @@ export class PedidosService {
 
         const preparado =
           await this
-            .prepararDetallesYDescontarInventario(
+            .prepararDetalles(
               tx,
               pedido.sucursalId,
               data.detalles,
@@ -808,9 +737,12 @@ export class PedidosService {
    *
    * Tambien:
    *
-   * - se repone inventario
    * - se libera la mesa
    * - Pedido pasa a CANCELADO
+   *
+   * Pedido no modifica inventario.
+   * La afectacion de existencias corresponde
+   * exclusivamente a Venta.
    */
   async cancelar(
     pedidoId:
@@ -858,26 +790,6 @@ export class PedidosService {
                 select: {
                   id: true,
                   estado: true,
-                },
-              },
-
-              detalles: {
-                include: {
-                  producto: {
-                    include: {
-                      recetas: {
-                        include: {
-                          articulo: {
-                            select: {
-                              id: true,
-                              nombre: true,
-                              sucursalId: true,
-                            },
-                          },
-                        },
-                      },
-                    },
-                  },
                 },
               },
             },
@@ -964,111 +876,6 @@ export class PedidosService {
               EstadoComanda.CANCELADA,
           },
         });
-
-        /*
-         * =================================================
-         * REPONER INVENTARIO
-         * =================================================
-         *
-         * Agrupamos por articulo para evitar realizar
-         * varias actualizaciones del mismo stock.
-         */
-        const reposicionPorArticulo =
-          new Map<
-            number,
-            {
-              nombre: string;
-              sucursalId: number;
-              cantidad:
-                Prisma.Decimal;
-            }
-          >();
-
-        for (
-          const detalle of
-            pedido.detalles
-        ) {
-          for (
-            const receta of
-              detalle.producto.recetas
-          ) {
-            const articulo =
-              receta.articulo;
-
-            if (
-              articulo.sucursalId !==
-              pedido.sucursalId
-            ) {
-              throw new BadRequestException(
-                `El articulo "${articulo.nombre}" no pertenece a la sucursal del pedido`,
-              );
-            }
-
-            const cantidad =
-              receta.cantidad.mul(
-                detalle.cantidad,
-              );
-
-            const existente =
-              reposicionPorArticulo.get(
-                articulo.id,
-              );
-
-            if (existente) {
-              existente.cantidad =
-                existente.cantidad.plus(
-                  cantidad,
-                );
-            } else {
-              reposicionPorArticulo.set(
-                articulo.id,
-                {
-                  nombre:
-                    articulo.nombre,
-
-                  sucursalId:
-                    articulo.sucursalId,
-
-                  cantidad,
-                },
-              );
-            }
-          }
-        }
-
-        for (
-          const [
-            articuloId,
-            reposicion,
-          ] of reposicionPorArticulo
-        ) {
-          const actualizado =
-            await tx.articulo.updateMany({
-              where: {
-                id:
-                  articuloId,
-
-                sucursalId:
-                  reposicion.sucursalId,
-              },
-
-              data: {
-                stock: {
-                  increment:
-                    reposicion.cantidad,
-                },
-              },
-            });
-
-          if (
-            actualizado.count !==
-            1
-          ) {
-            throw new BadRequestException(
-              `No fue posible reponer el inventario de "${reposicion.nombre}"`,
-            );
-          }
-        }
 
         /*
          * =================================================

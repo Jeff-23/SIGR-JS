@@ -1,8 +1,11 @@
 import {
+  BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 
+import { EstrategiaInventario } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProductoDto } from './dto/create-producto.dto';
 import { UpdateProductoDto } from './dto/update-producto.dto';
@@ -24,6 +27,46 @@ export class ProductosService {
       usuarioActual.restauranteId ===
         null
     );
+  }
+
+  private validarCapacidadesInventario(
+    estrategia:
+      EstrategiaInventario | undefined,
+    usuarioActual:
+      UsuarioAutenticado,
+  ) {
+    if (
+      estrategia === undefined ||
+      estrategia ===
+        EstrategiaInventario.NO_CONTROLAR ||
+      this.esSuperadmin(
+        usuarioActual,
+      )
+    ) {
+      return;
+    }
+
+    if (
+      !usuarioActual.capacidades.includes(
+        'INVENTARIO',
+      )
+    ) {
+      throw new ForbiddenException(
+        'El control de inventario no está incluido en el plan del restaurante',
+      );
+    }
+
+    if (
+      estrategia ===
+        EstrategiaInventario.POR_RECETA &&
+      !usuarioActual.capacidades.includes(
+        'RECETAS',
+      )
+    ) {
+      throw new ForbiddenException(
+        'El control por receta no está incluido en el plan del restaurante',
+      );
+    }
   }
 
   private async validarCategoriaDentroDelAlcance(
@@ -114,6 +157,11 @@ export class ProductosService {
     data: CreateProductoDto,
     usuarioActual: UsuarioAutenticado,
   ) {
+    this.validarCapacidadesInventario(
+      data.estrategiaInventario,
+      usuarioActual,
+    );
+
     await this.validarCategoriaDentroDelAlcance(
       data.categoriaId,
       usuarioActual,
@@ -168,10 +216,45 @@ export class ProductosService {
     data: UpdateProductoDto,
     usuarioActual: UsuarioAutenticado,
   ) {
-    await this.buscarProductoDentroDelAlcance(
-      id,
-      usuarioActual,
-    );
+    const producto =
+      await this.buscarProductoDentroDelAlcance(
+        id,
+        usuarioActual,
+      );
+
+    if (
+      data.estrategiaInventario !==
+      undefined
+    ) {
+      this.validarCapacidadesInventario(
+        data.estrategiaInventario,
+        usuarioActual,
+      );
+    }
+
+    if (
+      producto.stock.gt(0)
+    ) {
+      if (
+        data.unidadInventario !== undefined &&
+        data.unidadInventario !==
+          producto.unidadInventario
+      ) {
+        throw new BadRequestException(
+          'No se puede cambiar la unidad de inventario de un producto con stock existente. Ajuste primero el stock a cero.',
+        );
+      }
+
+      if (
+        data.estrategiaInventario !== undefined &&
+        data.estrategiaInventario !==
+          producto.estrategiaInventario
+      ) {
+        throw new BadRequestException(
+          'No se puede cambiar la estrategia de inventario de un producto con stock existente. Ajuste primero el stock a cero.',
+        );
+      }
+    }
 
     return this.prisma.producto.update({
       where: {

@@ -26,11 +26,13 @@ import {
 import { RegistrarPagoDto } from './dto/registrar-pago.dto';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import { InventarioService } from '../inventario/inventario.service';
 
 @Injectable()
 export class VentasService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly inventarioService: InventarioService,
   ) {}
 
   private esSuperadmin(
@@ -263,6 +265,26 @@ export class VentasService {
             },
           });
 
+        await this.inventarioService.descontarPorVenta(
+          tx,
+          {
+            ventaId:
+              venta.id,
+            sucursalId:
+              pedido.sucursalId,
+            usuarioActual,
+            detalles:
+              pedido.detalles.map(
+                (detalle) => ({
+                  productoId:
+                    detalle.productoId,
+                  cantidad:
+                    detalle.cantidad,
+                }),
+              ),
+          },
+        );
+
         /*
          * =================================================
          * ESTADO DE MESA AL PASAR A COBRO
@@ -304,6 +326,11 @@ export class VentasService {
         }
 
         return venta;
+      },
+      {
+        isolationLevel:
+          Prisma.TransactionIsolationLevel
+            .Serializable,
       },
     );
   }
@@ -734,7 +761,8 @@ export class VentasService {
             usuarioActual,
           );
 
-        return tx.venta.create({
+        const venta =
+          await tx.venta.create({
           data: {
             origen,
 
@@ -780,6 +808,33 @@ export class VentasService {
             factura: true,
           },
         });
+
+        await this.inventarioService.descontarPorVenta(
+          tx,
+          {
+            ventaId:
+              venta.id,
+            sucursalId:
+              sucursal.id,
+            usuarioActual,
+            detalles:
+              detallesPreparados.map(
+                (detalle) => ({
+                  productoId:
+                    detalle.productoId,
+                  cantidad:
+                    detalle.cantidad,
+                }),
+              ),
+          },
+        );
+
+        return venta;
+      },
+      {
+        isolationLevel:
+          Prisma.TransactionIsolationLevel
+            .Serializable,
       },
     );
   }
@@ -1312,7 +1367,23 @@ export class VentasService {
          * sin pagos
          * +
          * sin factura
+         *
+         * La restauración de inventario se ejecuta ANTES
+         * del cambio de estado, dentro de esta misma
+         * transacción Serializable. Si falla una sola
+         * restitución, la Venta permanece sin anular.
          */
+        await this.inventarioService.revertirPorAnulacionVenta(
+          tx,
+          {
+            ventaId:
+              venta.id,
+            sucursalId:
+              venta.sucursalId,
+            usuarioActual,
+          },
+        );
+
         return tx.venta.update({
           where: {
             id:

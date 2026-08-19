@@ -12,6 +12,11 @@ import {
 import { Type } from 'class-transformer';
 
 export class AjustesVentaDto {
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  clienteId?: number;
+
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @IsOptional()

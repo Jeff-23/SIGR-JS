@@ -96,7 +96,6 @@ const CAPACIDADES = [
   },
 ] as const;
 
-
 const METODOS_PAGO_BASE = [
   {
     nombre: 'Efectivo',
@@ -119,10 +118,7 @@ const METODOS_PAGO_BASE = [
 const CAPACIDADES_POR_PLAN: Record<string, string[]> = {
   BASICO: [],
 
-  MEDIO: [
-    'MESAS',
-    'CLIENTES',
-  ],
+  MEDIO: ['MESAS', 'CLIENTES'],
 
   PRO: [
     'MESAS',
@@ -324,9 +320,7 @@ const PERMISOS = [
     modulo: 'KDS',
   },
 
-  
-
-    // Ventas
+  // Ventas
   {
     codigo: 'VENTAS_VER',
     nombre: 'Ver ventas',
@@ -406,11 +400,33 @@ const PERMISOS = [
     modulo: 'CAJA',
   },
 
-  // Ventas
+  // Descuentos
   {
     codigo: 'DESCUENTOS_APLICAR',
     nombre: 'Aplicar descuentos',
     modulo: 'VENTAS',
+  },
+
+  // Clientes
+  {
+    codigo: 'CLIENTES_VER',
+    nombre: 'Ver clientes',
+    modulo: 'CLIENTES',
+  },
+  {
+    codigo: 'CLIENTES_CREAR',
+    nombre: 'Crear clientes',
+    modulo: 'CLIENTES',
+  },
+  {
+    codigo: 'CLIENTES_EDITAR',
+    nombre: 'Editar clientes',
+    modulo: 'CLIENTES',
+  },
+  {
+    codigo: 'CLIENTES_DESACTIVAR',
+    nombre: 'Activar o desactivar clientes',
+    modulo: 'CLIENTES',
   },
 
   // Reportes
@@ -518,9 +534,7 @@ async function bootstrap() {
         const capacidadId = capacidadesPorCodigo.get(codigoCapacidad);
 
         if (!capacidadId) {
-          throw new Error(
-            `No se encontró la capacidad ${codigoCapacidad}`,
-          );
+          throw new Error(`No se encontró la capacidad ${codigoCapacidad}`);
         }
 
         await prisma.planCapacidad.create({
@@ -563,21 +577,20 @@ async function bootstrap() {
     // ==========================================
 
     for (const metodo of METODOS_PAGO_BASE) {
-      const actualizados =
-        await prisma.metodoPago.updateMany({
-          where: {
-            nombre: {
-              equals: metodo.nombre,
-              mode: 'insensitive',
-            },
+      const actualizados = await prisma.metodoPago.updateMany({
+        where: {
+          nombre: {
+            equals: metodo.nombre,
+            mode: 'insensitive',
           },
+        },
 
-          data: {
-            nombre: metodo.nombre,
-            tipo: metodo.tipo,
-            activo: true,
-          },
-        });
+        data: {
+          nombre: metodo.nombre,
+          tipo: metodo.tipo,
+          activo: true,
+        },
+      });
 
       if (actualizados.count === 0) {
         await prisma.metodoPago.create({
@@ -598,28 +611,24 @@ async function bootstrap() {
     // 4.2. RETIRO DE PERMISOS OBSOLETOS
     // ==========================================
 
-    const codigosPermisosObsoletos = [
-      'COMANDAS_GESTIONAR',
-    ];
+    const codigosPermisosObsoletos = ['COMANDAS_GESTIONAR'];
 
-    const permisosObsoletos =
-      await prisma.permiso.findMany({
-        where: {
-          codigo: {
-            in: codigosPermisosObsoletos,
-          },
+    const permisosObsoletos = await prisma.permiso.findMany({
+      where: {
+        codigo: {
+          in: codigosPermisosObsoletos,
         },
+      },
 
-        select: {
-          id: true,
-        },
-      });
+      select: {
+        id: true,
+      },
+    });
 
     if (permisosObsoletos.length > 0) {
-      const idsPermisosObsoletos =
-        permisosObsoletos.map(
-          (permiso) => permiso.id,
-        );
+      const idsPermisosObsoletos = permisosObsoletos.map(
+        (permiso) => permiso.id,
+      );
 
       await prisma.rolPermiso.deleteMany({
         where: {
@@ -646,181 +655,167 @@ async function bootstrap() {
       'Permisos obsoletos retirados de roles y desactivados.',
     );
 
-          // ==========================================
+    // ==========================================
     // 5. SUPERADMIN GLOBAL DE SIGR
     // ==========================================
 
-    const rolSuperadmin =
-      await prisma.rol.upsert({
-        where: {
-          clave: 'SISTEMA:SUPERADMIN',
-        },
+    const rolSuperadmin = await prisma.rol.upsert({
+      where: {
+        clave: 'SISTEMA:SUPERADMIN',
+      },
 
-        update: {
-          nombre: 'SUPERADMIN',
-          descripcion:
-            'Superadministrador global de la plataforma SIGR',
-          ambito: AmbitoRol.SISTEMA,
-          restauranteId: null,
-        },
+      update: {
+        nombre: 'SUPERADMIN',
+        descripcion:
+          'Superadministrador global de la plataforma SIGR',
+        ambito: AmbitoRol.SISTEMA,
+        restauranteId: null,
+      },
 
-        create: {
-          clave: 'SISTEMA:SUPERADMIN',
-          nombre: 'SUPERADMIN',
-          descripcion:
-            'Superadministrador global de la plataforma SIGR',
-          ambito: AmbitoRol.SISTEMA,
-          restauranteId: null,
-        },
-      });
+      create: {
+        clave: 'SISTEMA:SUPERADMIN',
+        nombre: 'SUPERADMIN',
+        descripcion:
+          'Superadministrador global de la plataforma SIGR',
+        ambito: AmbitoRol.SISTEMA,
+        restauranteId: null,
+      },
+    });
 
-    console.log(
-      'Rol SUPERADMIN global configurado.',
-    );
+    console.log('Rol SUPERADMIN global configurado.');
 
     // ==========================================
     // 6. ADMINISTRADORES POR RESTAURANTE
     // ==========================================
 
-    const restaurantes =
-      await prisma.restaurante.findMany({
-        select: {
-          id: true,
-          nombre: true,
+    const restaurantes = await prisma.restaurante.findMany({
+      select: {
+        id: true,
+        nombre: true,
+      },
+
+      orderBy: {
+        id: 'asc',
+      },
+    });
+
+    const permisosAdmin = await prisma.permiso.findMany({
+      where: {
+        activo: true,
+      },
+
+      select: {
+        id: true,
+        codigo: true,
+      },
+
+      orderBy: {
+        id: 'asc',
+      },
+    });
+
+    console.log(
+      `${permisosAdmin.length} permisos disponibles para roles ADMIN.`,
+    );
+
+    for (const restaurante of restaurantes) {
+      const claveAdmin = `RESTAURANTE:${restaurante.id}:ADMIN`;
+
+      const rolAdminRestaurante = await prisma.rol.upsert({
+        where: {
+          clave: claveAdmin,
         },
 
-        orderBy: {
-          id: 'asc',
+        update: {
+          nombre: 'ADMIN',
+          descripcion:
+            `Administrador del restaurante ${restaurante.nombre}`,
+          ambito: AmbitoRol.RESTAURANTE,
+          restauranteId: restaurante.id,
+        },
+
+        create: {
+          clave: claveAdmin,
+          nombre: 'ADMIN',
+          descripcion:
+            `Administrador del restaurante ${restaurante.nombre}`,
+          ambito: AmbitoRol.RESTAURANTE,
+          restauranteId: restaurante.id,
         },
       });
 
-      const permisosAdmin =
-  await prisma.permiso.findMany({
-    where: {
-      activo: true,
-    },
+      // ==========================================
+      // PERMISOS DEL ADMIN DEL RESTAURANTE
+      // ==========================================
 
-    select: {
-      id: true,
-      codigo: true,
-    },
-
-    orderBy: {
-      id: 'asc',
-    },
-  });
-
-console.log(
-  `${permisosAdmin.length} permisos disponibles para roles ADMIN.`,
-);
-
-    for (const restaurante of restaurantes) {
-  const claveAdmin =
-    `RESTAURANTE:${restaurante.id}:ADMIN`;
-
-  const rolAdminRestaurante =
-    await prisma.rol.upsert({
-      where: {
-        clave: claveAdmin,
-      },
-
-      update: {
-        nombre: 'ADMIN',
-        descripcion:
-          `Administrador del restaurante ${restaurante.nombre}`,
-        ambito: AmbitoRol.RESTAURANTE,
-        restauranteId: restaurante.id,
-      },
-
-      create: {
-        clave: claveAdmin,
-        nombre: 'ADMIN',
-        descripcion:
-          `Administrador del restaurante ${restaurante.nombre}`,
-        ambito: AmbitoRol.RESTAURANTE,
-        restauranteId: restaurante.id,
-      },
-    });
-
-  // ==========================================
-  // PERMISOS DEL ADMIN DEL RESTAURANTE
-  // ==========================================
-
-  await prisma.rolPermiso.deleteMany({
-    where: {
-      rolId: rolAdminRestaurante.id,
-    },
-  });
-
-  if (permisosAdmin.length > 0) {
-    await prisma.rolPermiso.createMany({
-      data: permisosAdmin.map(
-        (permiso) => ({
+      await prisma.rolPermiso.deleteMany({
+        where: {
           rolId: rolAdminRestaurante.id,
-          permisoId: permiso.id,
-        }),
-      ),
-    });
-  }
+        },
+      });
 
-  console.log(
-    `${permisosAdmin.length} permisos asignados al ADMIN de ${restaurante.nombre}.`,
-  );
+      if (permisosAdmin.length > 0) {
+        await prisma.rolPermiso.createMany({
+          data: permisosAdmin.map((permiso) => ({
+            rolId: rolAdminRestaurante.id,
+            permisoId: permiso.id,
+          })),
+        });
+      }
 
-  // Migración heredada de usuarios.
-  const resultado =
-    await prisma.usuario.updateMany({
-      where: {
-        restauranteId: restaurante.id,
-        rolId: rolSuperadmin.id,
-      },
+      console.log(
+        `${permisosAdmin.length} permisos asignados al ADMIN de ${restaurante.nombre}.`,
+      );
 
-      data: {
-        rolId: rolAdminRestaurante.id,
-      },
-    });
+      // Migración heredada de usuarios.
+      const resultado = await prisma.usuario.updateMany({
+        where: {
+          restauranteId: restaurante.id,
+          rolId: rolSuperadmin.id,
+        },
 
-  console.log(
-    `Rol ADMIN configurado para ${restaurante.nombre}. ` +
-      `Usuarios migrados: ${resultado.count}`,
-  );
-}
+        data: {
+          rolId: rolAdminRestaurante.id,
+        },
+      });
+
+      console.log(
+        `Rol ADMIN configurado para ${restaurante.nombre}. ` +
+          `Usuarios migrados: ${resultado.count}`,
+      );
+    }
 
     // ==========================================
     // 7. SUPERADMIN PRINCIPAL
     // ==========================================
 
-    const passwordHasheada =
-      await bcrypt.hash(adminPassword, 10);
+    const passwordHasheada = await bcrypt.hash(adminPassword, 10);
 
-    const admin =
-      await prisma.usuario.upsert({
-        where: {
-          email: 'admin@sigr.com',
-        },
+    const admin = await prisma.usuario.upsert({
+      where: {
+        email: 'admin@sigr.com',
+      },
 
-        update: {
-          rolId: rolSuperadmin.id,
-          restauranteId: null,
-          sucursalId: null,
-          activo: true,
-        },
+      update: {
+        rolId: rolSuperadmin.id,
+        restauranteId: null,
+        sucursalId: null,
+        activo: true,
+      },
 
-        create: {
-          nombres: 'Super',
-          apellidos: 'Administrador',
-          email: 'admin@sigr.com',
-          password: passwordHasheada,
-          rolId: rolSuperadmin.id,
-          restauranteId: null,
-          sucursalId: null,
-          activo: true,
-        },
-      });
+      create: {
+        nombres: 'Super',
+        apellidos: 'Administrador',
+        email: 'admin@sigr.com',
+        password: passwordHasheada,
+        rolId: rolSuperadmin.id,
+        restauranteId: null,
+        sucursalId: null,
+        activo: true,
+      },
+    });
 
-    console.log(
-      `Superadministrador verificado: ${admin.email}`,
-    );
+    console.log(`Superadministrador verificado: ${admin.email}`);
 
     console.log('Seed de SIGR completado correctamente.');
   } finally {

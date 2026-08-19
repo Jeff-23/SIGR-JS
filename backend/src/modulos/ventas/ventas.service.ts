@@ -71,6 +71,44 @@ export class VentasService {
     };
   }
 
+  private async resolverClienteId(
+    tx: Prisma.TransactionClient,
+    clienteId: number | undefined,
+    sucursalId: number,
+  ) {
+    if (clienteId === undefined) {
+      return null;
+    }
+
+    const cliente =
+      await tx.cliente.findFirst({
+        where: {
+          id: clienteId,
+          estado: true,
+
+          restaurante: {
+            sucursales: {
+              some: {
+                id: sucursalId,
+              },
+            },
+          },
+        },
+
+        select: {
+          id: true,
+        },
+      });
+
+    if (!cliente) {
+      throw new NotFoundException(
+        'Cliente no encontrado o no pertenece al restaurante de la sucursal',
+      );
+    }
+
+    return cliente.id;
+  }
+
   private validarYCalcularTotales(
     subtotal: Prisma.Decimal,
     data: AjustesVentaDto,
@@ -183,6 +221,13 @@ export class VentasService {
           );
         }
 
+        const clienteId =
+          await this.resolverClienteId(
+            tx,
+            data.clienteId,
+            pedido.sucursalId,
+          );
+
         const subtotal =
           pedido.detalles.reduce(
             (total, detalle) =>
@@ -238,6 +283,8 @@ export class VentasService {
               pedidoId:
                 pedido.id,
 
+              clienteId,
+
               detalles: {
                 create:
                   pedido.detalles.map(
@@ -262,6 +309,7 @@ export class VentasService {
               detalles: true,
               pagos: true,
               factura: true,
+              cliente: true,
             },
           });
 
@@ -619,6 +667,13 @@ export class VentasService {
           );
         }
 
+        const clienteId =
+          await this.resolverClienteId(
+            tx,
+            data.clienteId,
+            sucursal.id,
+          );
+
         let fechaOperacion =
           new Date();
 
@@ -796,6 +851,8 @@ export class VentasService {
             usuarioId:
               usuarioActual.id,
 
+            clienteId,
+
             detalles: {
               create:
                 detallesPreparados,
@@ -806,6 +863,7 @@ export class VentasService {
             detalles: true,
             pagos: true,
             factura: true,
+            cliente: true,
           },
         });
 
@@ -886,6 +944,7 @@ export class VentasService {
         },
 
         factura: true,
+        cliente: true,
       },
 
       orderBy: {
@@ -924,6 +983,7 @@ export class VentasService {
 
           factura: true,
           pedido: true,
+          cliente: true,
         },
       });
 

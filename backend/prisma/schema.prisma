@@ -126,8 +126,40 @@ model Restaurante {
   sucursales Sucursal[]
   usuarios   Usuario[]
   roles      Rol[]
+  clientes   Cliente[]
 
   @@index([planId])
+}
+
+model Cliente {
+  id Int @id @default(autoincrement())
+
+  tipoDocumento   String? @db.VarChar(20)
+  numeroDocumento String? @db.VarChar(30)
+
+  nombres   String  @db.VarChar(120)
+  apellidos String? @db.VarChar(120)
+
+  telefono  String? @db.VarChar(30)
+  correo    String? @db.VarChar(150)
+  direccion String? @db.VarChar(200)
+
+  fechaNacimiento DateTime? @db.Date
+
+  estado Boolean @default(true)
+
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  restauranteId Int
+  restaurante   Restaurante @relation(fields: [restauranteId], references: [id], onDelete: Restrict)
+
+  ventas Venta[]
+
+  @@unique([restauranteId, numeroDocumento])
+  @@index([restauranteId])
+  @@index([restauranteId, estado])
+  @@index([restauranteId, nombres])
 }
 
 model Sucursal {
@@ -141,10 +173,10 @@ model Sucursal {
   restauranteId Int
   restaurante   Restaurante @relation(fields: [restauranteId], references: [id])
 
-  usuarios   Usuario[]
-  zonas      Zona[]
-  categorias Categoria[]
-  articulos  Articulo[]
+  usuarios              Usuario[]
+  zonas                 Zona[]
+  categorias            Categoria[]
+  articulos             Articulo[]
   pedidos               Pedido[]
   ventas                Venta[]
   cajas                 Caja[]
@@ -191,8 +223,8 @@ model Usuario {
   pedidos Pedido[]
   ventas  Venta[]
 
-  cajasAbiertas    Caja[]           @relation("CajaAbiertaPor")
-  cajasCerradas    Caja[]           @relation("CajaCerradaPor")
+  cajasAbiertas         Caja[]                 @relation("CajaAbiertaPor")
+  cajasCerradas         Caja[]                 @relation("CajaCerradaPor")
   movimientosCaja       MovimientoCaja[]
   pagosRegistrados      Pago[]
   movimientosInventario MovimientoInventario[]
@@ -240,14 +272,14 @@ model Categoria {
 }
 
 model Producto {
-  id          Int      @id @default(autoincrement())
-  nombre      String   @db.VarChar(100)
-  descripcion String?  @db.Text
-  precio      Decimal  @db.Decimal(10, 2)
+  id          Int     @id @default(autoincrement())
+  nombre      String  @db.VarChar(100)
+  descripcion String? @db.Text
+  precio      Decimal @db.Decimal(10, 2)
 
   estrategiaInventario EstrategiaInventario @default(NO_CONTROLAR)
-  unidadInventario     UnidadInventario      @default(UNIDAD)
-  stock                Decimal               @default(0) @db.Decimal(14, 4)
+  unidadInventario     UnidadInventario     @default(UNIDAD)
+  stock                Decimal              @default(0) @db.Decimal(14, 4)
 
   estado   Boolean  @default(true)
   creadoEn DateTime @default(now())
@@ -359,10 +391,12 @@ model Venta {
   sucursalId Int
   usuarioId  Int
   pedidoId   Int? @unique
+  clienteId  Int?
 
   sucursal Sucursal @relation(fields: [sucursalId], references: [id])
   usuario  Usuario  @relation(fields: [usuarioId], references: [id])
   pedido   Pedido?  @relation(fields: [pedidoId], references: [id])
+  cliente  Cliente? @relation(fields: [clienteId], references: [id], onDelete: Restrict)
 
   detalles              DetalleVenta[]
   pagos                 Pago[]
@@ -371,6 +405,7 @@ model Venta {
 
   @@index([sucursalId])
   @@index([usuarioId])
+  @@index([clienteId])
   @@index([fechaOperacion])
   @@index([estado])
 }
@@ -397,13 +432,13 @@ model DetalleVenta {
 // ==========================================
 
 model Articulo {
-  id          Int               @id @default(autoincrement())
-  nombre      String            @db.VarChar(100)
-  unidad      UnidadInventario   @default(UNIDAD)
-  costoUnidad Decimal           @db.Decimal(10, 2)
-  stock       Decimal           @db.Decimal(14, 4)
-  estado      Boolean           @default(true)
-  creadoEn    DateTime          @default(now())
+  id          Int              @id @default(autoincrement())
+  nombre      String           @db.VarChar(100)
+  unidad      UnidadInventario @default(UNIDAD)
+  costoUnidad Decimal          @db.Decimal(10, 2)
+  stock       Decimal          @db.Decimal(14, 4)
+  estado      Boolean          @default(true)
+  creadoEn    DateTime         @default(now())
 
   sucursalId Int
   sucursal   Sucursal @relation(fields: [sucursalId], references: [id])
@@ -413,8 +448,8 @@ model Articulo {
 }
 
 model Receta {
-  id       Int               @id @default(autoincrement())
-  cantidad Decimal           @db.Decimal(14, 4)
+  id       Int              @id @default(autoincrement())
+  cantidad Decimal          @db.Decimal(14, 4)
   unidad   UnidadInventario
 
   productoId Int
@@ -447,13 +482,13 @@ model MovimientoInventario {
 
   movimientoOrigenId Int?
 
-  sucursal Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
-  usuario  Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
-  venta    Venta?   @relation(fields: [ventaId], references: [id], onDelete: Restrict)
+  sucursal Sucursal  @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  usuario  Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  venta    Venta?    @relation(fields: [ventaId], references: [id], onDelete: Restrict)
   producto Producto? @relation(fields: [productoId], references: [id], onDelete: Restrict)
   articulo Articulo? @relation(fields: [articuloId], references: [id], onDelete: Restrict)
 
-  movimientoOrigen MovimientoInventario?  @relation("ReversionMovimientoInventario", fields: [movimientoOrigenId], references: [id], onDelete: Restrict)
+  movimientoOrigen    MovimientoInventario?  @relation("ReversionMovimientoInventario", fields: [movimientoOrigenId], references: [id], onDelete: Restrict)
   movimientosReversos MovimientoInventario[] @relation("ReversionMovimientoInventario")
 
   @@index([sucursalId])

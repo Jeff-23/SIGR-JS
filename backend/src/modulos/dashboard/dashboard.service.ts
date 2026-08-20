@@ -58,7 +58,10 @@ export class DashboardService {
   }
 
   async resumen(filtros: FiltroReportesDto, usuarioActual: UsuarioAutenticado) {
-    const { inicio, fin } = this.reportesService.resolverRango(filtros);
+    const { inicio, fin } = await this.reportesService.resolverRango(
+      filtros,
+      usuarioActual,
+    );
 
     const sucursal = this.filtroSucursal(usuarioActual, filtros.sucursalId);
 

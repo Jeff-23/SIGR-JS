@@ -11,6 +11,10 @@ import {
   FiltroReportesDto,
   FiltroTopProductosDto,
 } from './dto/filtro-reportes.dto';
+import {
+  claveFechaEnZona,
+  fechaLocalEnZona,
+} from '../../plataforma/zona-horaria';
 
 @Injectable()
 export class ReportesService {
@@ -65,11 +69,15 @@ export class ReportesService {
     }
   }
 
-  private fechaDesdeTexto(valor: string, finDelDia: boolean) {
+  private fechaDesdeTexto(
+    valor: string,
+    finDelDia: boolean,
+    zonaHoraria: string,
+  ) {
     const soloFecha = /^\d{4}-\d{2}-\d{2}$/.test(valor);
 
     const fecha = soloFecha
-      ? new Date(`${valor}T${finDelDia ? '23:59:59.999' : '00:00:00.000'}`)
+      ? fechaLocalEnZona(valor, finDelDia, zonaHoraria)
       : new Date(valor);
 
     if (Number.isNaN(fecha.getTime())) {
@@ -79,23 +87,20 @@ export class ReportesService {
     return fecha;
   }
 
-  resolverRango(filtros: FiltroReportesDto) {
+  async resolverRango(
+    filtros: FiltroReportesDto,
+    usuarioActual: UsuarioAutenticado,
+  ) {
+    const zonaHoraria = await this.obtenerZonaHoraria(filtros, usuarioActual);
     const ahora = new Date();
+    const hoyOperativo = claveFechaEnZona(ahora, zonaHoraria);
 
     const inicio = filtros.desde
-      ? this.fechaDesdeTexto(filtros.desde, false)
-      : new Date(
-          ahora.getFullYear(),
-          ahora.getMonth(),
-          ahora.getDate(),
-          0,
-          0,
-          0,
-          0,
-        );
+      ? this.fechaDesdeTexto(filtros.desde, false, zonaHoraria)
+      : fechaLocalEnZona(hoyOperativo, false, zonaHoraria);
 
     const fin = filtros.hasta
-      ? this.fechaDesdeTexto(filtros.hasta, true)
+      ? this.fechaDesdeTexto(filtros.hasta, true, zonaHoraria)
       : ahora;
 
     if (inicio > fin) {
@@ -116,7 +121,34 @@ export class ReportesService {
     return {
       inicio,
       fin,
+      zonaHoraria,
     };
+  }
+
+  private async obtenerZonaHoraria(
+    filtros: FiltroReportesDto,
+    usuario: UsuarioAutenticado,
+  ) {
+    const sucursalId = filtros.sucursalId ?? usuario.sucursalId;
+    const restauranteId = usuario.restauranteId;
+    const [sucursal, restaurante] = await Promise.all([
+      sucursalId
+        ? this.prisma.configuracionSucursal.findUnique({
+            where: {
+              sucursalId_clave: { sucursalId, clave: 'ZONA_HORARIA' },
+            },
+          })
+        : null,
+      restauranteId
+        ? this.prisma.configuracionRestaurante.findUnique({
+            where: {
+              restauranteId_clave: { restauranteId, clave: 'ZONA_HORARIA' },
+            },
+          })
+        : null,
+    ]);
+    const valor = sucursal?.valor ?? restaurante?.valor ?? 'America/Bogota';
+    return typeof valor === 'string' ? valor : 'America/Bogota';
   }
 
   private filtroVenta(
@@ -143,7 +175,7 @@ export class ReportesService {
       usuarioActual,
     );
 
-    const { inicio, fin } = this.resolverRango(filtros);
+    const { inicio, fin } = await this.resolverRango(filtros, usuarioActual);
 
     const where = this.filtroVenta(filtros, usuarioActual, inicio, fin);
 
@@ -212,7 +244,10 @@ export class ReportesService {
       usuarioActual,
     );
 
-    const { inicio, fin } = this.resolverRango(filtros);
+    const { inicio, fin, zonaHoraria } = await this.resolverRango(
+      filtros,
+      usuarioActual,
+    );
 
     const ventas = await this.prisma.venta.findMany({
       where: this.filtroVenta(filtros, usuarioActual, inicio, fin),
@@ -235,11 +270,7 @@ export class ReportesService {
 
     for (const venta of ventas) {
       const fecha = venta.fechaOperacion;
-      const clave = [
-        fecha.getFullYear(),
-        String(fecha.getMonth() + 1).padStart(2, '0'),
-        String(fecha.getDate()).padStart(2, '0'),
-      ].join('-');
+      const clave = claveFechaEnZona(fecha, zonaHoraria);
 
       const actual = porDia.get(clave) ?? {
         cantidad: 0,
@@ -274,7 +305,7 @@ export class ReportesService {
       usuarioActual,
     );
 
-    const { inicio, fin } = this.resolverRango(filtros);
+    const { inicio, fin } = await this.resolverRango(filtros, usuarioActual);
 
     const limite = filtros.limite ?? 10;
 
@@ -335,7 +366,7 @@ export class ReportesService {
       usuarioActual,
     );
 
-    const { inicio, fin } = this.resolverRango(filtros);
+    const { inicio, fin } = await this.resolverRango(filtros, usuarioActual);
 
     const agrupados = await this.prisma.pago.groupBy({
       by: ['metodoPagoId'],

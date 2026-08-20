@@ -702,7 +702,13 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
   it('exige zona explícita en ventas manuales', async () => {
     const base = {
       sucursalId: sucursalAId,
-      detalles: [{ productoId: productoAId, cantidad: 1 }],
+      numeroComandaPapel: `COM-${sufijo}`,
+      numeroSoporte: `SOP-${sufijo}`,
+      impuestos: 0,
+      impoconsumo: 0,
+      detalles: [
+        { productoId: productoAId, cantidad: 1, precioUnitario: 12000 },
+      ],
     };
     await request(app.getHttpServer())
       .post('/ventas/manual')

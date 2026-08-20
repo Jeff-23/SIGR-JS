@@ -7,6 +7,7 @@ import {
 
 import {
   EstadoComanda,
+  EstadoDomicilio,
   EstadoMesa,
   EstadoPedido,
   Prisma,
@@ -20,6 +21,7 @@ import { CreatePedidoDto } from './dto/create-pedido.dto';
 import { AgregarDetallesPedidoDto } from './dto/agregar-detalles-pedido.dto';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import { ActualizarDomicilioDto } from './dto/actualizar-domicilio.dto';
 
 type DetalleEntrada = {
   productoId: number;
@@ -242,6 +244,16 @@ export class PedidosService {
     sucursalId: number;
     mesaId: number | null;
   }> {
+    if (data.tipo === TipoPedido.DOMICILIO && !data.domicilio) {
+      throw new BadRequestException(
+        'Un pedido DOMICILIO requiere destinatario, teléfono, dirección y costo',
+      );
+    }
+    if (data.tipo !== TipoPedido.DOMICILIO && data.domicilio) {
+      throw new BadRequestException(
+        'Los datos de domicilio sólo aplican a pedidos DOMICILIO',
+      );
+    }
     if (data.tipo === TipoPedido.MANUAL) {
       throw new BadRequestException(
         'Los registros manuales de cierre deben realizarse mediante el flujo de ventas manuales',
@@ -292,7 +304,10 @@ export class PedidosService {
         );
       }
 
-      if (mesa.situacion !== EstadoMesa.LIBRE) {
+      if (
+        mesa.situacion !== EstadoMesa.LIBRE &&
+        !(mesa.situacion === EstadoMesa.OCUPADA && mesa.ocupacionManual)
+      ) {
         throw new BadRequestException(
           'La mesa ya esta ocupada o no esta disponible',
         );
@@ -304,11 +319,17 @@ export class PedidosService {
 
           estado: true,
 
-          situacion: EstadoMesa.LIBRE,
+          OR: [
+            { situacion: EstadoMesa.LIBRE },
+            { situacion: EstadoMesa.OCUPADA, ocupacionManual: true },
+          ],
         },
 
         data: {
           situacion: EstadoMesa.OCUPADA,
+          ocupacionManual: false,
+          ocupadaManualEn: null,
+          ocupadaManualPorId: null,
         },
       });
 
@@ -373,11 +394,25 @@ export class PedidosService {
 
           estado: EstadoPedido.PENDIENTE,
 
-          total: preparado.total,
+          total: preparado.total.plus(data.domicilio?.costo ?? 0),
 
           detalles: {
             create: preparado.detalles,
           },
+
+          ...(data.domicilio
+            ? {
+                domicilio: {
+                  create: {
+                    destinatario: data.domicilio.destinatario.trim(),
+                    telefono: data.domicilio.telefono.trim(),
+                    direccion: data.domicilio.direccion.trim(),
+                    referencias: data.domicilio.referencias?.trim() || null,
+                    costo: data.domicilio.costo,
+                  },
+                },
+              }
+            : {}),
         },
 
         include: {
@@ -392,6 +427,7 @@ export class PedidosService {
               zona: true,
             },
           },
+          domicilio: true,
         },
       });
     });
@@ -666,6 +702,9 @@ export class PedidosService {
 
           data: {
             situacion: EstadoMesa.LIBRE,
+            ocupacionManual: false,
+            ocupadaManualEn: null,
+            ocupadaManualPorId: null,
           },
         });
       }
@@ -764,6 +803,150 @@ export class PedidosService {
       orderBy: {
         creadoEn: 'desc',
       },
+      take: 200,
+    });
+  }
+
+  async finalizarServicio(pedidoId: number, usuarioActual: UsuarioAutenticado) {
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const pedido = await tx.pedido.findFirst({
+        where: { id: pedidoId, sucursal: this.filtroSucursal(usuarioActual) },
+        include: { venta: { select: { estado: true } }, mesa: true },
+      });
+      if (!pedido) throw new NotFoundException('Pedido no encontrado');
+      if (pedido.estado !== EstadoPedido.ENTREGADO) {
+        throw new BadRequestException(
+          'El servicio sólo puede finalizar cuando el pedido fue entregado',
+        );
+      }
+      if (!pedido.venta || pedido.venta.estado !== 'PAGADA') {
+        throw new BadRequestException(
+          'El servicio sólo puede finalizar cuando la venta está pagada',
+        );
+      }
+      if (pedido.mesaId !== null) {
+        await tx.mesa.update({
+          where: { id: pedido.mesaId },
+          data: {
+            situacion: EstadoMesa.LIBRE,
+            ocupacionManual: false,
+            ocupadaManualEn: null,
+            ocupadaManualPorId: null,
+          },
+        });
+      }
+      return { pedidoId, finalizado: true, mesaId: pedido.mesaId };
+    });
+  }
+
+  listarDomicilios(usuarioActual: UsuarioAutenticado) {
+    return this.prisma.domicilio.findMany({
+      where: {
+        estado: {
+          in: [
+            EstadoDomicilio.PENDIENTE_ASIGNACION,
+            EstadoDomicilio.ASIGNADO,
+            EstadoDomicilio.EN_RUTA,
+            EstadoDomicilio.NO_ENTREGADO,
+          ],
+        },
+        pedido: { sucursal: this.filtroSucursal(usuarioActual) },
+      },
+      include: {
+        repartidor: { select: { id: true, nombres: true, apellidos: true } },
+        pedido: { include: { detalles: { include: { producto: true } } } },
+      },
+      orderBy: { creadoEn: 'asc' },
+      take: 200,
+    });
+  }
+
+  async actualizarDomicilio(
+    id: number,
+    data: ActualizarDomicilioDto,
+    usuarioActual: UsuarioAutenticado,
+  ) {
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const domicilio = await tx.domicilio.findFirst({
+        where: { id, pedido: { sucursal: this.filtroSucursal(usuarioActual) } },
+        include: { pedido: { include: { sucursal: true } } },
+      });
+      if (!domicilio) throw new NotFoundException('Domicilio no encontrado');
+      const permitidas: Record<EstadoDomicilio, EstadoDomicilio[]> = {
+        PENDIENTE_ASIGNACION: [
+          EstadoDomicilio.ASIGNADO,
+          EstadoDomicilio.CANCELADO,
+        ],
+        ASIGNADO: [EstadoDomicilio.EN_RUTA, EstadoDomicilio.CANCELADO],
+        EN_RUTA: [EstadoDomicilio.ENTREGADO, EstadoDomicilio.NO_ENTREGADO],
+        NO_ENTREGADO: [EstadoDomicilio.ASIGNADO, EstadoDomicilio.CANCELADO],
+        ENTREGADO: [],
+        CANCELADO: [],
+      };
+      if (!permitidas[domicilio.estado].includes(data.estado)) {
+        throw new BadRequestException(
+          `Transición de domicilio no permitida: ${domicilio.estado} -> ${data.estado}`,
+        );
+      }
+      let repartidorId = domicilio.repartidorId;
+      if (data.estado === EstadoDomicilio.ASIGNADO) {
+        if (!data.repartidorId)
+          throw new BadRequestException(
+            'Asignar domicilio requiere repartidorId',
+          );
+        const repartidor = await tx.usuario.findFirst({
+          where: {
+            id: data.repartidorId,
+            activo: true,
+            restauranteId: domicilio.pedido.sucursal.restauranteId,
+            OR: [
+              { sucursalId: null },
+              { sucursalId: domicilio.pedido.sucursalId },
+            ],
+          },
+        });
+        if (!repartidor)
+          throw new NotFoundException('Repartidor no encontrado');
+        repartidorId = repartidor.id;
+      }
+      if (data.estado === EstadoDomicilio.EN_RUTA && !repartidorId) {
+        throw new BadRequestException(
+          'El domicilio no tiene repartidor asignado',
+        );
+      }
+      if (
+        data.estado === EstadoDomicilio.EN_RUTA &&
+        domicilio.pedido.estado !== EstadoPedido.LISTO
+      ) {
+        throw new BadRequestException(
+          'El domicilio sólo puede salir a ruta cuando cocina entregó el pedido',
+        );
+      }
+      const ahora = new Date();
+      const actualizado = await tx.domicilio.update({
+        where: { id },
+        data: {
+          estado: data.estado,
+          repartidorId,
+          observacion: data.observacion?.trim() || domicilio.observacion,
+          ...(data.estado === EstadoDomicilio.ASIGNADO
+            ? { asignadoEn: ahora }
+            : {}),
+          ...(data.estado === EstadoDomicilio.EN_RUTA
+            ? { enRutaEn: ahora }
+            : {}),
+          ...(data.estado === EstadoDomicilio.ENTREGADO
+            ? { entregadoEn: ahora }
+            : {}),
+        },
+      });
+      if (data.estado === EstadoDomicilio.ENTREGADO) {
+        await tx.pedido.update({
+          where: { id: domicilio.pedidoId },
+          data: { estado: EstadoPedido.ENTREGADO },
+        });
+      }
+      return actualizado;
     });
   }
 

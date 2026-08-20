@@ -23,6 +23,7 @@ import { PermissionsGuard } from '../auth/permissions.guard';
 import { Permisos } from '../auth/permisos.decorator';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import { ActualizarDomicilioDto } from './dto/actualizar-domicilio.dto';
 
 type RequestAutenticada = {
   user: UsuarioAutenticado;
@@ -72,6 +73,15 @@ export class PedidosController {
     return this.pedidosService.cancelar(id, request.user);
   }
 
+  @Patch(':id/finalizar-servicio')
+  @Permisos('PEDIDOS_EDITAR')
+  finalizarServicio(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.pedidosService.finalizarServicio(id, request.user);
+  }
+
   @Get()
   @Permisos('PEDIDOS_VER')
   findAll(
@@ -79,6 +89,22 @@ export class PedidosController {
     request: RequestAutenticada,
   ) {
     return this.pedidosService.findAll(request.user);
+  }
+
+  @Get('domicilios/activos')
+  @Permisos('PEDIDOS_VER')
+  listarDomicilios(@Req() request: RequestAutenticada) {
+    return this.pedidosService.listarDomicilios(request.user);
+  }
+
+  @Patch('domicilios/:id/estado')
+  @Permisos('PEDIDOS_EDITAR')
+  actualizarDomicilio(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: ActualizarDomicilioDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.pedidosService.actualizarDomicilio(id, data, request.user);
   }
 
   @Get(':id')

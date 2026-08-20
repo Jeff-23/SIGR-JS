@@ -28,6 +28,9 @@ El servicio `migrate` del compose aplica migraciones antes de iniciar el backend
 - [ ] Separación Pedido/Venta/Pago/Factura/Documento Electrónico verificada.
 - [ ] Adaptador fiscal real registrado y diagnóstico del restaurante aprobado primero en habilitación.
 - [ ] Gestor de secretos resuelve todas las referencias `secret://...` sin registrar sus valores en logs.
+- [ ] Almacenamiento de objetos resuelve referencias `storage://...` de soportes y aplica retención por tenant.
+- [ ] Agente de impresión local configurado por sucursal; el backend no accede directamente a impresoras privadas.
+- [ ] Zona horaria, moneda, impuesto y prefijo de factura verificados por sucursal.
 
 ## Respaldo y restauración
 

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -12,6 +13,7 @@ import {
   EstadoVenta,
   OrigenVenta,
   Prisma,
+  Venta,
 } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -109,6 +111,33 @@ export class VentasService {
     return cliente.id;
   }
 
+  private async impuestoConfigurado(
+    tx: Prisma.TransactionClient,
+    sucursalId: number,
+    subtotal: Prisma.Decimal,
+  ) {
+    const sucursal = await tx.sucursal.findUniqueOrThrow({
+      where: { id: sucursalId },
+      select: { restauranteId: true },
+    });
+    const configSucursal = await tx.configuracionSucursal.findUnique({
+      where: {
+        sucursalId_clave: { sucursalId, clave: 'PORCENTAJE_IMPUESTO' },
+      },
+    });
+    const configRestaurante = await tx.configuracionRestaurante.findUnique({
+      where: {
+        restauranteId_clave: {
+          restauranteId: sucursal.restauranteId,
+          clave: 'PORCENTAJE_IMPUESTO',
+        },
+      },
+    });
+    const valor = configSucursal?.valor ?? configRestaurante?.valor ?? 0;
+    const porcentaje = typeof valor === 'number' ? valor : 0;
+    return subtotal.mul(porcentaje).div(100).toDecimalPlaces(2).toNumber();
+  }
+
   private validarYCalcularTotales(
     subtotal: Prisma.Decimal,
     data: AjustesVentaDto,
@@ -176,6 +205,7 @@ export class VentasService {
           detalles: true,
           venta: true,
           factura: true,
+          domicilio: true,
         },
       });
 
@@ -218,17 +248,22 @@ export class VentasService {
         new Prisma.Decimal(0),
       );
 
+      const impuestos =
+        data.impuestos ??
+        (await this.impuestoConfigurado(tx, pedido.sucursalId, subtotal));
       const ajustes = this.validarYCalcularTotales(
         subtotal,
-        data,
+        { ...data, impuestos },
         usuarioActual,
       );
+      const domicilioCosto = pedido.domicilio?.costo ?? new Prisma.Decimal(0);
+      const totalVenta = ajustes.total.plus(domicilioCosto);
 
       const ventaBase = await tx.venta.create({
         data: {
           origen: OrigenVenta.PEDIDO,
 
-          estado: ajustes.total.eq(0)
+          estado: totalVenta.eq(0)
             ? EstadoVenta.PAGADA
             : EstadoVenta.PENDIENTE_PAGO,
 
@@ -242,7 +277,9 @@ export class VentasService {
 
           propina: ajustes.propina,
 
-          total: ajustes.total,
+          total: totalVenta,
+
+          domicilioCosto,
 
           fechaOperacion: new Date(),
 
@@ -306,9 +343,14 @@ export class VentasService {
 
           data: {
             situacion:
-              ventaBase.estado === EstadoVenta.PAGADA
-                ? EstadoMesa.LIBRE
-                : EstadoMesa.PENDIENTE_PAGO,
+              pedido.estado === EstadoPedido.ENTREGADO
+                ? ventaBase.estado === EstadoVenta.PAGADA
+                  ? EstadoMesa.LIBRE
+                  : EstadoMesa.PENDIENTE_PAGO
+                : EstadoMesa.OCUPADA,
+            ocupacionManual: false,
+            ocupadaManualEn: null,
+            ocupadaManualPorId: null,
           },
         });
       }
@@ -518,14 +560,42 @@ export class VentasService {
       let fechaOperacion = new Date();
 
       if (origen === OrigenVenta.MANUAL_CIERRE) {
-        fechaOperacion = fechaOperativa(
-          (data as CrearVentaManualDto).fechaOperacion,
-        );
+        const manual = data as CrearVentaManualDto;
+        fechaOperacion = fechaOperativa(manual.fechaOperacion);
+        if (
+          manual.impuestos === undefined ||
+          manual.impoconsumo === undefined
+        ) {
+          throw new BadRequestException(
+            'La digitación manual debe indicar impuestos e impoconsumo originales, incluso si son cero',
+          );
+        }
+        if (!manual.numeroComandaPapel.trim() || !manual.numeroSoporte.trim()) {
+          throw new BadRequestException(
+            'La comanda y el soporte de papel son obligatorios',
+          );
+        }
       }
 
       const cantidades = new Map<number, number>();
 
       for (const detalle of data.detalles) {
+        if (
+          origen === OrigenVenta.MANUAL_CIERRE &&
+          detalle.precioUnitario === undefined
+        ) {
+          throw new BadRequestException(
+            'Cada detalle manual debe conservar su precio unitario original',
+          );
+        }
+        if (
+          origen !== OrigenVenta.MANUAL_CIERRE &&
+          detalle.precioUnitario !== undefined
+        ) {
+          throw new BadRequestException(
+            'El precio sólo puede informarse en la digitación manual de soportes',
+          );
+        }
         cantidades.set(
           detalle.productoId,
 
@@ -573,7 +643,22 @@ export class VentasService {
       for (const [productoId, cantidad] of cantidades) {
         const producto = productosPorId.get(productoId);
 
-        const subtotalDetalle = producto.precio.mul(cantidad);
+        const entradasProducto = data.detalles.filter(
+          (detalle) => detalle.productoId === productoId,
+        );
+        const preciosOriginales = new Set(
+          entradasProducto.map((detalle) => detalle.precioUnitario),
+        );
+        if (preciosOriginales.size > 1) {
+          throw new BadRequestException(
+            `El producto ${productoId} aparece con precios originales diferentes`,
+          );
+        }
+        const precioUnitario =
+          origen === OrigenVenta.MANUAL_CIERRE
+            ? dinero(entradasProducto[0].precioUnitario, 'precioUnitario')
+            : producto.precio;
+        const subtotalDetalle = precioUnitario.mul(cantidad);
 
         subtotal = subtotal.plus(subtotalDetalle);
 
@@ -581,49 +666,82 @@ export class VentasService {
           productoId,
           cantidad,
 
-          precioUnitario: producto.precio,
+          precioUnitario,
 
           subtotal: subtotalDetalle,
         });
       }
 
+      const impuestos =
+        origen === OrigenVenta.MANUAL_CIERRE
+          ? data.impuestos
+          : (data.impuestos ??
+            (await this.impuestoConfigurado(tx, sucursal.id, subtotal)));
       const ajustes = this.validarYCalcularTotales(
         subtotal,
-        data,
+        { ...data, impuestos },
         usuarioActual,
       );
 
-      const ventaBase = await tx.venta.create({
-        data: {
-          origen,
+      let ventaBase: Venta;
+      try {
+        ventaBase = await tx.venta.create({
+          data: {
+            origen,
 
-          estado: ajustes.total.eq(0)
-            ? EstadoVenta.PAGADA
-            : EstadoVenta.PENDIENTE_PAGO,
+            estado: ajustes.total.eq(0)
+              ? EstadoVenta.PAGADA
+              : EstadoVenta.PENDIENTE_PAGO,
 
-          subtotal,
+            subtotal,
 
-          descuentos: ajustes.descuentos,
+            descuentos: ajustes.descuentos,
 
-          impuestos: ajustes.impuestos,
+            impuestos: ajustes.impuestos,
 
-          impoconsumo: ajustes.impoconsumo,
+            impoconsumo: ajustes.impoconsumo,
 
-          propina: ajustes.propina,
+            propina: ajustes.propina,
 
-          total: ajustes.total,
+            total: ajustes.total,
 
-          fechaOperacion,
+            fechaOperacion,
 
-          sucursalId: sucursal.id,
+            ...(origen === OrigenVenta.MANUAL_CIERRE
+              ? {
+                  numeroComandaPapel: (
+                    data as CrearVentaManualDto
+                  ).numeroComandaPapel.trim(),
+                  numeroSoporte: (
+                    data as CrearVentaManualDto
+                  ).numeroSoporte.trim(),
+                  soporteArchivoRef:
+                    (data as CrearVentaManualDto).soporteArchivoRef?.trim() ??
+                    null,
+                }
+              : {}),
 
-          usuarioId: usuarioActual.id,
+            sucursalId: sucursal.id,
 
-          clienteId,
-          idempotenciaClave: clave,
-          idempotenciaHash: solicitudHash,
-        },
-      });
+            usuarioId: usuarioActual.id,
+
+            clienteId,
+            idempotenciaClave: clave,
+            idempotenciaHash: solicitudHash,
+          },
+        });
+      } catch (error) {
+        if (
+          origen === OrigenVenta.MANUAL_CIERRE &&
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        ) {
+          throw new ConflictException(
+            'La comanda o el soporte de papel ya fue digitado en esta sucursal',
+          );
+        }
+        throw error;
+      }
 
       await tx.detalleVenta.createMany({
         data: detallesPreparados.map((detalle) => ({
@@ -711,6 +829,7 @@ export class VentasService {
       orderBy: {
         fechaOperacion: 'desc',
       },
+      take: 200,
     });
   }
 
@@ -784,7 +903,7 @@ export class VentasService {
         const pedido = venta.pedidoId
           ? await tx.pedido.findUnique({
               where: { id: venta.pedidoId },
-              select: { id: true, mesaId: true },
+              select: { id: true, mesaId: true, estado: true },
             })
           : null;
 
@@ -957,7 +1076,11 @@ export class VentasService {
            * asociado a una mesa, completar
            * el pago libera la mesa.
            */
-          if (pedido?.mesaId !== null && pedido?.mesaId !== undefined) {
+          if (
+            pedido?.mesaId !== null &&
+            pedido?.mesaId !== undefined &&
+            pedido.estado === EstadoPedido.ENTREGADO
+          ) {
             await tx.mesa.updateMany({
               where: {
                 id: pedido.mesaId,
@@ -969,6 +1092,9 @@ export class VentasService {
 
               data: {
                 situacion: EstadoMesa.LIBRE,
+                ocupacionManual: false,
+                ocupadaManualEn: null,
+                ocupadaManualPorId: null,
               },
             });
           }

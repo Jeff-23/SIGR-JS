@@ -58,11 +58,36 @@ enum AmbitoRol {
 
 enum EstadoDocumentoElectronico {
   PREPARADO
+  NUMERADO
+  EN_COLA
   ENVIANDO
   ENVIADO
   ACEPTADO
   RECHAZADO
   ERROR
+}
+
+enum AmbienteDian {
+  HABILITACION
+  PRODUCCION
+}
+
+enum ModoOperacionDian {
+  PROVEEDOR_TECNOLOGICO
+  SOFTWARE_PROPIO
+}
+
+enum TipoDocumentoFiscal {
+  FACTURA_VENTA
+  NOTA_CREDITO
+  NOTA_DEBITO
+}
+
+enum EstadoOutboxFiscal {
+  PENDIENTE
+  PROCESANDO
+  COMPLETADO
+  FALLIDO
 }
 
 enum TipoMetodoPago {
@@ -123,12 +148,14 @@ model Restaurante {
   planId Int?
   plan   Plan? @relation(fields: [planId], references: [id])
 
-  sucursales      Sucursal[]
-  usuarios        Usuario[]
-  roles           Rol[]
-  clientes        Cliente[]
-  configuraciones ConfiguracionRestaurante[]
-  auditorias      EventoAuditoria[]
+  sucursales       Sucursal[]
+  usuarios         Usuario[]
+  roles            Rol[]
+  clientes         Cliente[]
+  configuraciones  ConfiguracionRestaurante[]
+  auditorias       EventoAuditoria[]
+  perfilFiscal     PerfilFiscal?
+  resolucionesDian ResolucionNumeracionDian[]
 
   @@index([planId])
 }
@@ -172,8 +199,9 @@ model Sucursal {
   estado    Boolean  @default(true)
   creadoEn  DateTime @default(now())
 
-  restauranteId Int
-  restaurante   Restaurante @relation(fields: [restauranteId], references: [id])
+  restauranteId    Int
+  restaurante      Restaurante                @relation(fields: [restauranteId], references: [id])
+  resolucionesDian ResolucionNumeracionDian[]
 
   usuarios              Usuario[]
   zonas                 Zona[]
@@ -807,7 +835,12 @@ model EventoAuditoria {
 model DocumentoElectronico {
   id Int @id @default(autoincrement())
 
-  estado EstadoDocumentoElectronico @default(PREPARADO)
+  estado         EstadoDocumentoElectronico @default(PREPARADO)
+  tipo           TipoDocumentoFiscal        @default(FACTURA_VENTA)
+  ambiente       AmbienteDian?
+  prefijo        String?                    @db.VarChar(20)
+  numeroFiscal   Int?
+  numeroCompleto String?                    @db.VarChar(50)
 
   /**
    * Datos fiscales.
@@ -823,7 +856,12 @@ model DocumentoElectronico {
    * No debe utilizarse para fabricar una
    * aceptación electrónica ficticia.
    */
-  respuestaProveedor Json?
+  respuestaProveedor  Json?
+  solicitudProveedor  Json?
+  xmlHash             String? @db.VarChar(64)
+  proveedorCodigo     String? @db.VarChar(50)
+  proveedorReferencia String? @db.VarChar(150)
+  mensajeEstado       String? @db.VarChar(500)
 
   enviadoEn    DateTime?
   respondidoEn DateTime?
@@ -836,9 +874,85 @@ model DocumentoElectronico {
    * Una factura puede tener como máximo
    * un documento electrónico asociado.
    */
-  facturaId Int     @unique
-  factura   Factura @relation(fields: [facturaId], references: [id], onDelete: Restrict)
+  facturaId    Int                        @unique
+  factura      Factura                    @relation(fields: [facturaId], references: [id], onDelete: Restrict)
+  resolucionId Int?
+  resolucion   ResolucionNumeracionDian?  @relation(fields: [resolucionId], references: [id], onDelete: Restrict)
+  outbox       OutboxFiscal?
+  historial    HistorialDocumentoFiscal[]
 
+  @@unique([resolucionId, numeroFiscal])
   @@index([estado])
   @@index([creadoEn])
+  @@index([proveedorReferencia])
+}
+
+model PerfilFiscal {
+  id                    Int               @id @default(autoincrement())
+  ambiente              AmbienteDian      @default(HABILITACION)
+  modoOperacion         ModoOperacionDian @default(PROVEEDOR_TECNOLOGICO)
+  proveedorCodigo       String?           @db.VarChar(50)
+  responsabilidadFiscal String            @db.VarChar(20)
+  municipioCodigo       String            @db.VarChar(10)
+  actividadEconomica    String?           @db.VarChar(20)
+  softwareIdRef         String?           @db.VarChar(150)
+  credencialRef         String?           @db.VarChar(150)
+  certificadoRef        String?           @db.VarChar(150)
+  activo                Boolean           @default(false)
+  creadoEn              DateTime          @default(now())
+  actualizadoEn         DateTime          @updatedAt
+  restauranteId         Int               @unique
+  restaurante           Restaurante       @relation(fields: [restauranteId], references: [id], onDelete: Restrict)
+}
+
+model ResolucionNumeracionDian {
+  id               Int                    @id @default(autoincrement())
+  numeroResolucion String                 @db.VarChar(100)
+  prefijo          String                 @db.VarChar(20)
+  rangoDesde       Int
+  rangoHasta       Int
+  siguienteNumero  Int
+  claveTecnicaRef  String?                @db.VarChar(150)
+  vigenteDesde     DateTime               @db.Date
+  vigenteHasta     DateTime               @db.Date
+  activa           Boolean                @default(true)
+  creadoEn         DateTime               @default(now())
+  actualizadoEn    DateTime               @updatedAt
+  restauranteId    Int
+  sucursalId       Int?
+  restaurante      Restaurante            @relation(fields: [restauranteId], references: [id], onDelete: Restrict)
+  sucursal         Sucursal?              @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  documentos       DocumentoElectronico[]
+
+  @@unique([restauranteId, prefijo, numeroResolucion])
+  @@index([restauranteId, activa])
+  @@index([sucursalId])
+}
+
+model OutboxFiscal {
+  id            Int                  @id @default(autoincrement())
+  estado        EstadoOutboxFiscal   @default(PENDIENTE)
+  intentos      Int                  @default(0)
+  disponibleEn  DateTime             @default(now())
+  bloqueadoEn   DateTime?
+  ultimoError   String?              @db.VarChar(500)
+  creadoEn      DateTime             @default(now())
+  actualizadoEn DateTime             @updatedAt
+  documentoId   Int                  @unique
+  documento     DocumentoElectronico @relation(fields: [documentoId], references: [id], onDelete: Restrict)
+
+  @@index([estado, disponibleEn])
+}
+
+model HistorialDocumentoFiscal {
+  id            Int                        @id @default(autoincrement())
+  estado        EstadoDocumentoElectronico
+  detalle       String?                    @db.VarChar(500)
+  actorId       Int?
+  correlacionId String?                    @db.VarChar(100)
+  creadoEn      DateTime                   @default(now())
+  documentoId   Int
+  documento     DocumentoElectronico       @relation(fields: [documentoId], references: [id], onDelete: Restrict)
+
+  @@index([documentoId, creadoEn])
 }

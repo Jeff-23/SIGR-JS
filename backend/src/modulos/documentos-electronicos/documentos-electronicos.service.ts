@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { Prisma } from '@prisma/client';
 
@@ -92,109 +88,55 @@ export class DocumentosElectronicosService {
   async preparar(facturaIds: number[], usuarioActual: UsuarioAutenticado) {
     const idsUnicos = [...new Set(facturaIds)];
 
-    try {
-      return await this.prisma.$transaction(async (tx) => {
-        const facturas = await tx.factura.findMany({
-          where: {
-            id: {
-              in: idsUnicos,
-            },
-
-            estado: 'EMITIDA',
-
-            AND: [this.filtroFacturaTenant(usuarioActual)],
+    await this.prisma.transaccionSerializable(async (tx) => {
+      const facturas = await tx.factura.findMany({
+        where: {
+          id: {
+            in: idsUnicos,
           },
 
-          include: {
-            documentoElectronico: true,
+          estado: 'EMITIDA',
 
-            venta: {
-              select: {
-                id: true,
-                origen: true,
-                fechaOperacion: true,
-                sucursalId: true,
-              },
-            },
+          AND: [this.filtroFacturaTenant(usuarioActual)],
+        },
 
-            pedido: {
-              select: {
-                id: true,
-                sucursalId: true,
-              },
-            },
-          },
-        });
-
-        /*
-         * Mantenemos respuesta genérica para
-         * no revelar facturas de otro tenant.
-         */
-        if (facturas.length !== idsUnicos.length) {
-          throw new NotFoundException(
-            'Una o más facturas no existen o no están disponibles',
-          );
-        }
-
-        const yaPreparadas = facturas.filter(
-          (factura) => factura.documentoElectronico !== null,
-        );
-
-        if (yaPreparadas.length > 0) {
-          throw new BadRequestException(
-            'Una o más facturas ya tienen documento electrónico asociado',
-          );
-        }
-
-        /*
-         * No enviamos nada.
-         *
-         * El estado PREPARADO se asigna
-         * automáticamente por Prisma.
-         */
-        await tx.documentoElectronico.createMany({
-          data: facturas.map((factura) => ({
-            facturaId: factura.id,
-          })),
-        });
-
-        return tx.documentoElectronico.findMany({
-          where: {
-            facturaId: {
-              in: idsUnicos,
-            },
-          },
-
-          include: {
-            factura: {
-              include: {
-                venta: true,
-                pedido: true,
-              },
-            },
-          },
-
-          orderBy: {
-            id: 'asc',
-          },
-        });
+        select: {
+          id: true,
+          documentoElectronico: { select: { id: true } },
+        },
       });
-    } catch (error) {
+
       /*
-       * Protección adicional ante dos solicitudes
-       * concurrentes intentando preparar la misma factura.
+       * Mantenemos respuesta genérica para
+       * no revelar facturas de otro tenant.
        */
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
-        throw new BadRequestException(
-          'Una o más facturas ya tienen documento electrónico asociado',
+      if (facturas.length !== idsUnicos.length) {
+        throw new NotFoundException(
+          'Una o más facturas no existen o no están disponibles',
         );
       }
 
-      throw error;
-    }
+      /*
+       * No enviamos nada.
+       *
+       * El estado PREPARADO se asigna
+       * automáticamente por Prisma.
+       */
+      await tx.documentoElectronico.createMany({
+        data: facturas
+          .filter((factura) => factura.documentoElectronico === null)
+          .map((factura) => ({ facturaId: factura.id })),
+        skipDuplicates: true,
+      });
+    });
+
+    return this.prisma.documentoElectronico.findMany({
+      where: { facturaId: { in: idsUnicos } },
+      include: {
+        factura: { include: { venta: true, pedido: true } },
+      },
+      orderBy: { id: 'asc' },
+    });
   }
 
   async findAll(usuarioActual: UsuarioAutenticado) {

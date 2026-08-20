@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   ParseIntPipe,
   Patch,
@@ -42,10 +43,17 @@ export class VentasController {
     @Body()
     data: CrearVentaPedidoDto,
 
+    @Headers('idempotency-key')
+    claveIdempotencia: string | undefined,
+
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.ventasService.crearDesdePedido(data, request.user);
+    return this.ventasService.crearDesdePedido(
+      data,
+      request.user,
+      claveIdempotencia,
+    );
   }
 
   @Post('directa')
@@ -54,10 +62,17 @@ export class VentasController {
     @Body()
     data: CrearVentaDirectaDto,
 
+    @Headers('idempotency-key')
+    claveIdempotencia: string | undefined,
+
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.ventasService.crearDirecta(data, request.user);
+    return this.ventasService.crearDirecta(
+      data,
+      request.user,
+      claveIdempotencia,
+    );
   }
 
   @Post('manual')
@@ -66,10 +81,17 @@ export class VentasController {
     @Body()
     data: CrearVentaManualDto,
 
+    @Headers('idempotency-key')
+    claveIdempotencia: string | undefined,
+
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.ventasService.crearManual(data, request.user);
+    return this.ventasService.crearManual(
+      data,
+      request.user,
+      claveIdempotencia,
+    );
   }
 
   @Get()
@@ -130,10 +152,18 @@ export class VentasController {
     @Body()
     data: RegistrarPagoDto,
 
+    @Headers('idempotency-key')
+    claveIdempotencia: string | undefined,
+
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.ventasService.registrarPago(id, data, request.user);
+    return this.ventasService.registrarPago(
+      id,
+      data,
+      request.user,
+      claveIdempotencia,
+    );
   }
 
   @Patch(':id/anular')

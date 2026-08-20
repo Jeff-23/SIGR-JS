@@ -127,122 +127,92 @@ export class FacturasService {
 
     usuarioActual: UsuarioAutenticado,
   ) {
-    return this.prisma.$transaction(
-      async (tx) => {
-        const venta = await tx.venta.findFirst({
-          where: {
-            id: ventaId,
+    const facturaId = await this.prisma.transaccionSerializable(async (tx) => {
+      const ventaAlcanzable = await tx.venta.findFirst({
+        where: {
+          id: ventaId,
+          sucursal: this.filtroSucursal(usuarioActual),
+        },
+        select: { id: true },
+      });
 
-            sucursal: this.filtroSucursal(usuarioActual),
-          },
+      if (!ventaAlcanzable) {
+        throw new NotFoundException('Venta no encontrada');
+      }
 
+      await tx.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "Venta" WHERE "id" = ${ventaAlcanzable.id} FOR UPDATE`,
+      );
+
+      const venta = await tx.venta.findUniqueOrThrow({
+        where: {
+          id: ventaAlcanzable.id,
+        },
+
+        include: { factura: { select: { id: true } } },
+      });
+
+      if (venta.estado === EstadoVenta.ANULADA) {
+        throw new BadRequestException('No se puede facturar una venta anulada');
+      }
+
+      if (venta.factura) {
+        return venta.factura.id;
+      }
+
+      /*
+       * La Factura puede emitirse tanto para
+       * una Venta PENDIENTE_PAGO como PAGADA.
+       *
+       * Esto es intencional:
+       *
+       * facturación y recaudo son dominios
+       * independientes.
+       *
+       * En ningún caso emitir la factura
+       * cambia el estado del pago o de la mesa.
+       */
+
+      const numeroFactura = `INT-${randomUUID()}`;
+
+      const factura = await tx.factura.create({
+        data: {
+          numero: numeroFactura,
+
+          total: venta.total,
+
+          ventaId: venta.id,
+
+          /*
+           * Si la Venta nació desde un Pedido,
+           * conservamos también la referencia.
+           *
+           * Para:
+           *
+           * DIRECTA
+           * MANUAL_CIERRE
+           *
+           * pedidoId permanece null.
+           */
+          pedidoId: venta.pedidoId,
+        },
+
+        select: { id: true },
+      });
+      return factura.id;
+    });
+
+    return this.prisma.factura.findUniqueOrThrow({
+      where: { id: facturaId },
+      include: {
+        venta: {
           include: {
-            factura: true,
-
-            pagos: {
-              include: {
-                metodoPago: true,
-              },
-            },
-
-            detalles: true,
-
-            pedido: {
-              select: {
-                id: true,
-                estado: true,
-                mesaId: true,
-              },
-            },
+            detalles: { include: { producto: true } },
+            pagos: { include: { metodoPago: true } },
+            pedido: { include: { mesa: { include: { zona: true } } } },
           },
-        });
-
-        if (!venta) {
-          throw new NotFoundException('Venta no encontrada');
-        }
-
-        if (venta.estado === EstadoVenta.ANULADA) {
-          throw new BadRequestException(
-            'No se puede facturar una venta anulada',
-          );
-        }
-
-        if (venta.factura) {
-          throw new BadRequestException(
-            'La venta ya tiene una factura asociada',
-          );
-        }
-
-        /*
-         * La Factura puede emitirse tanto para
-         * una Venta PENDIENTE_PAGO como PAGADA.
-         *
-         * Esto es intencional:
-         *
-         * facturación y recaudo son dominios
-         * independientes.
-         *
-         * En ningún caso emitir la factura
-         * cambia el estado del pago o de la mesa.
-         */
-
-        const numeroFactura = `INT-${randomUUID()}`;
-
-        return tx.factura.create({
-          data: {
-            numero: numeroFactura,
-
-            total: venta.total,
-
-            ventaId: venta.id,
-
-            /*
-             * Si la Venta nació desde un Pedido,
-             * conservamos también la referencia.
-             *
-             * Para:
-             *
-             * DIRECTA
-             * MANUAL_CIERRE
-             *
-             * pedidoId permanece null.
-             */
-            pedidoId: venta.pedidoId,
-          },
-
-          include: {
-            venta: {
-              include: {
-                detalles: {
-                  include: {
-                    producto: true,
-                  },
-                },
-
-                pagos: {
-                  include: {
-                    metodoPago: true,
-                  },
-                },
-
-                pedido: {
-                  include: {
-                    mesa: {
-                      include: {
-                        zona: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        });
+        },
       },
-
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
-    );
+    });
   }
 }

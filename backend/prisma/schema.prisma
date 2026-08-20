@@ -123,12 +123,12 @@ model Restaurante {
   planId Int?
   plan   Plan? @relation(fields: [planId], references: [id])
 
-  sucursales Sucursal[]
-  usuarios   Usuario[]
-  roles      Rol[]
-  clientes   Cliente[]
+  sucursales      Sucursal[]
+  usuarios        Usuario[]
+  roles           Rol[]
+  clientes        Cliente[]
   configuraciones ConfiguracionRestaurante[]
-  auditorias EventoAuditoria[]
+  auditorias      EventoAuditoria[]
 
   @@index([planId])
 }
@@ -183,8 +183,8 @@ model Sucursal {
   ventas                Venta[]
   cajas                 Caja[]
   movimientosInventario MovimientoInventario[]
-  configuraciones        ConfiguracionSucursal[]
-  auditorias              EventoAuditoria[]
+  configuraciones       ConfiguracionSucursal[]
+  auditorias            EventoAuditoria[]
 }
 
 // ==========================================
@@ -264,7 +264,7 @@ model Usuario {
   movimientosCaja       MovimientoCaja[]
   pagosRegistrados      Pago[]
   movimientosInventario MovimientoInventario[]
-  auditorias             EventoAuditoria[] @relation("AuditoriaActor")
+  auditorias            EventoAuditoria[]      @relation("AuditoriaActor")
 
   @@index([restauranteId])
   @@index([sucursalId])
@@ -332,7 +332,7 @@ model Producto {
 
 model Pedido {
   id       Int          @id @default(autoincrement())
-  total    Decimal      @db.Decimal(10, 2)
+  total    Decimal      @db.Decimal(12, 2)
   tipo     TipoPedido   @default(MESA)
   estado   EstadoPedido @default(PENDIENTE)
   creadoEn DateTime     @default(now())
@@ -421,6 +421,9 @@ model Venta {
   // Momento real en que ocurrió la venta.
   fechaOperacion DateTime
 
+  idempotenciaClave String? @db.VarChar(100)
+  idempotenciaHash  String? @db.VarChar(64)
+
   // Momento en que fue registrada/modificada en SIGR.
   creadoEn      DateTime @default(now())
   actualizadoEn DateTime @updatedAt
@@ -440,6 +443,7 @@ model Venta {
   factura               Factura?
   movimientosInventario MovimientoInventario[]
 
+  @@unique([sucursalId, idempotenciaClave])
   @@index([sucursalId])
   @@index([usuarioId])
   @@index([clienteId])
@@ -517,7 +521,7 @@ model MovimientoInventario {
   productoId Int?
   articuloId Int?
 
-  movimientoOrigenId Int?
+  movimientoOrigenId Int? @unique
 
   sucursal Sucursal  @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
   usuario  Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
@@ -535,7 +539,6 @@ model MovimientoInventario {
   @@index([articuloId])
   @@index([tipo])
   @@index([creadoEn])
-  @@index([movimientoOrigenId])
 }
 
 // ==========================================
@@ -556,7 +559,7 @@ model MetodoPago {
 model Factura {
   id             Int      @id @default(autoincrement())
   numero         String   @unique @db.VarChar(50)
-  total          Decimal  @db.Decimal(10, 2)
+  total          Decimal  @db.Decimal(12, 2)
   cufe           String?  @db.VarChar(150)
   qrCode         String?  @db.Text
   resolucionDian String?  @db.VarChar(100)
@@ -593,6 +596,9 @@ model Pago {
   referencia String?  @db.VarChar(150)
   creadoEn   DateTime @default(now())
 
+  idempotenciaClave String? @db.VarChar(100)
+  idempotenciaHash  String? @db.VarChar(64)
+
   metodoPagoId Int
 
   /**
@@ -623,6 +629,7 @@ model Pago {
   caja       Caja?      @relation(fields: [cajaId], references: [id], onDelete: Restrict)
   usuario    Usuario?   @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
 
+  @@unique([ventaId, idempotenciaClave])
   @@index([facturaId])
   @@index([ventaId])
   @@index([metodoPagoId])
@@ -765,25 +772,25 @@ model RolPermiso {
 // ==========================================
 
 model EventoAuditoria {
-  id            BigInt   @id @default(autoincrement())
-  accion        String   @db.VarChar(80)
-  recurso       String   @db.VarChar(80)
-  recursoId     String?  @db.VarChar(100)
-  actorEmail    String   @db.VarChar(150)
-  valoresAntes  Json?
+  id             BigInt   @id @default(autoincrement())
+  accion         String   @db.VarChar(80)
+  recurso        String   @db.VarChar(80)
+  recursoId      String?  @db.VarChar(100)
+  actorEmail     String   @db.VarChar(150)
+  valoresAntes   Json?
   valoresDespues Json?
-  ip            String?  @db.VarChar(64)
-  agenteUsuario String?  @db.VarChar(300)
-  correlacionId String   @db.VarChar(100)
-  creadoEn      DateTime @default(now())
+  ip             String?  @db.VarChar(64)
+  agenteUsuario  String?  @db.VarChar(300)
+  correlacionId  String   @db.VarChar(100)
+  creadoEn       DateTime @default(now())
 
-  actorId      Int?
+  actorId       Int?
   restauranteId Int?
   sucursalId    Int?
 
-  actor      Usuario?     @relation("AuditoriaActor", fields: [actorId], references: [id], onDelete: SetNull)
+  actor       Usuario?     @relation("AuditoriaActor", fields: [actorId], references: [id], onDelete: SetNull)
   restaurante Restaurante? @relation(fields: [restauranteId], references: [id], onDelete: SetNull)
-  sucursal     Sucursal?    @relation(fields: [sucursalId], references: [id], onDelete: SetNull)
+  sucursal    Sucursal?    @relation(fields: [sucursalId], references: [id], onDelete: SetNull)
 
   @@index([restauranteId, creadoEn])
   @@index([sucursalId, creadoEn])

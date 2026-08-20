@@ -35,6 +35,7 @@ import { CorrelacionMiddleware } from './plataforma/correlacion.middleware';
 import { ExcepcionesFilter } from './plataforma/excepciones.filter';
 import { TrazabilidadInterceptor } from './plataforma/trazabilidad.interceptor';
 import { PlataformaModule } from './plataforma/plataforma.module';
+import { RespuestaSeguraInterceptor } from './plataforma/respuesta-segura.interceptor';
 
 const entorno = obtenerEntorno();
 
@@ -87,6 +88,10 @@ const entorno = obtenerEntorno();
     {
       provide: APP_INTERCEPTOR,
       useClass: TrazabilidadInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: RespuestaSeguraInterceptor,
     },
     {
       provide: APP_FILTER,

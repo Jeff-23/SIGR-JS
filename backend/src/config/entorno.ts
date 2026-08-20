@@ -10,6 +10,7 @@ export type ConfiguracionEntorno = {
   corsOrigenes: string[];
   throttleTtlMs: number;
   throttleLimite: number;
+  zonaHoraria: string;
 };
 
 const AMBIENTES = new Set<AmbienteAplicacion>([
@@ -63,6 +64,8 @@ export function validarEntorno(
     1,
     100000,
   );
+  const zonaHoraria = variables.TIME_ZONE?.trim() || 'America/Bogota';
+  validarZonaHoraria(zonaHoraria);
 
   const corsOrigenes = (variables.CORS_ORIGINS ?? 'http://localhost:5173')
     .split(',')
@@ -84,6 +87,7 @@ export function validarEntorno(
     corsOrigenes,
     throttleTtlMs,
     throttleLimite,
+    zonaHoraria,
   };
 }
 
@@ -143,5 +147,13 @@ function validarOrigenCors(origen: string, ambiente: AmbienteAplicacion) {
   }
   if (ambiente === 'production' && url.protocol !== 'https:') {
     throw new Error('Los orígenes CORS de producción deben usar HTTPS');
+  }
+}
+
+function validarZonaHoraria(zonaHoraria: string) {
+  try {
+    new Intl.DateTimeFormat('es-CO', { timeZone: zonaHoraria }).format();
+  } catch {
+    throw new Error('TIME_ZONE debe ser una zona horaria IANA válida');
   }
 }

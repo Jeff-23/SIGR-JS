@@ -20,7 +20,7 @@ type RegistrarEvento = {
 };
 
 const CLAVES_SENSIBLES =
-  /(password|contrasena|contraseña|token|jwt|secret|secreto|authorization)/i;
+  /(password|contrasena|contraseña|token|jwt|secret|secreto|authorization|idempotencia)/i;
 
 @Injectable()
 export class AuditoriaService {

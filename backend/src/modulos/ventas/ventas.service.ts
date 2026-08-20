@@ -27,6 +27,13 @@ import { RegistrarPagoDto } from './dto/registrar-pago.dto';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { InventarioService } from '../inventario/inventario.service';
+import { dinero } from '../../plataforma/dinero';
+import { fechaOperativa } from '../../plataforma/fecha-operativa';
+import {
+  hashSolicitud,
+  normalizarClaveIdempotencia,
+  validarReplayIdempotente,
+} from '../../plataforma/idempotencia';
 
 @Injectable()
 export class VentasService {
@@ -107,13 +114,13 @@ export class VentasService {
     data: AjustesVentaDto,
     usuarioActual: UsuarioAutenticado,
   ) {
-    const descuentos = new Prisma.Decimal(data.descuentos ?? 0);
+    const descuentos = dinero(data.descuentos ?? 0, 'descuentos');
 
-    const impuestos = new Prisma.Decimal(data.impuestos ?? 0);
+    const impuestos = dinero(data.impuestos ?? 0, 'impuestos');
 
-    const impoconsumo = new Prisma.Decimal(data.impoconsumo ?? 0);
+    const impoconsumo = dinero(data.impoconsumo ?? 0, 'impoconsumo');
 
-    const propina = new Prisma.Decimal(data.propina ?? 0);
+    const propina = dinero(data.propina ?? 0, 'propina');
 
     if (
       descuentos.gt(0) &&
@@ -153,7 +160,10 @@ export class VentasService {
   async crearDesdePedido(
     data: CrearVentaPedidoDto,
     usuarioActual: UsuarioAutenticado,
+    claveRecibida: string | undefined,
   ) {
+    const clave = normalizarClaveIdempotencia(claveRecibida);
+    const solicitudHash = hashSolicitud({ operacion: 'VENTA_PEDIDO', data });
     const ventaId = await this.prisma.transaccionSerializable(async (tx) => {
       const pedido = await tx.pedido.findFirst({
         where: {
@@ -174,6 +184,13 @@ export class VentasService {
       }
 
       if (pedido.venta) {
+        if (pedido.venta.idempotenciaClave === clave) {
+          validarReplayIdempotente(
+            pedido.venta.idempotenciaHash,
+            solicitudHash,
+          );
+          return pedido.venta.id;
+        }
         throw new BadRequestException(
           'Este pedido ya tiene una venta asociada',
         );
@@ -236,6 +253,8 @@ export class VentasService {
           pedidoId: pedido.id,
 
           clienteId,
+          idempotenciaClave: clave,
+          idempotenciaHash: solicitudHash,
         },
       });
 
@@ -455,7 +474,10 @@ export class VentasService {
     origen: OrigenVenta,
 
     usuarioActual: UsuarioAutenticado,
+    claveRecibida: string | undefined,
   ) {
+    const clave = normalizarClaveIdempotencia(claveRecibida);
+    const solicitudHash = hashSolicitud({ operacion: origen, data });
     const ventaId = await this.prisma.transaccionSerializable(async (tx) => {
       const sucursal = await tx.sucursal.findFirst({
         where: {
@@ -473,6 +495,20 @@ export class VentasService {
         throw new NotFoundException('Sucursal no encontrada');
       }
 
+      const replay = await tx.venta.findUnique({
+        where: {
+          sucursalId_idempotenciaClave: {
+            sucursalId: sucursal.id,
+            idempotenciaClave: clave,
+          },
+        },
+        select: { id: true, idempotenciaHash: true },
+      });
+      if (replay) {
+        validarReplayIdempotente(replay.idempotenciaHash, solicitudHash);
+        return replay.id;
+      }
+
       const clienteId = await this.resolverClienteId(
         tx,
         data.clienteId,
@@ -482,17 +518,9 @@ export class VentasService {
       let fechaOperacion = new Date();
 
       if (origen === OrigenVenta.MANUAL_CIERRE) {
-        fechaOperacion = new Date((data as CrearVentaManualDto).fechaOperacion);
-
-        if (Number.isNaN(fechaOperacion.getTime())) {
-          throw new BadRequestException('La fecha de operación no es válida');
-        }
-
-        if (fechaOperacion.getTime() > Date.now()) {
-          throw new BadRequestException(
-            'La fecha de operación no puede estar en el futuro',
-          );
-        }
+        fechaOperacion = fechaOperativa(
+          (data as CrearVentaManualDto).fechaOperacion,
+        );
       }
 
       const cantidades = new Map<number, number>();
@@ -592,6 +620,8 @@ export class VentasService {
           usuarioId: usuarioActual.id,
 
           clienteId,
+          idempotenciaClave: clave,
+          idempotenciaHash: solicitudHash,
         },
       });
 
@@ -629,12 +659,30 @@ export class VentasService {
     });
   }
 
-  crearDirecta(data: CrearVentaDirectaDto, usuarioActual: UsuarioAutenticado) {
-    return this.crearSinPedido(data, OrigenVenta.DIRECTA, usuarioActual);
+  crearDirecta(
+    data: CrearVentaDirectaDto,
+    usuarioActual: UsuarioAutenticado,
+    claveIdempotencia: string | undefined,
+  ) {
+    return this.crearSinPedido(
+      data,
+      OrigenVenta.DIRECTA,
+      usuarioActual,
+      claveIdempotencia,
+    );
   }
 
-  crearManual(data: CrearVentaManualDto, usuarioActual: UsuarioAutenticado) {
-    return this.crearSinPedido(data, OrigenVenta.MANUAL_CIERRE, usuarioActual);
+  crearManual(
+    data: CrearVentaManualDto,
+    usuarioActual: UsuarioAutenticado,
+    claveIdempotencia: string | undefined,
+  ) {
+    return this.crearSinPedido(
+      data,
+      OrigenVenta.MANUAL_CIERRE,
+      usuarioActual,
+      claveIdempotencia,
+    );
   }
 
   findAll(usuarioActual: UsuarioAutenticado) {
@@ -704,234 +752,245 @@ export class VentasService {
     ventaId: number,
     data: RegistrarPagoDto,
     usuarioActual: UsuarioAutenticado,
+    claveRecibida: string | undefined,
   ) {
-    return this.prisma.transaccionSerializable(async (tx) => {
-      const venta = await tx.venta.findFirst({
-        where: {
-          id: ventaId,
+    const clave = normalizarClaveIdempotencia(claveRecibida);
+    const solicitudHash = hashSolicitud({ ventaId, data });
+    const ventaResultadoId = await this.prisma.transaccionSerializable(
+      async (tx) => {
+        const ventaAlcanzable = await tx.venta.findFirst({
+          where: {
+            id: ventaId,
 
-          sucursal: this.filtroSucursal(usuarioActual),
-        },
-
-        include: {
-          pagos: true,
-
-          pedido: {
-            select: {
-              id: true,
-              mesaId: true,
-            },
+            sucursal: this.filtroSucursal(usuarioActual),
           },
-        },
-      });
 
-      if (!venta) {
-        throw new NotFoundException('Venta no encontrada');
-      }
+          select: { id: true },
+        });
 
-      if (venta.estado === EstadoVenta.ANULADA) {
-        throw new BadRequestException(
-          'No se pueden registrar pagos sobre una venta anulada',
-        );
-      }
+        if (!ventaAlcanzable) {
+          throw new NotFoundException('Venta no encontrada');
+        }
 
-      if (venta.estado === EstadoVenta.PAGADA) {
-        throw new BadRequestException('La venta ya está pagada completamente');
-      }
-
-      const metodoPago = await tx.metodoPago.findFirst({
-        where: {
-          id: data.metodoPagoId,
-          activo: true,
-        },
-      });
-
-      if (!metodoPago) {
-        throw new BadRequestException(
-          'El método de pago no existe o está inactivo',
-        );
-      }
-
-      /*
-       * =================================================
-       * RESOLUCIÓN DE CAJA
-       * =================================================
-       *
-       * Todo pago nuevo debe pertenecer a una caja
-       * ABIERTA de la misma sucursal de la Venta.
-       *
-       * - Si el cliente envía cajaId, se valida.
-       * - Si existe una sola caja abierta, se infiere.
-       * - Si existen varias, cajaId es obligatorio.
-       * - Si no existe ninguna, el cobro se bloquea.
-       *
-       * Esto evita mezclar recaudos cuando MULTICAJA
-       * está habilitado.
-       */
-      const cajasAbiertas = await tx.caja.findMany({
-        where: {
-          sucursalId: venta.sucursalId,
-          estado: EstadoCaja.ABIERTA,
-        },
-        select: {
-          id: true,
-          nombre: true,
-        },
-        orderBy: {
-          id: 'asc',
-        },
-      });
-
-      if (cajasAbiertas.length === 0) {
-        throw new BadRequestException(
-          'Debe existir una caja abierta en la sucursal para registrar el pago',
-        );
-      }
-
-      let cajaId: number;
-
-      if (data.cajaId !== undefined) {
-        const cajaSolicitada = cajasAbiertas.find(
-          (caja) => caja.id === data.cajaId,
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "Venta" WHERE "id" = ${ventaAlcanzable.id} FOR UPDATE`,
         );
 
-        if (!cajaSolicitada) {
+        const venta = await tx.venta.findUniqueOrThrow({
+          where: { id: ventaAlcanzable.id },
+        });
+
+        const pagos = await tx.pago.findMany({ where: { ventaId: venta.id } });
+        const pedido = venta.pedidoId
+          ? await tx.pedido.findUnique({
+              where: { id: venta.pedidoId },
+              select: { id: true, mesaId: true },
+            })
+          : null;
+
+        const pagoReplay = pagos.find(
+          (pago) => pago.idempotenciaClave === clave,
+        );
+        if (pagoReplay) {
+          validarReplayIdempotente(pagoReplay.idempotenciaHash, solicitudHash);
+          return venta.id;
+        }
+
+        if (venta.estado === EstadoVenta.ANULADA) {
           throw new BadRequestException(
-            'La caja seleccionada no existe, está cerrada o no pertenece a la sucursal de la venta',
+            'No se pueden registrar pagos sobre una venta anulada',
           );
         }
 
-        cajaId = cajaSolicitada.id;
-      } else if (cajasAbiertas.length === 1) {
-        cajaId = cajasAbiertas[0].id;
-      } else {
-        throw new BadRequestException(
-          'Hay varias cajas abiertas. Debes indicar cajaId para registrar el pago',
-        );
-      }
+        if (venta.estado === EstadoVenta.PAGADA) {
+          throw new BadRequestException(
+            'La venta ya está pagada completamente',
+          );
+        }
 
-      /*
-       * Bloqueo de fila para coordinar cobro y cierre.
-       * Si otra transacción está cerrando la caja,
-       * esperamos y luego volvemos a verificar su estado.
-       */
-      await tx.$queryRaw(
-        Prisma.sql`
+        const metodoPago = await tx.metodoPago.findFirst({
+          where: {
+            id: data.metodoPagoId,
+            activo: true,
+          },
+        });
+
+        if (!metodoPago) {
+          throw new BadRequestException(
+            'El método de pago no existe o está inactivo',
+          );
+        }
+
+        /*
+         * =================================================
+         * RESOLUCIÓN DE CAJA
+         * =================================================
+         *
+         * Todo pago nuevo debe pertenecer a una caja
+         * ABIERTA de la misma sucursal de la Venta.
+         *
+         * - Si el cliente envía cajaId, se valida.
+         * - Si existe una sola caja abierta, se infiere.
+         * - Si existen varias, cajaId es obligatorio.
+         * - Si no existe ninguna, el cobro se bloquea.
+         *
+         * Esto evita mezclar recaudos cuando MULTICAJA
+         * está habilitado.
+         */
+        const cajasAbiertas = await tx.caja.findMany({
+          where: {
+            sucursalId: venta.sucursalId,
+            estado: EstadoCaja.ABIERTA,
+          },
+          select: {
+            id: true,
+            nombre: true,
+          },
+          orderBy: {
+            id: 'asc',
+          },
+        });
+
+        if (cajasAbiertas.length === 0) {
+          throw new BadRequestException(
+            'Debe existir una caja abierta en la sucursal para registrar el pago',
+          );
+        }
+
+        let cajaId: number;
+
+        if (data.cajaId !== undefined) {
+          const cajaSolicitada = cajasAbiertas.find(
+            (caja) => caja.id === data.cajaId,
+          );
+
+          if (!cajaSolicitada) {
+            throw new BadRequestException(
+              'La caja seleccionada no existe, está cerrada o no pertenece a la sucursal de la venta',
+            );
+          }
+
+          cajaId = cajaSolicitada.id;
+        } else if (cajasAbiertas.length === 1) {
+          cajaId = cajasAbiertas[0].id;
+        } else {
+          throw new BadRequestException(
+            'Hay varias cajas abiertas. Debes indicar cajaId para registrar el pago',
+          );
+        }
+
+        /*
+         * Bloqueo de fila para coordinar cobro y cierre.
+         * Si otra transacción está cerrando la caja,
+         * esperamos y luego volvemos a verificar su estado.
+         */
+        await tx.$queryRaw(
+          Prisma.sql`
             SELECT "id"
             FROM "Caja"
             WHERE "id" = ${cajaId}
             FOR UPDATE
           `,
-      );
-
-      const caja = await tx.caja.findFirst({
-        where: {
-          id: cajaId,
-          sucursalId: venta.sucursalId,
-          estado: EstadoCaja.ABIERTA,
-        },
-      });
-
-      if (!caja) {
-        throw new BadRequestException(
-          'La caja seleccionada ya no se encuentra abierta',
         );
-      }
 
-      const pagadoActual = venta.pagos.reduce(
-        (total, pago) => total.plus(pago.monto),
-
-        new Prisma.Decimal(0),
-      );
-
-      const nuevoPago = new Prisma.Decimal(data.monto);
-
-      const nuevoTotalPagado = pagadoActual.plus(nuevoPago);
-
-      if (nuevoTotalPagado.gt(venta.total)) {
-        throw new BadRequestException(
-          'El pago supera el saldo pendiente de la venta',
-        );
-      }
-
-      await tx.pago.create({
-        data: {
-          ventaId: venta.id,
-
-          metodoPagoId: data.metodoPagoId,
-
-          monto: nuevoPago,
-
-          referencia: data.referencia?.trim() || null,
-
-          cajaId: caja.id,
-
-          usuarioId: usuarioActual.id,
-        },
-      });
-
-      if (nuevoTotalPagado.eq(venta.total)) {
-        await tx.venta.update({
+        const caja = await tx.caja.findFirst({
           where: {
-            id: venta.id,
-          },
-
-          data: {
-            estado: EstadoVenta.PAGADA,
+            id: cajaId,
+            sucursalId: venta.sucursalId,
+            estado: EstadoCaja.ABIERTA,
           },
         });
 
-        /*
-         * Si la venta proviene de un pedido
-         * asociado a una mesa, completar
-         * el pago libera la mesa.
-         */
-        if (
-          venta.pedido?.mesaId !== null &&
-          venta.pedido?.mesaId !== undefined
-        ) {
-          await tx.mesa.updateMany({
+        if (!caja) {
+          throw new BadRequestException(
+            'La caja seleccionada ya no se encuentra abierta',
+          );
+        }
+
+        const pagadoActual = pagos.reduce(
+          (total, pago) => total.plus(pago.monto),
+
+          new Prisma.Decimal(0),
+        );
+
+        const nuevoPago = dinero(data.monto, 'monto');
+
+        const nuevoTotalPagado = pagadoActual.plus(nuevoPago);
+
+        if (nuevoTotalPagado.gt(venta.total)) {
+          throw new BadRequestException(
+            'El pago supera el saldo pendiente de la venta',
+          );
+        }
+
+        await tx.pago.create({
+          data: {
+            ventaId: venta.id,
+
+            metodoPagoId: data.metodoPagoId,
+
+            monto: nuevoPago,
+
+            referencia: data.referencia?.trim() || null,
+
+            cajaId: caja.id,
+
+            usuarioId: usuarioActual.id,
+            idempotenciaClave: clave,
+            idempotenciaHash: solicitudHash,
+          },
+        });
+
+        if (nuevoTotalPagado.eq(venta.total)) {
+          await tx.venta.update({
             where: {
-              id: venta.pedido.mesaId,
-
-              estado: true,
-
-              situacion: EstadoMesa.PENDIENTE_PAGO,
+              id: venta.id,
             },
 
             data: {
-              situacion: EstadoMesa.LIBRE,
+              estado: EstadoVenta.PAGADA,
             },
           });
-        }
-      }
 
-      return tx.venta.findUnique({
-        where: {
-          id: venta.id,
-        },
+          /*
+           * Si la venta proviene de un pedido
+           * asociado a una mesa, completar
+           * el pago libera la mesa.
+           */
+          if (pedido?.mesaId !== null && pedido?.mesaId !== undefined) {
+            await tx.mesa.updateMany({
+              where: {
+                id: pedido.mesaId,
 
-        include: {
-          detalles: true,
+                estado: true,
 
-          pagos: {
-            include: {
-              metodoPago: true,
-              caja: {
-                select: {
-                  id: true,
-                  nombre: true,
-                  estado: true,
-                },
+                situacion: EstadoMesa.PENDIENTE_PAGO,
               },
-            },
+
+              data: {
+                situacion: EstadoMesa.LIBRE,
+              },
+            });
+          }
+        }
+
+        return venta.id;
+      },
+    );
+
+    return this.prisma.venta.findUniqueOrThrow({
+      where: { id: ventaResultadoId },
+      include: {
+        detalles: true,
+        pagos: {
+          include: {
+            metodoPago: true,
+            caja: { select: { id: true, nombre: true, estado: true } },
           },
-
-          factura: true,
-
-          pedido: true,
         },
-      });
+        factura: true,
+        pedido: true,
+      },
     });
   }
 

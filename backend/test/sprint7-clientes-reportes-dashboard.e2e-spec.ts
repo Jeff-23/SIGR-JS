@@ -37,6 +37,10 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
   let categoriaAId = 0;
   let categoriaBId = 0;
   let productoAId = 0;
+  let productoBId = 0;
+  let metodoPagoId = 0;
+  let cajaAId = 0;
+  let ventaIntegridadId = 0;
   let clienteAId = 0;
   let clienteBId = 0;
 
@@ -98,6 +102,10 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
             'CLIENTES_DESACTIVAR',
             'VENTAS_CREAR',
             'VENTAS_VER',
+            'VENTAS_REGISTRAR_MANUAL',
+            'PAGOS_REGISTRAR',
+            'FACTURAS_EMITIR',
+            'FACTURAS_VER',
             'REPORTES_VER',
           ],
         },
@@ -120,6 +128,10 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
       'CLIENTES_DESACTIVAR',
       'VENTAS_CREAR',
       'VENTAS_VER',
+      'VENTAS_REGISTRAR_MANUAL',
+      'PAGOS_REGISTRAR',
+      'FACTURAS_EMITIR',
+      'FACTURAS_VER',
       'REPORTES_VER',
     ];
 
@@ -206,12 +218,16 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
     });
 
     await prisma.rolPermiso.createMany({
-      data: ['CLIENTES_VER', 'CLIENTES_CREAR', 'REPORTES_VER'].map(
-        (codigo) => ({
-          rolId: rolB.id,
-          permisoId: permisosPorCodigo.get(codigo),
-        }),
-      ),
+      data: [
+        'CLIENTES_VER',
+        'CLIENTES_CREAR',
+        'REPORTES_VER',
+        'VENTAS_CREAR',
+        'VENTAS_VER',
+      ].map((codigo) => ({
+        rolId: rolB.id,
+        permisoId: permisosPorCodigo.get(codigo),
+      })),
     });
 
     const usuarioA = await prisma.usuario.create({
@@ -282,7 +298,7 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
       },
     });
 
-    await prisma.producto.create({
+    const productoB = await prisma.producto.create({
       data: {
         nombre: `E2E S7 Producto B ${sufijo}`,
         precio: 99000,
@@ -295,6 +311,22 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
     });
 
     productoAId = productoA.id;
+    productoBId = productoB.id;
+
+    const metodoPago = await prisma.metodoPago.create({
+      data: { nombre: `E2E S10 Efectivo ${sufijo}`, activo: true },
+    });
+    metodoPagoId = metodoPago.id;
+
+    const caja = await prisma.caja.create({
+      data: {
+        nombre: `E2E S10 Caja ${sufijo}`,
+        saldoInicial: 0,
+        sucursalId: sucursalA.id,
+        abiertaPorId: usuarioA.id,
+      },
+    });
+    cajaAId = caja.id;
   }, 30000);
 
   afterAll(async () => {
@@ -316,6 +348,22 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
         const ventaIds = ventas.map((venta) => venta.id);
 
         if (ventaIds.length > 0) {
+          const facturas = await prisma.factura.findMany({
+            where: { ventaId: { in: ventaIds } },
+            select: { id: true },
+          });
+          const facturaIds = facturas.map((factura) => factura.id);
+          if (facturaIds.length > 0) {
+            await prisma.documentoElectronico.deleteMany({
+              where: { facturaId: { in: facturaIds } },
+            });
+            await prisma.factura.deleteMany({
+              where: { id: { in: facturaIds } },
+            });
+          }
+          await prisma.pago.deleteMany({
+            where: { ventaId: { in: ventaIds } },
+          });
           await prisma.detalleVenta.deleteMany({
             where: {
               ventaId: {
@@ -332,6 +380,13 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
             },
           });
         }
+      }
+
+      if (cajaAId) {
+        await prisma.caja.delete({ where: { id: cajaAId } });
+      }
+      if (metodoPagoId) {
+        await prisma.metodoPago.delete({ where: { id: metodoPagoId } });
       }
 
       const clientes = [clienteAId, clienteBId].filter(Boolean);
@@ -501,6 +556,7 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
   it('asocia Cliente a Venta y rechaza clientes de otro tenant', async () => {
     const venta = await request(app.getHttpServer())
       .post('/ventas/directa')
+      .set('Idempotency-Key', `s7-venta-a-${sufijo}`)
       .set('Authorization', `Bearer ${tokenA}`)
       .send({
         sucursalId: sucursalAId,
@@ -520,6 +576,7 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
 
     await request(app.getHttpServer())
       .post('/ventas/directa')
+      .set('Idempotency-Key', `s7-venta-tenant-${sufijo}`)
       .set('Authorization', `Bearer ${tokenA}`)
       .send({
         sucursalId: sucursalAId,
@@ -534,24 +591,151 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
       .expect(404);
   }, 15000);
 
+  it('hace idempotente la venta y protege la clave contra otro cuerpo', async () => {
+    const cuerpo = {
+      sucursalId: sucursalAId,
+      detalles: [{ productoId: productoAId, cantidad: 1 }],
+      impuestos: 0.1,
+      propina: 0.2,
+    };
+    const clave = `s10-venta-${sufijo}`;
+    const primera = await request(app.getHttpServer())
+      .post('/ventas/directa')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .set('Idempotency-Key', clave)
+      .send(cuerpo)
+      .expect(201);
+    const repetida = await request(app.getHttpServer())
+      .post('/ventas/directa')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .set('Idempotency-Key', clave)
+      .send(cuerpo)
+      .expect(201);
+
+    expect(repetida.body.id).toBe(primera.body.id);
+    expect(repetida.body.total).toBe('12000.3');
+    expect(repetida.body.idempotenciaClave).toBeUndefined();
+    expect(repetida.body.idempotenciaHash).toBeUndefined();
+    ventaIntegridadId = primera.body.id;
+
+    const otroTenant = await request(app.getHttpServer())
+      .post('/ventas/directa')
+      .set('Authorization', `Bearer ${tokenB}`)
+      .set('Idempotency-Key', clave)
+      .send({
+        sucursalId: sucursalBId,
+        detalles: [{ productoId: productoBId, cantidad: 1 }],
+      })
+      .expect(201);
+    expect(otroTenant.body.id).not.toBe(primera.body.id);
+
+    await request(app.getHttpServer())
+      .post('/ventas/directa')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .set('Idempotency-Key', clave)
+      .send({ ...cuerpo, propina: 1 })
+      .expect(409);
+
+    await request(app.getHttpServer())
+      .post('/ventas/directa')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send(cuerpo)
+      .expect(400);
+  });
+
+  it('bloquea el cobro y permite replay del mismo pago sin duplicarlo', async () => {
+    const clave = `s10-pago-${sufijo}`;
+    const cuerpo = {
+      metodoPagoId,
+      cajaId: cajaAId,
+      monto: 12000.3,
+      referencia: `REF-${sufijo}`,
+    };
+    const a = await request(app.getHttpServer())
+      .post(`/ventas/${ventaIntegridadId}/pagos`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .set('Idempotency-Key', clave)
+      .send(cuerpo)
+      .expect(201);
+    const b = await request(app.getHttpServer())
+      .post(`/ventas/${ventaIntegridadId}/pagos`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .set('Idempotency-Key', clave)
+      .send(cuerpo)
+      .expect(201);
+
+    expect(a.body.id).toBe(b.body.id);
+    expect(a.body.pagos).toHaveLength(1);
+    expect(a.body.pagos[0].idempotenciaClave).toBeUndefined();
+  });
+
+  it('mantiene Factura y Documento Electrónico idempotentes y separados', async () => {
+    const facturaA = await request(app.getHttpServer())
+      .post('/facturas/venta')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ ventaId: ventaIntegridadId })
+      .expect(201);
+    const facturaB = await request(app.getHttpServer())
+      .post('/facturas/venta')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ ventaId: ventaIntegridadId })
+      .expect(201);
+    expect(facturaB.body.id).toBe(facturaA.body.id);
+
+    const documentoA = await request(app.getHttpServer())
+      .post('/documentos-electronicos/preparar')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ facturaIds: [facturaA.body.id] })
+      .expect(201);
+    const documentoB = await request(app.getHttpServer())
+      .post('/documentos-electronicos/preparar')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ facturaIds: [facturaA.body.id] })
+      .expect(201);
+    expect(documentoB.body[0].id).toBe(documentoA.body[0].id);
+    expect(documentoB.body[0].estado).toBe('PREPARADO');
+    expect(documentoB.body[0].enviadoEn).toBeNull();
+  });
+
+  it('exige zona explícita en ventas manuales', async () => {
+    const base = {
+      sucursalId: sucursalAId,
+      detalles: [{ productoId: productoAId, cantidad: 1 }],
+    };
+    await request(app.getHttpServer())
+      .post('/ventas/manual')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .set('Idempotency-Key', `s10-fecha-mal-${sufijo}`)
+      .send({ ...base, fechaOperacion: '2026-08-18T10:00:00' })
+      .expect(400);
+
+    const valida = await request(app.getHttpServer())
+      .post('/ventas/manual')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .set('Idempotency-Key', `s10-fecha-ok-${sufijo}`)
+      .send({ ...base, fechaOperacion: '2026-08-18T10:00:00-05:00' })
+      .expect(201);
+    expect(valida.body.fechaOperacion).toBe('2026-08-18T15:00:00.000Z');
+  });
+
   it('entrega Reportes/Dashboard aislados y bloquea ANALYTICS cuando el plan no lo incluye', async () => {
     const reporte = await request(app.getHttpServer())
       .get('/reportes/resumen')
       .set('Authorization', `Bearer ${tokenA}`)
       .expect(200);
 
-    expect(reporte.body.cantidadVentas).toBe(1);
+    expect(reporte.body.cantidadVentas).toBe(2);
 
-    expect(reporte.body.totalVentas).toBe(12000);
+    expect(reporte.body.totalVentas).toBe(24000.3);
 
     const dashboard = await request(app.getHttpServer())
       .get('/dashboard/resumen')
       .set('Authorization', `Bearer ${tokenA}`)
       .expect(200);
 
-    expect(dashboard.body.ventas.cantidad).toBe(1);
+    expect(dashboard.body.ventas.cantidad).toBe(2);
 
-    expect(dashboard.body.ventas.total).toBe(12000);
+    expect(dashboard.body.ventas.total).toBe(24000.3);
 
     expect(dashboard.body.clientes.nuevosRestaurante).toBe(1);
 

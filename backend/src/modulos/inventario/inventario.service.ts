@@ -303,24 +303,19 @@ export class InventarioService {
       );
     }
 
-    return this.prisma.$transaction(
-      async (tx) => {
-        await this.validarSucursalDentroDelAlcance(
-          data.sucursalId,
-          usuarioActual,
-          tx,
-        );
+    return this.prisma.transaccionSerializable(async (tx) => {
+      await this.validarSucursalDentroDelAlcance(
+        data.sucursalId,
+        usuarioActual,
+        tx,
+      );
 
-        if (data.productoId !== undefined) {
-          return this.ajustarProducto(tx, data, usuarioActual);
-        }
+      if (data.productoId !== undefined) {
+        return this.ajustarProducto(tx, data, usuarioActual);
+      }
 
-        return this.ajustarArticulo(tx, data, usuarioActual);
-      },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
-    );
+      return this.ajustarArticulo(tx, data, usuarioActual);
+    });
   }
 
   private async ajustarProducto(

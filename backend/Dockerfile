@@ -1,6 +1,6 @@
-FROM node:24-alpine AS dependencies
+FROM node:22-alpine AS dependencies
 WORKDIR /app
-RUN npm install --global npm@11.6.1
+RUN npm install --global npm@10.9.8
 COPY package*.json ./
 RUN npm ci
 
@@ -16,7 +16,7 @@ CMD ["npx", "prisma", "migrate", "deploy"]
 FROM build AS production-dependencies
 RUN npm prune --omit=dev
 
-FROM node:24-alpine AS runtime
+FROM node:22-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 RUN addgroup -S sigr && adduser -S sigr -G sigr

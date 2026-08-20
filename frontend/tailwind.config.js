@@ -7,13 +7,9 @@ export default {
   theme: {
     extend: {
       colors: {
-        brand: {
-          50: '#f0fdf4',
-          500: '#22c55e',
-          600: '#16a34a',
-          900: '#14532d',
-        }
-      }
+        screen: '#c5c1c0', steel: '#0a1612', denim: '#1a2930', marigold: '#f7ce3e',
+      },
+      boxShadow: { card: '0 24px 60px rgba(26, 41, 48, .10)', glow: '0 14px 34px rgba(247, 206, 62, .16)' },
     },
   },
   plugins: [],

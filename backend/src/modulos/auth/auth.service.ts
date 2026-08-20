@@ -17,6 +17,28 @@ export class AuthService {
     // 1. Buscamos al usuario en la base de datos
     const usuario = await this.prisma.usuario.findUnique({
       where: { email },
+      include: {
+        rol: {
+          include: {
+            permisos: {
+              where: { permiso: { activo: true } },
+              include: { permiso: true },
+            },
+          },
+        },
+        restaurante: {
+          include: {
+            plan: {
+              include: {
+                capacidades: {
+                  where: { capacidad: { activo: true } },
+                  include: { capacidad: true },
+                },
+              },
+            },
+          },
+        },
+      },
     });
 
     // 2. Si no existe, devolvemos un error genérico (Regla de oro anti-hackers: nunca revelar si el correo existe o no)
@@ -38,12 +60,33 @@ export class AuthService {
     const payload = { sub: usuario.id };
     const token = this.jwtService.sign(payload);
     // 5. Ocultamos la contraseña antes de responderle al frontend
-    const { password: passwordHash, ...usuarioLimpio } = usuario;
-    void passwordHash;
-
     return {
       mensaje: 'Autenticación exitosa',
-      usuario: usuarioLimpio,
+      usuario: {
+        id: usuario.id,
+        nombres: usuario.nombres,
+        apellidos: usuario.apellidos,
+        email: usuario.email,
+        restauranteId: usuario.restauranteId,
+        sucursalId: usuario.sucursalId,
+      },
+      sesion: {
+        id: usuario.id,
+        nombres: usuario.nombres,
+        apellidos: usuario.apellidos,
+        email: usuario.email,
+        rol: usuario.rol.nombre,
+        restauranteId: usuario.restauranteId,
+        sucursalId: usuario.sucursalId,
+        permisos: usuario.rol.permisos.map(
+          (rolPermiso) => rolPermiso.permiso.codigo,
+        ),
+        capacidades: usuario.restaurante?.plan?.activo
+          ? usuario.restaurante.plan.capacidades.map(
+              (planCapacidad) => planCapacidad.capacidad.codigo,
+            )
+          : [],
+      },
       token, // <- ¡Esta es la llave de acceso para todas las rutas futuras!
     };
   }

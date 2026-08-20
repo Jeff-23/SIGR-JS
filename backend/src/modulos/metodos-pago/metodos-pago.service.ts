@@ -1,7 +1,4 @@
-import {
-  ForbiddenException,
-  Injectable,
-} from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 
 import { TipoMetodoPago } from '@prisma/client';
 
@@ -11,14 +8,9 @@ import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 @Injectable()
 export class MetodosPagoService {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  async create(
-    data: CreateMetodoPagoDto,
-    usuarioActual: UsuarioAutenticado,
-  ) {
+  async create(data: CreateMetodoPagoDto, usuarioActual: UsuarioAutenticado) {
     /*
      * MetodoPago continúa siendo un catálogo
      * global de la plataforma SIGR.

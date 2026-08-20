@@ -11,34 +11,21 @@ import { UsuarioAutenticado } from './types/usuario-autenticado.type';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
-  constructor(
-    private readonly reflector: Reflector,
-  ) {}
+  constructor(private readonly reflector: Reflector) {}
 
-  canActivate(
-    context: ExecutionContext,
-  ): boolean {
-    const permisosRequeridos =
-      this.reflector.getAllAndOverride<string[]>(
-        PERMISOS_KEY,
-        [
-          context.getHandler(),
-          context.getClass(),
-        ],
-      );
+  canActivate(context: ExecutionContext): boolean {
+    const permisosRequeridos = this.reflector.getAllAndOverride<string[]>(
+      PERMISOS_KEY,
+      [context.getHandler(), context.getClass()],
+    );
 
-    if (
-      !permisosRequeridos ||
-      permisosRequeridos.length === 0
-    ) {
+    if (!permisosRequeridos || permisosRequeridos.length === 0) {
       return true;
     }
 
-    const request = context
-      .switchToHttp()
-      .getRequest<{
-        user: UsuarioAutenticado;
-      }>();
+    const request = context.switchToHttp().getRequest<{
+      user: UsuarioAutenticado;
+    }>();
 
     const usuario = request.user;
 
@@ -48,18 +35,13 @@ export class PermissionsGuard implements CanActivate {
       );
     }
 
-    if (
-      usuario.rol === 'SUPERADMIN' &&
-      usuario.restauranteId === null
-    ) {
+    if (usuario.rol === 'SUPERADMIN' && usuario.restauranteId === null) {
       return true;
     }
 
-    const tieneTodosLosPermisos =
-      permisosRequeridos.every(
-        (permiso) =>
-          usuario.permisos.includes(permiso),
-      );
+    const tieneTodosLosPermisos = permisosRequeridos.every((permiso) =>
+      usuario.permisos.includes(permiso),
+    );
 
     if (!tieneTodosLosPermisos) {
       throw new ForbiddenException(

@@ -1,10 +1,4 @@
-import {
-  Controller,
-  Get,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 
 import { DashboardService } from './dashboard.service';
 import { FiltroReportesDto } from '../reportes/dto/filtro-reportes.dto';
@@ -21,26 +15,17 @@ type RequestAutenticada = {
 };
 
 @Controller('dashboard')
-@UseGuards(
-  JwtAuthGuard,
-  PermissionsGuard,
-  CapabilitiesGuard,
-)
+@UseGuards(JwtAuthGuard, PermissionsGuard, CapabilitiesGuard)
 @Permisos('REPORTES_VER')
 @Capacidades('ANALYTICS')
 export class DashboardController {
-  constructor(
-    private readonly dashboardService: DashboardService,
-  ) {}
+  constructor(private readonly dashboardService: DashboardService) {}
 
   @Get('resumen')
   resumen(
     @Query() filtros: FiltroReportesDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.dashboardService.resumen(
-      filtros,
-      request.user,
-    );
+    return this.dashboardService.resumen(filtros, request.user);
   }
 }

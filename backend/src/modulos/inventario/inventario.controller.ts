@@ -25,46 +25,31 @@ type RequestAutenticada = {
 };
 
 @Controller('inventario')
-@UseGuards(
-  JwtAuthGuard,
-  PermissionsGuard,
-  CapabilitiesGuard,
-)
+@UseGuards(JwtAuthGuard, PermissionsGuard, CapabilitiesGuard)
 @Capacidades('INVENTARIO')
 export class InventarioController {
-  constructor(
-    private readonly inventarioService:
-      InventarioService,
-  ) {}
+  constructor(private readonly inventarioService: InventarioService) {}
 
   @Get('existencias')
   @Permisos('INVENTARIO_VER')
   existencias(
     @Query()
-    filtros:
-      ListarExistenciasInventarioDto,
+    filtros: ListarExistenciasInventarioDto,
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.inventarioService.existencias(
-      filtros,
-      request.user,
-    );
+    return this.inventarioService.existencias(filtros, request.user);
   }
 
   @Get('movimientos')
   @Permisos('INVENTARIO_VER')
   movimientos(
     @Query()
-    filtros:
-      ListarMovimientosInventarioDto,
+    filtros: ListarMovimientosInventarioDto,
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.inventarioService.movimientos(
-      filtros,
-      request.user,
-    );
+    return this.inventarioService.movimientos(filtros, request.user);
   }
 
   @Post('ajustes')
@@ -75,9 +60,6 @@ export class InventarioController {
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.inventarioService.ajustar(
-      data,
-      request.user,
-    );
+    return this.inventarioService.ajustar(data, request.user);
   }
 }

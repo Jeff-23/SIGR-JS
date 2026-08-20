@@ -21,6 +21,10 @@
   <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
   [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
 
+## SIGR V2 backend
+
+Backend NestJS/PostgreSQL multiempresa y multisucursal. La guía vigente de configuración, calidad, health checks, errores, correlación, paginación y concurrencia está en [OPERACION.md](./OPERACION.md).
+
 ## Description
 
 [Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.

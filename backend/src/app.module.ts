@@ -1,5 +1,5 @@
-import { Module } from '@nestjs/common';
-import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 import { AppController } from './app.controller';
@@ -30,13 +30,20 @@ import { ConfiguracionModule } from './modulos/configuracion/configuracion.modul
 import { AutorizacionModule } from './modulos/autorizacion/autorizacion.module';
 import { AuditoriaModule } from './modulos/auditoria/auditoria.module';
 import { AuditoriaInterceptor } from './modulos/auditoria/auditoria.interceptor';
+import { obtenerEntorno } from './config/entorno';
+import { CorrelacionMiddleware } from './plataforma/correlacion.middleware';
+import { ExcepcionesFilter } from './plataforma/excepciones.filter';
+import { TrazabilidadInterceptor } from './plataforma/trazabilidad.interceptor';
+import { PlataformaModule } from './plataforma/plataforma.module';
+
+const entorno = obtenerEntorno();
 
 @Module({
   imports: [
     ThrottlerModule.forRoot([
       {
-        ttl: 60000,
-        limit: 10,
+        ttl: entorno.throttleTtlMs,
+        limit: entorno.throttleLimite,
       },
     ]),
     PrismaModule,
@@ -64,6 +71,7 @@ import { AuditoriaInterceptor } from './modulos/auditoria/auditoria.interceptor'
     ConfiguracionModule,
     AutorizacionModule,
     AuditoriaModule,
+    PlataformaModule,
   ],
   controllers: [AppController],
   providers: [
@@ -76,6 +84,18 @@ import { AuditoriaInterceptor } from './modulos/auditoria/auditoria.interceptor'
       provide: APP_INTERCEPTOR,
       useClass: AuditoriaInterceptor,
     },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: TrazabilidadInterceptor,
+    },
+    {
+      provide: APP_FILTER,
+      useClass: ExcepcionesFilter,
+    },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(CorrelacionMiddleware).forRoutes('*');
+  }
+}

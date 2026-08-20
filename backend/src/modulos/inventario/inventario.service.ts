@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import {
   EstrategiaInventario,
+  MovimientoInventario,
   Prisma,
   TipoMovimientoInventario,
   UnidadInventario,
@@ -19,45 +20,33 @@ import { ListarExistenciasInventarioDto } from './dto/listar-existencias-inventa
 import { ListarMovimientosInventarioDto } from './dto/listar-movimientos-inventario.dto';
 import { convertirUnidad } from './inventario-unidades.util';
 
-const TIPOS_MANUALES =
-  new Set<TipoMovimientoInventario>([
-    TipoMovimientoInventario.ENTRADA,
-    TipoMovimientoInventario.AJUSTE_POSITIVO,
-    TipoMovimientoInventario.AJUSTE_NEGATIVO,
-    TipoMovimientoInventario.MERMA,
-    TipoMovimientoInventario.DEVOLUCION,
-    TipoMovimientoInventario.CONSUMO_INTERNO,
-  ]);
+const TIPOS_MANUALES = new Set<TipoMovimientoInventario>([
+  TipoMovimientoInventario.ENTRADA,
+  TipoMovimientoInventario.AJUSTE_POSITIVO,
+  TipoMovimientoInventario.AJUSTE_NEGATIVO,
+  TipoMovimientoInventario.MERMA,
+  TipoMovimientoInventario.DEVOLUCION,
+  TipoMovimientoInventario.CONSUMO_INTERNO,
+]);
 
-const TIPOS_ENTRADA =
-  new Set<TipoMovimientoInventario>([
-    TipoMovimientoInventario.ENTRADA,
-    TipoMovimientoInventario.AJUSTE_POSITIVO,
-    TipoMovimientoInventario.DEVOLUCION,
-  ]);
+const TIPOS_ENTRADA = new Set<TipoMovimientoInventario>([
+  TipoMovimientoInventario.ENTRADA,
+  TipoMovimientoInventario.AJUSTE_POSITIVO,
+  TipoMovimientoInventario.DEVOLUCION,
+]);
 
 @Injectable()
 export class InventarioService {
-  constructor(
-    private readonly prisma:
-      PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  private esSuperadmin(
-    usuarioActual:
-      UsuarioAutenticado,
-  ) {
+  private esSuperadmin(usuarioActual: UsuarioAutenticado) {
     return (
-      usuarioActual.rol ===
-        'SUPERADMIN' &&
-      usuarioActual.restauranteId ===
-        null
+      usuarioActual.rol === 'SUPERADMIN' && usuarioActual.restauranteId === null
     );
   }
 
   private filtroSucursal(
-    usuarioActual:
-      UsuarioAutenticado,
+    usuarioActual: UsuarioAutenticado,
     sucursalId?: number,
   ): Prisma.SucursalWhereInput {
     return {
@@ -69,20 +58,15 @@ export class InventarioService {
           }
         : {}),
 
-      ...(!this.esSuperadmin(
-        usuarioActual,
-      )
+      ...(!this.esSuperadmin(usuarioActual)
         ? {
-            restauranteId:
-              usuarioActual.restauranteId!,
+            restauranteId: usuarioActual.restauranteId,
           }
         : {}),
 
-      ...(usuarioActual.sucursalId !==
-      null
+      ...(usuarioActual.sucursalId !== null
         ? {
-            id:
-              usuarioActual.sucursalId,
+            id: usuarioActual.sucursalId,
           }
         : {}),
     };
@@ -90,86 +74,60 @@ export class InventarioService {
 
   private async validarSucursalDentroDelAlcance(
     sucursalId: number,
-    usuarioActual:
-      UsuarioAutenticado,
-    tx:
-      Prisma.TransactionClient |
-      PrismaService =
-      this.prisma,
+    usuarioActual: UsuarioAutenticado,
+    tx: Prisma.TransactionClient | PrismaService = this.prisma,
   ) {
     if (
-      usuarioActual.sucursalId !==
-        null &&
-      usuarioActual.sucursalId !==
-        sucursalId
+      usuarioActual.sucursalId !== null &&
+      usuarioActual.sucursalId !== sucursalId
     ) {
-      throw new NotFoundException(
-        'Sucursal no encontrada',
-      );
+      throw new NotFoundException('Sucursal no encontrada');
     }
 
-    const sucursal =
-      await tx.sucursal.findFirst({
-        where:
-          this.filtroSucursal(
-            usuarioActual,
-            sucursalId,
-          ),
-        select: {
-          id: true,
-          restauranteId: true,
-        },
-      });
+    const sucursal = await tx.sucursal.findFirst({
+      where: this.filtroSucursal(usuarioActual, sucursalId),
+      select: {
+        id: true,
+        restauranteId: true,
+      },
+    });
 
     if (!sucursal) {
-      throw new NotFoundException(
-        'Sucursal no encontrada',
-      );
+      throw new NotFoundException('Sucursal no encontrada');
     }
 
     return sucursal;
   }
 
   async existencias(
-    filtros:
-      ListarExistenciasInventarioDto,
-    usuarioActual:
-      UsuarioAutenticado,
+    filtros: ListarExistenciasInventarioDto,
+    usuarioActual: UsuarioAutenticado,
   ) {
-    if (
-      filtros.sucursalId !==
-      undefined
-    ) {
+    if (filtros.sucursalId !== undefined) {
       await this.validarSucursalDentroDelAlcance(
         filtros.sucursalId,
         usuarioActual,
       );
     }
 
-    const filtroSucursal =
-      this.filtroSucursal(
-        usuarioActual,
-        filtros.sucursalId,
-      );
+    const filtroSucursal = this.filtroSucursal(
+      usuarioActual,
+      filtros.sucursalId,
+    );
 
-    const [
-      productos,
-      articulos,
-    ] = await Promise.all([
+    const [productos, articulos] = await Promise.all([
       this.prisma.producto.findMany({
         where: {
           estado: true,
           categoria: {
             estado: true,
-            sucursal:
-              filtroSucursal,
+            sucursal: filtroSucursal,
           },
         },
         select: {
           id: true,
           nombre: true,
-          estrategiaInventario:
-            true,
+          estrategiaInventario: true,
           unidadInventario: true,
           stock: true,
           categoria: {
@@ -191,8 +149,7 @@ export class InventarioService {
       this.prisma.articulo.findMany({
         where: {
           estado: true,
-          sucursal:
-            filtroSucursal,
+          sucursal: filtroSucursal,
         },
         select: {
           id: true,
@@ -214,201 +171,133 @@ export class InventarioService {
     ]);
 
     return {
-      productos:
-        productos.map(
-          (producto) => ({
-            id: producto.id,
-            nombre:
-              producto.nombre,
-            sucursalId:
-              producto.categoria
-                .sucursalId,
-            sucursal:
-              producto.categoria
-                .sucursal.nombre,
-            estrategiaInventario:
-              producto.estrategiaInventario,
-            unidad:
-              producto.unidadInventario,
-            stock:
-              producto.stock,
-          }),
-        ),
+      productos: productos.map((producto) => ({
+        id: producto.id,
+        nombre: producto.nombre,
+        sucursalId: producto.categoria.sucursalId,
+        sucursal: producto.categoria.sucursal.nombre,
+        estrategiaInventario: producto.estrategiaInventario,
+        unidad: producto.unidadInventario,
+        stock: producto.stock,
+      })),
 
-      articulos:
-        articulos.map(
-          (articulo) => ({
-            id: articulo.id,
-            nombre:
-              articulo.nombre,
-            sucursalId:
-              articulo.sucursalId,
-            sucursal:
-              articulo.sucursal
-                .nombre,
-            unidad:
-              articulo.unidad,
-            stock:
-              articulo.stock,
-            costoUnidad:
-              articulo.costoUnidad,
-          }),
-        ),
+      articulos: articulos.map((articulo) => ({
+        id: articulo.id,
+        nombre: articulo.nombre,
+        sucursalId: articulo.sucursalId,
+        sucursal: articulo.sucursal.nombre,
+        unidad: articulo.unidad,
+        stock: articulo.stock,
+        costoUnidad: articulo.costoUnidad,
+      })),
     };
   }
 
   async movimientos(
-    filtros:
-      ListarMovimientosInventarioDto,
-    usuarioActual:
-      UsuarioAutenticado,
+    filtros: ListarMovimientosInventarioDto,
+    usuarioActual: UsuarioAutenticado,
   ) {
-    if (
-      filtros.sucursalId !==
-      undefined
-    ) {
+    if (filtros.sucursalId !== undefined) {
       await this.validarSucursalDentroDelAlcance(
         filtros.sucursalId,
         usuarioActual,
       );
     }
 
-    if (
-      filtros.productoId !==
-        undefined &&
-      filtros.articuloId !==
-        undefined
-    ) {
+    if (filtros.productoId !== undefined && filtros.articuloId !== undefined) {
       throw new BadRequestException(
         'Filtre por producto o por artículo, no por ambos',
       );
     }
 
-    return this.prisma.movimientoInventario.findMany(
-      {
-        where: {
-          sucursal:
-            this.filtroSucursal(
-              usuarioActual,
-              filtros.sucursalId,
-            ),
+    return this.prisma.movimientoInventario.findMany({
+      where: {
+        sucursal: this.filtroSucursal(usuarioActual, filtros.sucursalId),
 
-          ...(filtros.productoId !==
-          undefined
-            ? {
-                productoId:
-                  filtros.productoId,
-              }
-            : {}),
+        ...(filtros.productoId !== undefined
+          ? {
+              productoId: filtros.productoId,
+            }
+          : {}),
 
-          ...(filtros.articuloId !==
-          undefined
-            ? {
-                articuloId:
-                  filtros.articuloId,
-              }
-            : {}),
+        ...(filtros.articuloId !== undefined
+          ? {
+              articuloId: filtros.articuloId,
+            }
+          : {}),
 
-          ...(filtros.tipo !==
-          undefined
-            ? {
-                tipo:
-                  filtros.tipo,
-              }
-            : {}),
+        ...(filtros.tipo !== undefined
+          ? {
+              tipo: filtros.tipo,
+            }
+          : {}),
 
-          ...(
-            filtros.desde ||
-            filtros.hasta
-              ? {
-                  creadoEn: {
-                    ...(filtros.desde
-                      ? {
-                          gte:
-                            new Date(
-                              filtros.desde,
-                            ),
-                        }
-                      : {}),
+        ...(filtros.desde || filtros.hasta
+          ? {
+              creadoEn: {
+                ...(filtros.desde
+                  ? {
+                      gte: new Date(filtros.desde),
+                    }
+                  : {}),
 
-                    ...(filtros.hasta
-                      ? {
-                          lte:
-                            new Date(
-                              filtros.hasta,
-                            ),
-                        }
-                      : {}),
-                  },
-                }
-              : {}
-          ),
-        },
-
-        include: {
-          producto: {
-            select: {
-              id: true,
-              nombre: true,
-            },
-          },
-
-          articulo: {
-            select: {
-              id: true,
-              nombre: true,
-            },
-          },
-
-          usuario: {
-            select: {
-              id: true,
-              nombres: true,
-              apellidos: true,
-              email: true,
-            },
-          },
-        },
-
-        orderBy: [
-          {
-            creadoEn:
-              'desc',
-          },
-          {
-            id: 'desc',
-          },
-        ],
+                ...(filtros.hasta
+                  ? {
+                      lte: new Date(filtros.hasta),
+                    }
+                  : {}),
+              },
+            }
+          : {}),
       },
-    );
+
+      include: {
+        producto: {
+          select: {
+            id: true,
+            nombre: true,
+          },
+        },
+
+        articulo: {
+          select: {
+            id: true,
+            nombre: true,
+          },
+        },
+
+        usuario: {
+          select: {
+            id: true,
+            nombres: true,
+            apellidos: true,
+            email: true,
+          },
+        },
+      },
+
+      orderBy: [
+        {
+          creadoEn: 'desc',
+        },
+        {
+          id: 'desc',
+        },
+      ],
+    });
   }
 
-  async ajustar(
-    data:
-      AjustarInventarioDto,
-    usuarioActual:
-      UsuarioAutenticado,
-  ) {
+  async ajustar(data: AjustarInventarioDto, usuarioActual: UsuarioAutenticado) {
     if (
-      (data.productoId ===
-        undefined &&
-        data.articuloId ===
-          undefined) ||
-      (data.productoId !==
-        undefined &&
-        data.articuloId !==
-          undefined)
+      (data.productoId === undefined && data.articuloId === undefined) ||
+      (data.productoId !== undefined && data.articuloId !== undefined)
     ) {
       throw new BadRequestException(
         'Debe indicar exactamente un producto o un artículo',
       );
     }
 
-    if (
-      !TIPOS_MANUALES.has(
-        data.tipo,
-      )
-    ) {
+    if (!TIPOS_MANUALES.has(data.tipo)) {
       throw new BadRequestException(
         'El tipo de movimiento indicado no puede registrarse manualmente',
       );
@@ -422,289 +311,207 @@ export class InventarioService {
           tx,
         );
 
-        if (
-          data.productoId !==
-          undefined
-        ) {
-          return this.ajustarProducto(
-            tx,
-            data,
-            usuarioActual,
-          );
+        if (data.productoId !== undefined) {
+          return this.ajustarProducto(tx, data, usuarioActual);
         }
 
-        return this.ajustarArticulo(
-          tx,
-          data,
-          usuarioActual,
-        );
+        return this.ajustarArticulo(tx, data, usuarioActual);
       },
       {
-        isolationLevel:
-          Prisma.TransactionIsolationLevel
-            .Serializable,
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
   }
 
   private async ajustarProducto(
     tx: Prisma.TransactionClient,
-    data:
-      AjustarInventarioDto,
-    usuarioActual:
-      UsuarioAutenticado,
+    data: AjustarInventarioDto,
+    usuarioActual: UsuarioAutenticado,
   ) {
-    const producto =
-      await tx.producto.findFirst({
-        where: {
-          id: data.productoId!,
+    const producto = await tx.producto.findFirst({
+      where: {
+        id: data.productoId,
+        estado: true,
+
+        categoria: {
           estado: true,
-
-          categoria: {
-            estado: true,
-            sucursalId:
-              data.sucursalId,
-            sucursal:
-              this.filtroSucursal(
-                usuarioActual,
-                data.sucursalId,
-              ),
-          },
+          sucursalId: data.sucursalId,
+          sucursal: this.filtroSucursal(usuarioActual, data.sucursalId),
         },
+      },
 
-        select: {
-          id: true,
-          nombre: true,
-          stock: true,
-          unidadInventario: true,
-          estrategiaInventario:
-            true,
-        },
-      });
+      select: {
+        id: true,
+        nombre: true,
+        stock: true,
+        unidadInventario: true,
+        estrategiaInventario: true,
+      },
+    });
 
     if (!producto) {
-      throw new NotFoundException(
-        'Producto no encontrado',
-      );
+      throw new NotFoundException('Producto no encontrado');
     }
 
-    if (
-      producto.estrategiaInventario !==
-      EstrategiaInventario.STOCK_DIRECTO
-    ) {
+    if (producto.estrategiaInventario !== EstrategiaInventario.STOCK_DIRECTO) {
       throw new BadRequestException(
         `El producto "${producto.nombre}" no utiliza STOCK_DIRECTO`,
       );
     }
 
-    const cantidad =
-      this.cantidadBase(
-        data.cantidad,
-        data.unidad,
-        producto.unidadInventario,
-      );
+    const cantidad = this.cantidadBase(
+      data.cantidad,
+      data.unidad,
+      producto.unidadInventario,
+    );
 
-    const stockAnterior =
-      producto.stock;
+    const stockAnterior = producto.stock;
 
-    const entrada =
-      TIPOS_ENTRADA.has(
-        data.tipo,
-      );
+    const entrada = TIPOS_ENTRADA.has(data.tipo);
 
-    const actualizado =
-      await tx.producto.updateMany({
-        where: {
-          id: producto.id,
+    const actualizado = await tx.producto.updateMany({
+      where: {
+        id: producto.id,
 
-          ...(entrada
-            ? {}
-            : {
-                stock: {
-                  gte: cantidad,
-                },
-              }),
-        },
-
-        data: {
-          stock: entrada
-            ? {
-                increment:
-                  cantidad,
-              }
-            : {
-                decrement:
-                  cantidad,
+        ...(entrada
+          ? {}
+          : {
+              stock: {
+                gte: cantidad,
               },
-        },
-      });
+            }),
+      },
 
-    if (
-      actualizado.count !== 1
-    ) {
+      data: {
+        stock: entrada
+          ? {
+              increment: cantidad,
+            }
+          : {
+              decrement: cantidad,
+            },
+      },
+    });
+
+    if (actualizado.count !== 1) {
       throw new BadRequestException(
         `Stock insuficiente de "${producto.nombre}"`,
       );
     }
 
-    const productoActualizado =
-      await tx.producto.findUniqueOrThrow(
-        {
-          where: {
-            id: producto.id,
-          },
-          select: {
-            stock: true,
-          },
-        },
-      );
-
-    return tx.movimientoInventario.create(
-      {
-        data: {
-          tipo:
-            data.tipo,
-          cantidad,
-          unidad:
-            producto.unidadInventario,
-          stockAnterior,
-          stockNuevo:
-            productoActualizado.stock,
-          motivo:
-            data.motivo,
-          sucursalId:
-            data.sucursalId,
-          usuarioId:
-            usuarioActual.id,
-          productoId:
-            producto.id,
-        },
+    const productoActualizado = await tx.producto.findUniqueOrThrow({
+      where: {
+        id: producto.id,
       },
-    );
+      select: {
+        stock: true,
+      },
+    });
+
+    return tx.movimientoInventario.create({
+      data: {
+        tipo: data.tipo,
+        cantidad,
+        unidad: producto.unidadInventario,
+        stockAnterior,
+        stockNuevo: productoActualizado.stock,
+        motivo: data.motivo,
+        sucursalId: data.sucursalId,
+        usuarioId: usuarioActual.id,
+        productoId: producto.id,
+      },
+    });
   }
 
   private async ajustarArticulo(
     tx: Prisma.TransactionClient,
-    data:
-      AjustarInventarioDto,
-    usuarioActual:
-      UsuarioAutenticado,
+    data: AjustarInventarioDto,
+    usuarioActual: UsuarioAutenticado,
   ) {
-    const articulo =
-      await tx.articulo.findFirst({
-        where: {
-          id: data.articuloId!,
-          estado: true,
-          sucursalId:
-            data.sucursalId,
+    const articulo = await tx.articulo.findFirst({
+      where: {
+        id: data.articuloId,
+        estado: true,
+        sucursalId: data.sucursalId,
 
-          sucursal:
-            this.filtroSucursal(
-              usuarioActual,
-              data.sucursalId,
-            ),
-        },
+        sucursal: this.filtroSucursal(usuarioActual, data.sucursalId),
+      },
 
-        select: {
-          id: true,
-          nombre: true,
-          unidad: true,
-          stock: true,
-        },
-      });
+      select: {
+        id: true,
+        nombre: true,
+        unidad: true,
+        stock: true,
+      },
+    });
 
     if (!articulo) {
-      throw new NotFoundException(
-        'Artículo no encontrado',
-      );
+      throw new NotFoundException('Artículo no encontrado');
     }
 
-    const cantidad =
-      this.cantidadBase(
-        data.cantidad,
-        data.unidad,
-        articulo.unidad,
-      );
+    const cantidad = this.cantidadBase(
+      data.cantidad,
+      data.unidad,
+      articulo.unidad,
+    );
 
-    const stockAnterior =
-      articulo.stock;
+    const stockAnterior = articulo.stock;
 
-    const entrada =
-      TIPOS_ENTRADA.has(
-        data.tipo,
-      );
+    const entrada = TIPOS_ENTRADA.has(data.tipo);
 
-    const actualizado =
-      await tx.articulo.updateMany({
-        where: {
-          id: articulo.id,
+    const actualizado = await tx.articulo.updateMany({
+      where: {
+        id: articulo.id,
 
-          ...(entrada
-            ? {}
-            : {
-                stock: {
-                  gte: cantidad,
-                },
-              }),
-        },
-
-        data: {
-          stock: entrada
-            ? {
-                increment:
-                  cantidad,
-              }
-            : {
-                decrement:
-                  cantidad,
+        ...(entrada
+          ? {}
+          : {
+              stock: {
+                gte: cantidad,
               },
-        },
-      });
+            }),
+      },
 
-    if (
-      actualizado.count !== 1
-    ) {
+      data: {
+        stock: entrada
+          ? {
+              increment: cantidad,
+            }
+          : {
+              decrement: cantidad,
+            },
+      },
+    });
+
+    if (actualizado.count !== 1) {
       throw new BadRequestException(
         `Stock insuficiente de "${articulo.nombre}"`,
       );
     }
 
-    const articuloActualizado =
-      await tx.articulo.findUniqueOrThrow(
-        {
-          where: {
-            id: articulo.id,
-          },
-          select: {
-            stock: true,
-          },
-        },
-      );
-
-    return tx.movimientoInventario.create(
-      {
-        data: {
-          tipo:
-            data.tipo,
-          cantidad,
-          unidad:
-            articulo.unidad,
-          stockAnterior,
-          stockNuevo:
-            articuloActualizado.stock,
-          motivo:
-            data.motivo,
-          sucursalId:
-            data.sucursalId,
-          usuarioId:
-            usuarioActual.id,
-          articuloId:
-            articulo.id,
-        },
+    const articuloActualizado = await tx.articulo.findUniqueOrThrow({
+      where: {
+        id: articulo.id,
       },
-    );
-  }
+      select: {
+        stock: true,
+      },
+    });
 
+    return tx.movimientoInventario.create({
+      data: {
+        tipo: data.tipo,
+        cantidad,
+        unidad: articulo.unidad,
+        stockAnterior,
+        stockNuevo: articuloActualizado.stock,
+        motivo: data.motivo,
+        sucursalId: data.sucursalId,
+        usuarioId: usuarioActual.id,
+        articuloId: articulo.id,
+      },
+    });
+  }
 
   /**
    * Aplica el consumo de inventario asociado a una Venta dentro
@@ -732,12 +539,10 @@ export class InventarioService {
       }>;
     },
   ) {
-    const cantidadesPorProducto =
-      new Map<number, Prisma.Decimal>();
+    const cantidadesPorProducto = new Map<number, Prisma.Decimal>();
 
     for (const detalle of params.detalles) {
-      const cantidad =
-        new Prisma.Decimal(detalle.cantidad);
+      const cantidad = new Prisma.Decimal(detalle.cantidad);
 
       if (cantidad.lte(0)) {
         throw new BadRequestException(
@@ -747,91 +552,74 @@ export class InventarioService {
 
       cantidadesPorProducto.set(
         detalle.productoId,
-        (cantidadesPorProducto.get(
-          detalle.productoId,
-        ) ?? new Prisma.Decimal(0)).plus(
-          cantidad,
-        ),
+        (
+          cantidadesPorProducto.get(detalle.productoId) ?? new Prisma.Decimal(0)
+        ).plus(cantidad),
       );
     }
 
-    const idsProductos = [
-      ...cantidadesPorProducto.keys(),
-    ];
+    const idsProductos = [...cantidadesPorProducto.keys()];
 
     if (idsProductos.length === 0) {
       return [];
     }
 
-    const productos =
-      await tx.producto.findMany({
-        where: {
-          id: {
-            in: idsProductos,
-          },
-          estado: true,
-          categoria: {
-            estado: true,
-            sucursalId:
-              params.sucursalId,
-          },
+    const productos = await tx.producto.findMany({
+      where: {
+        id: {
+          in: idsProductos,
         },
-        select: {
-          id: true,
-          nombre: true,
-          estrategiaInventario: true,
-          unidadInventario: true,
-          stock: true,
-          recetas: {
-            select: {
-              cantidad: true,
-              unidad: true,
-              articulo: {
-                select: {
-                  id: true,
-                  nombre: true,
-                  unidad: true,
-                  stock: true,
-                  estado: true,
-                  sucursalId: true,
-                },
+        estado: true,
+        categoria: {
+          estado: true,
+          sucursalId: params.sucursalId,
+        },
+      },
+      select: {
+        id: true,
+        nombre: true,
+        estrategiaInventario: true,
+        unidadInventario: true,
+        stock: true,
+        recetas: {
+          select: {
+            cantidad: true,
+            unidad: true,
+            articulo: {
+              select: {
+                id: true,
+                nombre: true,
+                unidad: true,
+                stock: true,
+                estado: true,
+                sucursalId: true,
               },
             },
           },
         },
-      });
+      },
+    });
 
-    if (
-      productos.length !==
-      idsProductos.length
-    ) {
+    if (productos.length !== idsProductos.length) {
       throw new NotFoundException(
         'Uno o más productos de la venta no existen o no pertenecen a la sucursal',
       );
     }
 
-    const usaInventario =
-      productos.some(
-        (producto) =>
-          producto.estrategiaInventario !==
-          EstrategiaInventario.NO_CONTROLAR,
-      );
+    const usaInventario = productos.some(
+      (producto) =>
+        producto.estrategiaInventario !== EstrategiaInventario.NO_CONTROLAR,
+    );
 
-    const usaRecetas =
-      productos.some(
-        (producto) =>
-          producto.estrategiaInventario ===
-          EstrategiaInventario.POR_RECETA,
-      );
+    const usaRecetas = productos.some(
+      (producto) =>
+        producto.estrategiaInventario === EstrategiaInventario.POR_RECETA,
+    );
 
     if (
-      !this.esSuperadmin(
-        params.usuarioActual,
-      ) &&
+      !this.esSuperadmin(params.usuarioActual) &&
       usaInventario &&
-      !params.usuarioActual.capacidades.includes(
-        'INVENTARIO',
-      )
+      !params.usuarioActual.capacidades.includes('INVENTARIO')
     ) {
       throw new ForbiddenException(
         'El control de inventario no está incluido en el plan del restaurante',
@@ -839,52 +627,42 @@ export class InventarioService {
     }
 
     if (
-      !this.esSuperadmin(
-        params.usuarioActual,
-      ) &&
+      !this.esSuperadmin(params.usuarioActual) &&
       usaRecetas &&
-      !params.usuarioActual.capacidades.includes(
-        'RECETAS',
-      )
+      !params.usuarioActual.capacidades.includes('RECETAS')
     ) {
       throw new ForbiddenException(
         'El control por receta no está incluido en el plan del restaurante',
       );
     }
 
-    const movimientos = [];
+    const movimientos: MovimientoInventario[] = [];
 
     // STOCK_DIRECTO: cada Producto conserva su propio stock.
     for (const producto of productos) {
       if (
-        producto.estrategiaInventario !==
-        EstrategiaInventario.STOCK_DIRECTO
+        producto.estrategiaInventario !== EstrategiaInventario.STOCK_DIRECTO
       ) {
         continue;
       }
 
-      const cantidad =
-        cantidadesPorProducto.get(
-          producto.id,
-        )!;
+      const cantidad = cantidadesPorProducto.get(producto.id);
 
-      const stockAnterior =
-        producto.stock;
+      const stockAnterior = producto.stock;
 
-      const actualizado =
-        await tx.producto.updateMany({
-          where: {
-            id: producto.id,
-            stock: {
-              gte: cantidad,
-            },
+      const actualizado = await tx.producto.updateMany({
+        where: {
+          id: producto.id,
+          stock: {
+            gte: cantidad,
           },
-          data: {
-            stock: {
-              decrement: cantidad,
-            },
+        },
+        data: {
+          stock: {
+            decrement: cantidad,
           },
-        });
+        },
+      });
 
       if (actualizado.count !== 1) {
         throw new BadRequestException(
@@ -892,29 +670,21 @@ export class InventarioService {
         );
       }
 
-      const stockNuevo =
-        stockAnterior.minus(cantidad);
+      const stockNuevo = stockAnterior.minus(cantidad);
 
       movimientos.push(
         await tx.movimientoInventario.create({
           data: {
-            tipo:
-              TipoMovimientoInventario.SALIDA_VENTA,
+            tipo: TipoMovimientoInventario.SALIDA_VENTA,
             cantidad,
-            unidad:
-              producto.unidadInventario,
+            unidad: producto.unidadInventario,
             stockAnterior,
             stockNuevo,
-            motivo:
-              `Venta #${params.ventaId} - STOCK_DIRECTO`,
-            sucursalId:
-              params.sucursalId,
-            usuarioId:
-              params.usuarioActual.id,
-            ventaId:
-              params.ventaId,
-            productoId:
-              producto.id,
+            motivo: `Venta #${params.ventaId} - STOCK_DIRECTO`,
+            sucursalId: params.sucursalId,
+            usuarioId: params.usuarioActual.id,
+            ventaId: params.ventaId,
+            productoId: producto.id,
           },
         }),
       );
@@ -922,23 +692,19 @@ export class InventarioService {
 
     // POR_RECETA: agregamos consumo por Articulo para evitar
     // descuentos fragmentados si varias recetas usan el mismo.
-    const consumoPorArticulo =
-      new Map<
-        number,
-        {
-          id: number;
-          nombre: string;
-          unidad: UnidadInventario;
-          stock: Prisma.Decimal;
-          cantidad: Prisma.Decimal;
-        }
-      >();
+    const consumoPorArticulo = new Map<
+      number,
+      {
+        id: number;
+        nombre: string;
+        unidad: UnidadInventario;
+        stock: Prisma.Decimal;
+        cantidad: Prisma.Decimal;
+      }
+    >();
 
     for (const producto of productos) {
-      if (
-        producto.estrategiaInventario !==
-        EstrategiaInventario.POR_RECETA
-      ) {
+      if (producto.estrategiaInventario !== EstrategiaInventario.POR_RECETA) {
         continue;
       }
 
@@ -948,98 +714,65 @@ export class InventarioService {
         );
       }
 
-      const cantidadVendida =
-        cantidadesPorProducto.get(
-          producto.id,
-        )!;
+      const cantidadVendida = cantidadesPorProducto.get(producto.id);
 
       for (const receta of producto.recetas) {
-        const articulo =
-          receta.articulo;
+        const articulo = receta.articulo;
 
-        if (
-          !articulo.estado ||
-          articulo.sucursalId !==
-            params.sucursalId
-        ) {
+        if (!articulo.estado || articulo.sucursalId !== params.sucursalId) {
           throw new BadRequestException(
             `La receta de "${producto.nombre}" contiene un artículo inactivo o ajeno a la sucursal`,
           );
         }
 
-        const consumoPorUnidad =
-          convertirUnidad(
-            receta.cantidad,
-            receta.unidad,
-            articulo.unidad,
-          );
+        const consumoPorUnidad = convertirUnidad(
+          receta.cantidad,
+          receta.unidad,
+          articulo.unidad,
+        );
 
-        const consumoTotal =
-          consumoPorUnidad
-            .mul(cantidadVendida)
-            .toDecimalPlaces(4);
+        const consumoTotal = consumoPorUnidad
+          .mul(cantidadVendida)
+          .toDecimalPlaces(4);
 
-        if (
-          consumoTotal.lt(
-            new Prisma.Decimal('0.0001'),
-          )
-        ) {
+        if (consumoTotal.lt(new Prisma.Decimal('0.0001'))) {
           throw new BadRequestException(
             `El consumo calculado para "${articulo.nombre}" es menor a la precisión mínima del inventario`,
           );
         }
 
-        const acumulado =
-          consumoPorArticulo.get(
-            articulo.id,
-          );
+        const acumulado = consumoPorArticulo.get(articulo.id);
 
         if (acumulado) {
-          acumulado.cantidad =
-            acumulado.cantidad.plus(
-              consumoTotal,
-            );
+          acumulado.cantidad = acumulado.cantidad.plus(consumoTotal);
         } else {
-          consumoPorArticulo.set(
-            articulo.id,
-            {
-              id: articulo.id,
-              nombre:
-                articulo.nombre,
-              unidad:
-                articulo.unidad,
-              stock:
-                articulo.stock,
-              cantidad:
-                consumoTotal,
-            },
-          );
+          consumoPorArticulo.set(articulo.id, {
+            id: articulo.id,
+            nombre: articulo.nombre,
+            unidad: articulo.unidad,
+            stock: articulo.stock,
+            cantidad: consumoTotal,
+          });
         }
       }
     }
 
-    for (
-      const consumo of
-        consumoPorArticulo.values()
-    ) {
-      const actualizado =
-        await tx.articulo.updateMany({
-          where: {
-            id: consumo.id,
-            estado: true,
-            sucursalId:
-              params.sucursalId,
-            stock: {
-              gte: consumo.cantidad,
-            },
+    for (const consumo of consumoPorArticulo.values()) {
+      const actualizado = await tx.articulo.updateMany({
+        where: {
+          id: consumo.id,
+          estado: true,
+          sucursalId: params.sucursalId,
+          stock: {
+            gte: consumo.cantidad,
           },
-          data: {
-            stock: {
-              decrement:
-                consumo.cantidad,
-            },
+        },
+        data: {
+          stock: {
+            decrement: consumo.cantidad,
           },
-        });
+        },
+      });
 
       if (actualizado.count !== 1) {
         throw new BadRequestException(
@@ -1047,33 +780,21 @@ export class InventarioService {
         );
       }
 
-      const stockNuevo =
-        consumo.stock.minus(
-          consumo.cantidad,
-        );
+      const stockNuevo = consumo.stock.minus(consumo.cantidad);
 
       movimientos.push(
         await tx.movimientoInventario.create({
           data: {
-            tipo:
-              TipoMovimientoInventario.SALIDA_VENTA,
-            cantidad:
-              consumo.cantidad,
-            unidad:
-              consumo.unidad,
-            stockAnterior:
-              consumo.stock,
+            tipo: TipoMovimientoInventario.SALIDA_VENTA,
+            cantidad: consumo.cantidad,
+            unidad: consumo.unidad,
+            stockAnterior: consumo.stock,
             stockNuevo,
-            motivo:
-              `Venta #${params.ventaId} - POR_RECETA`,
-            sucursalId:
-              params.sucursalId,
-            usuarioId:
-              params.usuarioActual.id,
-            ventaId:
-              params.ventaId,
-            articuloId:
-              consumo.id,
+            motivo: `Venta #${params.ventaId} - POR_RECETA`,
+            sucursalId: params.sucursalId,
+            usuarioId: params.usuarioActual.id,
+            ventaId: params.ventaId,
+            articuloId: consumo.id,
           },
         }),
       );
@@ -1081,7 +802,6 @@ export class InventarioService {
 
     return movimientos;
   }
-
 
   /**
    * Revierte la afectación de inventario de una Venta anulable.
@@ -1107,52 +827,47 @@ export class InventarioService {
       usuarioActual: UsuarioAutenticado;
     },
   ) {
-    const movimientosOriginales =
-      await tx.movimientoInventario.findMany({
-        where: {
-          ventaId: params.ventaId,
-          sucursalId: params.sucursalId,
-          tipo:
-            TipoMovimientoInventario.SALIDA_VENTA,
-        },
-        select: {
-          id: true,
-          cantidad: true,
-          unidad: true,
-          productoId: true,
-          articuloId: true,
-        },
-        orderBy: {
-          id: 'asc',
-        },
-      });
+    const movimientosOriginales = await tx.movimientoInventario.findMany({
+      where: {
+        ventaId: params.ventaId,
+        sucursalId: params.sucursalId,
+        tipo: TipoMovimientoInventario.SALIDA_VENTA,
+      },
+      select: {
+        id: true,
+        cantidad: true,
+        unidad: true,
+        productoId: true,
+        articuloId: true,
+      },
+      orderBy: {
+        id: 'asc',
+      },
+    });
 
     if (movimientosOriginales.length === 0) {
       return [];
     }
 
-    const idsOriginales =
-      movimientosOriginales.map(
-        (movimiento) => movimiento.id,
-      );
+    const idsOriginales = movimientosOriginales.map(
+      (movimiento) => movimiento.id,
+    );
 
-    const reversosExistentes =
-      await tx.movimientoInventario.count({
-        where: {
-          OR: [
-            {
-              movimientoOrigenId: {
-                in: idsOriginales,
-              },
+    const reversosExistentes = await tx.movimientoInventario.count({
+      where: {
+        OR: [
+          {
+            movimientoOrigenId: {
+              in: idsOriginales,
             },
-            {
-              ventaId: params.ventaId,
-              tipo:
-                TipoMovimientoInventario.REVERSO_VENTA,
-            },
-          ],
-        },
-      });
+          },
+          {
+            ventaId: params.ventaId,
+            tipo: TipoMovimientoInventario.REVERSO_VENTA,
+          },
+        ],
+      },
+    });
 
     if (reversosExistentes > 0) {
       throw new BadRequestException(
@@ -1160,31 +875,24 @@ export class InventarioService {
       );
     }
 
-    const reversos = [];
+    const reversos: MovimientoInventario[] = [];
 
-    for (
-      const movimiento of
-        movimientosOriginales
-    ) {
-      if (
-        movimiento.productoId !== null
-      ) {
-        const producto =
-          await tx.producto.findFirst({
-            where: {
-              id: movimiento.productoId,
-              categoria: {
-                sucursalId:
-                  params.sucursalId,
-              },
+    for (const movimiento of movimientosOriginales) {
+      if (movimiento.productoId !== null) {
+        const producto = await tx.producto.findFirst({
+          where: {
+            id: movimiento.productoId,
+            categoria: {
+              sucursalId: params.sucursalId,
             },
-            select: {
-              id: true,
-              nombre: true,
-              stock: true,
-              unidadInventario: true,
-            },
-          });
+          },
+          select: {
+            id: true,
+            nombre: true,
+            stock: true,
+            unidadInventario: true,
+          },
+        });
 
         if (!producto) {
           throw new BadRequestException(
@@ -1192,66 +900,48 @@ export class InventarioService {
           );
         }
 
-        const cantidadRestaurar =
-          convertirUnidad(
-            movimiento.cantidad,
-            movimiento.unidad,
-            producto.unidadInventario,
-          ).toDecimalPlaces(4);
+        const cantidadRestaurar = convertirUnidad(
+          movimiento.cantidad,
+          movimiento.unidad,
+          producto.unidadInventario,
+        ).toDecimalPlaces(4);
 
-        if (
-          cantidadRestaurar.lt(
-            new Prisma.Decimal('0.0001'),
-          )
-        ) {
+        if (cantidadRestaurar.lt(new Prisma.Decimal('0.0001'))) {
           throw new BadRequestException(
             `La reversión del producto "${producto.nombre}" es menor a la precisión mínima del inventario`,
           );
         }
 
-        const stockAnterior =
-          producto.stock;
+        const stockAnterior = producto.stock;
 
-        const productoActualizado =
-          await tx.producto.update({
-            where: {
-              id: producto.id,
+        const productoActualizado = await tx.producto.update({
+          where: {
+            id: producto.id,
+          },
+          data: {
+            stock: {
+              increment: cantidadRestaurar,
             },
-            data: {
-              stock: {
-                increment:
-                  cantidadRestaurar,
-              },
-            },
-            select: {
-              stock: true,
-            },
-          });
+          },
+          select: {
+            stock: true,
+          },
+        });
 
         reversos.push(
           await tx.movimientoInventario.create({
             data: {
-              tipo:
-                TipoMovimientoInventario.REVERSO_VENTA,
-              cantidad:
-                cantidadRestaurar,
-              unidad:
-                producto.unidadInventario,
+              tipo: TipoMovimientoInventario.REVERSO_VENTA,
+              cantidad: cantidadRestaurar,
+              unidad: producto.unidadInventario,
               stockAnterior,
-              stockNuevo:
-                productoActualizado.stock,
-              motivo:
-                `Anulación Venta #${params.ventaId} - reverso de movimiento #${movimiento.id}`,
-              sucursalId:
-                params.sucursalId,
-              usuarioId:
-                params.usuarioActual.id,
-              ventaId:
-                params.ventaId,
-              productoId:
-                producto.id,
-              movimientoOrigenId:
-                movimiento.id,
+              stockNuevo: productoActualizado.stock,
+              motivo: `Anulación Venta #${params.ventaId} - reverso de movimiento #${movimiento.id}`,
+              sucursalId: params.sucursalId,
+              usuarioId: params.usuarioActual.id,
+              ventaId: params.ventaId,
+              productoId: producto.id,
+              movimientoOrigenId: movimiento.id,
             },
           }),
         );
@@ -1259,23 +949,19 @@ export class InventarioService {
         continue;
       }
 
-      if (
-        movimiento.articuloId !== null
-      ) {
-        const articulo =
-          await tx.articulo.findFirst({
-            where: {
-              id: movimiento.articuloId,
-              sucursalId:
-                params.sucursalId,
-            },
-            select: {
-              id: true,
-              nombre: true,
-              stock: true,
-              unidad: true,
-            },
-          });
+      if (movimiento.articuloId !== null) {
+        const articulo = await tx.articulo.findFirst({
+          where: {
+            id: movimiento.articuloId,
+            sucursalId: params.sucursalId,
+          },
+          select: {
+            id: true,
+            nombre: true,
+            stock: true,
+            unidad: true,
+          },
+        });
 
         if (!articulo) {
           throw new BadRequestException(
@@ -1283,66 +969,48 @@ export class InventarioService {
           );
         }
 
-        const cantidadRestaurar =
-          convertirUnidad(
-            movimiento.cantidad,
-            movimiento.unidad,
-            articulo.unidad,
-          ).toDecimalPlaces(4);
+        const cantidadRestaurar = convertirUnidad(
+          movimiento.cantidad,
+          movimiento.unidad,
+          articulo.unidad,
+        ).toDecimalPlaces(4);
 
-        if (
-          cantidadRestaurar.lt(
-            new Prisma.Decimal('0.0001'),
-          )
-        ) {
+        if (cantidadRestaurar.lt(new Prisma.Decimal('0.0001'))) {
           throw new BadRequestException(
             `La reversión del artículo "${articulo.nombre}" es menor a la precisión mínima del inventario`,
           );
         }
 
-        const stockAnterior =
-          articulo.stock;
+        const stockAnterior = articulo.stock;
 
-        const articuloActualizado =
-          await tx.articulo.update({
-            where: {
-              id: articulo.id,
+        const articuloActualizado = await tx.articulo.update({
+          where: {
+            id: articulo.id,
+          },
+          data: {
+            stock: {
+              increment: cantidadRestaurar,
             },
-            data: {
-              stock: {
-                increment:
-                  cantidadRestaurar,
-              },
-            },
-            select: {
-              stock: true,
-            },
-          });
+          },
+          select: {
+            stock: true,
+          },
+        });
 
         reversos.push(
           await tx.movimientoInventario.create({
             data: {
-              tipo:
-                TipoMovimientoInventario.REVERSO_VENTA,
-              cantidad:
-                cantidadRestaurar,
-              unidad:
-                articulo.unidad,
+              tipo: TipoMovimientoInventario.REVERSO_VENTA,
+              cantidad: cantidadRestaurar,
+              unidad: articulo.unidad,
               stockAnterior,
-              stockNuevo:
-                articuloActualizado.stock,
-              motivo:
-                `Anulación Venta #${params.ventaId} - reverso de movimiento #${movimiento.id}`,
-              sucursalId:
-                params.sucursalId,
-              usuarioId:
-                params.usuarioActual.id,
-              ventaId:
-                params.ventaId,
-              articuloId:
-                articulo.id,
-              movimientoOrigenId:
-                movimiento.id,
+              stockNuevo: articuloActualizado.stock,
+              motivo: `Anulación Venta #${params.ventaId} - reverso de movimiento #${movimiento.id}`,
+              sucursalId: params.sucursalId,
+              usuarioId: params.usuarioActual.id,
+              ventaId: params.ventaId,
+              articuloId: articulo.id,
+              movimientoOrigenId: movimiento.id,
             },
           }),
         );
@@ -1360,25 +1028,16 @@ export class InventarioService {
 
   private cantidadBase(
     cantidad: number,
-    unidadOrigen:
-      AjustarInventarioDto['unidad'],
-    unidadDestino:
-      AjustarInventarioDto['unidad'],
+    unidadOrigen: AjustarInventarioDto['unidad'],
+    unidadDestino: AjustarInventarioDto['unidad'],
   ) {
-    const convertida =
-      convertirUnidad(
-        cantidad,
-        unidadOrigen,
-        unidadDestino,
-      ).toDecimalPlaces(4);
+    const convertida = convertirUnidad(
+      cantidad,
+      unidadOrigen,
+      unidadDestino,
+    ).toDecimalPlaces(4);
 
-    if (
-      convertida.lt(
-        new Prisma.Decimal(
-          '0.0001',
-        ),
-      )
-    ) {
+    if (convertida.lt(new Prisma.Decimal('0.0001'))) {
       throw new BadRequestException(
         'La cantidad convertida es menor a la precisión mínima del inventario',
       );

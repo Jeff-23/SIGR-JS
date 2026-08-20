@@ -12,37 +12,24 @@ import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 @Injectable()
 export class SucursalesService {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  private esSuperadmin(
-    usuarioActual:
-      UsuarioAutenticado,
-  ) {
+  private esSuperadmin(usuarioActual: UsuarioAutenticado) {
     return (
-      usuarioActual.rol ===
-        'SUPERADMIN' &&
-      usuarioActual.restauranteId ===
-        null
+      usuarioActual.rol === 'SUPERADMIN' && usuarioActual.restauranteId === null
     );
   }
 
-  private async validarRestauranteActivo(
-    restauranteId: number,
-  ) {
-    const restaurante =
-      await this.prisma.restaurante.findFirst({
-        where: {
-          id: restauranteId,
-          estado: true,
-        },
-      });
+  private async validarRestauranteActivo(restauranteId: number) {
+    const restaurante = await this.prisma.restaurante.findFirst({
+      where: {
+        id: restauranteId,
+        estado: true,
+      },
+    });
 
     if (!restaurante) {
-      throw new NotFoundException(
-        'Restaurante no encontrado',
-      );
+      throw new NotFoundException('Restaurante no encontrado');
     }
 
     return restaurante;
@@ -52,13 +39,8 @@ export class SucursalesService {
     id: number,
     usuarioActual: UsuarioAutenticado,
   ) {
-    if (
-      usuarioActual.sucursalId !== null &&
-      usuarioActual.sucursalId !== id
-    ) {
-      throw new NotFoundException(
-        'Sucursal no encontrada',
-      );
+    if (usuarioActual.sucursalId !== null && usuarioActual.sucursalId !== id) {
+      throw new NotFoundException('Sucursal no encontrada');
     }
 
     const where: {
@@ -71,28 +53,21 @@ export class SucursalesService {
     };
 
     if (!this.esSuperadmin(usuarioActual)) {
-      where.restauranteId =
-        usuarioActual.restauranteId!;
+      where.restauranteId = usuarioActual.restauranteId!;
     }
 
-    const sucursal =
-      await this.prisma.sucursal.findFirst({
-        where,
-      });
+    const sucursal = await this.prisma.sucursal.findFirst({
+      where,
+    });
 
     if (!sucursal) {
-      throw new NotFoundException(
-        'Sucursal no encontrada',
-      );
+      throw new NotFoundException('Sucursal no encontrada');
     }
 
     return sucursal;
   }
 
-  async create(
-    data: CreateSucursalDto,
-    usuarioActual: UsuarioAutenticado,
-  ) {
+  async create(data: CreateSucursalDto, usuarioActual: UsuarioAutenticado) {
     if (
       !this.esSuperadmin(usuarioActual) &&
       usuarioActual.sucursalId !== null
@@ -104,26 +79,21 @@ export class SucursalesService {
 
     if (
       !this.esSuperadmin(usuarioActual) &&
-      data.restauranteId !==
-        usuarioActual.restauranteId
+      data.restauranteId !== usuarioActual.restauranteId
     ) {
       throw new ForbiddenException(
         'No puedes crear sucursales para otro restaurante',
       );
     }
 
-    await this.validarRestauranteActivo(
-      data.restauranteId,
-    );
+    await this.validarRestauranteActivo(data.restauranteId);
 
     return this.prisma.sucursal.create({
       data,
     });
   }
 
-  findAll(
-    usuarioActual: UsuarioAutenticado,
-  ) {
+  findAll(usuarioActual: UsuarioAutenticado) {
     if (this.esSuperadmin(usuarioActual)) {
       return this.prisma.sucursal.findMany({
         where: {
@@ -139,8 +109,7 @@ export class SucursalesService {
       return this.prisma.sucursal.findMany({
         where: {
           id: usuarioActual.sucursalId,
-          restauranteId:
-            usuarioActual.restauranteId!,
+          restauranteId: usuarioActual.restauranteId,
           estado: true,
         },
       });
@@ -148,8 +117,7 @@ export class SucursalesService {
 
     return this.prisma.sucursal.findMany({
       where: {
-        restauranteId:
-          usuarioActual.restauranteId!,
+        restauranteId: usuarioActual.restauranteId,
         estado: true,
       },
       orderBy: {
@@ -158,14 +126,8 @@ export class SucursalesService {
     });
   }
 
-  async findOne(
-    id: number,
-    usuarioActual: UsuarioAutenticado,
-  ) {
-    return this.buscarDentroDelAlcance(
-      id,
-      usuarioActual,
-    );
+  async findOne(id: number, usuarioActual: UsuarioAutenticado) {
+    return this.buscarDentroDelAlcance(id, usuarioActual);
   }
 
   async update(
@@ -173,10 +135,7 @@ export class SucursalesService {
     data: UpdateSucursalDto,
     usuarioActual: UsuarioAutenticado,
   ) {
-    await this.buscarDentroDelAlcance(
-      id,
-      usuarioActual,
-    );
+    await this.buscarDentroDelAlcance(id, usuarioActual);
 
     return this.prisma.sucursal.update({
       where: {
@@ -186,14 +145,8 @@ export class SucursalesService {
     });
   }
 
-  async remove(
-    id: number,
-    usuarioActual: UsuarioAutenticado,
-  ) {
-    await this.buscarDentroDelAlcance(
-      id,
-      usuarioActual,
-    );
+  async remove(id: number, usuarioActual: UsuarioAutenticado) {
+    await this.buscarDentroDelAlcance(id, usuarioActual);
 
     if (
       !this.esSuperadmin(usuarioActual) &&

@@ -1,103 +1,92 @@
-﻿import {
-  Injectable,
-  UnauthorizedException,
-} from '@nestjs/common';
+﻿import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
-import {
-  ExtractJwt,
-  Strategy,
-} from 'passport-jwt';
+import { ExtractJwt, Strategy } from 'passport-jwt';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { obtenerEntorno } from '../../config/entorno';
 
 @Injectable()
-export class JwtStrategy extends PassportStrategy(
-  Strategy,
-) {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {
+export class JwtStrategy extends PassportStrategy(Strategy) {
+  constructor(private readonly prisma: PrismaService) {
     super({
-      jwtFromRequest:
-        ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET,
+      secretOrKey: obtenerEntorno().jwtSecret,
     });
   }
 
   async validate(payload: { sub: number }) {
-    const usuario =
-      await this.prisma.usuario.findUnique({
-        where: {
-          id: payload.sub,
-        },
+    const usuario = await this.prisma.usuario.findUnique({
+      where: {
+        id: payload.sub,
+      },
 
-        select: {
-          id: true,
-          email: true,
-          activo: true,
-          rolId: true,
-          restauranteId: true,
-          sucursalId: true,
+      select: {
+        id: true,
+        email: true,
+        activo: true,
+        rolId: true,
+        restauranteId: true,
+        sucursalId: true,
 
-          rol: {
-            select: {
-              nombre: true,
+        rol: {
+          select: {
+            nombre: true,
 
-              permisos: {
-                where: {
-                  permiso: {
-                    activo: true,
+            permisos: {
+              where: {
+                permiso: {
+                  activo: true,
+                },
+              },
+
+              select: {
+                permiso: {
+                  select: {
+                    codigo: true,
                   },
                 },
+              },
+            },
+          },
+        },
 
-                select: {
-                  permiso: {
-                    select: {
-                      codigo: true,
+        restaurante: {
+          select: {
+            estado: true,
+
+            plan: {
+              select: {
+                activo: true,
+
+                capacidades: {
+                  where: {
+                    capacidad: {
+                      activo: true,
+                    },
+                  },
+
+                  select: {
+                    capacidad: {
+                      select: {
+                        codigo: true,
+                      },
                     },
                   },
                 },
               },
             },
           },
+        },
 
-          restaurante: {
-  select: {
-    estado: true,
-
-    plan: {
-      select: {
-        activo: true,
-
-        capacidades: {
-          where: {
-            capacidad: {
-              activo: true,
-            },
-          },
-
+        sucursal: {
           select: {
-            capacidad: {
-              select: {
-                codigo: true,
-              },
-            },
+            estado: true,
+            restauranteId: true,
           },
         },
       },
-    },
-  },
-},
-
-          sucursal: {
-            select: {
-              estado: true,
-              restauranteId: true,
-            },
-          },
-        },
-      });
+    });
 
     if (!usuario || !usuario.activo) {
       throw new UnauthorizedException(
@@ -107,10 +96,7 @@ export class JwtStrategy extends PassportStrategy(
 
     if (
       usuario.restauranteId !== null &&
-      (
-        !usuario.restaurante ||
-        !usuario.restaurante.estado
-      )
+      (!usuario.restaurante || !usuario.restaurante.estado)
     ) {
       throw new UnauthorizedException(
         'La sesión no es válida para un restaurante activo',
@@ -119,12 +105,9 @@ export class JwtStrategy extends PassportStrategy(
 
     if (
       usuario.sucursalId !== null &&
-      (
-        !usuario.sucursal ||
+      (!usuario.sucursal ||
         !usuario.sucursal.estado ||
-        usuario.sucursal.restauranteId !==
-          usuario.restauranteId
-      )
+        usuario.sucursal.restauranteId !== usuario.restauranteId)
     ) {
       throw new UnauthorizedException(
         'La sesión no es válida para una sucursal activa',
@@ -138,24 +121,18 @@ export class JwtStrategy extends PassportStrategy(
       rolId: usuario.rolId,
       rol: usuario.rol.nombre,
 
-      restauranteId:
-        usuario.restauranteId,
+      restauranteId: usuario.restauranteId,
 
-      sucursalId:
-        usuario.sucursalId,
+      sucursalId: usuario.sucursalId,
 
-      permisos:
-        usuario.rol.permisos.map(
-          (rolPermiso) =>
-            rolPermiso.permiso.codigo,
-        ),
-        capacidades:
-        usuario.restaurante?.plan?.activo
+      permisos: usuario.rol.permisos.map(
+        (rolPermiso) => rolPermiso.permiso.codigo,
+      ),
+      capacidades: usuario.restaurante?.plan?.activo
         ? usuario.restaurante.plan.capacidades.map(
-        (planCapacidad) =>
-         planCapacidad.capacidad.codigo,
-      )
-    : [],
+            (planCapacidad) => planCapacidad.capacidad.codigo,
+          )
+        : [],
     };
   }
 }

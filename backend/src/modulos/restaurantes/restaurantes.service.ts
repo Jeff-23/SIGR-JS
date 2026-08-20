@@ -12,19 +12,11 @@ import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 @Injectable()
 export class RestaurantesService {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  private esSuperadmin(
-    usuarioActual:
-      UsuarioAutenticado,
-  ) {
+  private esSuperadmin(usuarioActual: UsuarioAutenticado) {
     return (
-      usuarioActual.rol ===
-        'SUPERADMIN' &&
-      usuarioActual.restauranteId ===
-        null
+      usuarioActual.rol === 'SUPERADMIN' && usuarioActual.restauranteId === null
     );
   }
 
@@ -36,32 +28,24 @@ export class RestaurantesService {
       !this.esSuperadmin(usuarioActual) &&
       usuarioActual.restauranteId !== id
     ) {
-      throw new NotFoundException(
-        'Restaurante no encontrado',
-      );
+      throw new NotFoundException('Restaurante no encontrado');
     }
 
-    const restaurante =
-      await this.prisma.restaurante.findFirst({
-        where: {
-          id,
-          estado: true,
-        },
-      });
+    const restaurante = await this.prisma.restaurante.findFirst({
+      where: {
+        id,
+        estado: true,
+      },
+    });
 
     if (!restaurante) {
-      throw new NotFoundException(
-        'Restaurante no encontrado',
-      );
+      throw new NotFoundException('Restaurante no encontrado');
     }
 
     return restaurante;
   }
 
-  async create(
-    data: CreateRestauranteDto,
-    usuarioActual: UsuarioAutenticado,
-  ) {
+  async create(data: CreateRestauranteDto, usuarioActual: UsuarioAutenticado) {
     if (!this.esSuperadmin(usuarioActual)) {
       throw new ForbiddenException(
         'Solo un administrador de plataforma puede crear restaurantes',
@@ -73,9 +57,7 @@ export class RestaurantesService {
     });
   }
 
-  findAll(
-    usuarioActual: UsuarioAutenticado,
-  ) {
+  findAll(usuarioActual: UsuarioAutenticado) {
     if (this.esSuperadmin(usuarioActual)) {
       return this.prisma.restaurante.findMany({
         where: {
@@ -96,14 +78,8 @@ export class RestaurantesService {
     });
   }
 
-  async findOne(
-    id: number,
-    usuarioActual: UsuarioAutenticado,
-  ) {
-    await this.buscarDentroDelAlcance(
-      id,
-      usuarioActual,
-    );
+  async findOne(id: number, usuarioActual: UsuarioAutenticado) {
+    await this.buscarDentroDelAlcance(id, usuarioActual);
 
     const filtroSucursales =
       usuarioActual.sucursalId !== null
@@ -136,10 +112,7 @@ export class RestaurantesService {
     data: UpdateRestauranteDto,
     usuarioActual: UsuarioAutenticado,
   ) {
-    await this.buscarDentroDelAlcance(
-      id,
-      usuarioActual,
-    );
+    await this.buscarDentroDelAlcance(id, usuarioActual);
 
     if (
       !this.esSuperadmin(usuarioActual) &&
@@ -159,20 +132,14 @@ export class RestaurantesService {
     });
   }
 
-  async remove(
-    id: number,
-    usuarioActual: UsuarioAutenticado,
-  ) {
+  async remove(id: number, usuarioActual: UsuarioAutenticado) {
     if (!this.esSuperadmin(usuarioActual)) {
       throw new ForbiddenException(
         'Solo un administrador de plataforma puede desactivar restaurantes',
       );
     }
 
-    await this.buscarDentroDelAlcance(
-      id,
-      usuarioActual,
-    );
+    await this.buscarDentroDelAlcance(id, usuarioActual);
 
     return this.prisma.restaurante.update({
       where: {

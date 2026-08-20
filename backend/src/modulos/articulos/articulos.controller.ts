@@ -26,16 +26,10 @@ type RequestAutenticada = {
 };
 
 @Controller('articulos')
-@UseGuards(
-  JwtAuthGuard,
-  PermissionsGuard,
-  CapabilitiesGuard,
-)
+@UseGuards(JwtAuthGuard, PermissionsGuard, CapabilitiesGuard)
 @Capacidades('INVENTARIO')
 export class ArticulosController {
-  constructor(
-    private readonly articulosService: ArticulosService,
-  ) {}
+  constructor(private readonly articulosService: ArticulosService) {}
 
   @Post()
   @Permisos('INVENTARIO_AJUSTAR')
@@ -43,20 +37,13 @@ export class ArticulosController {
     @Body() createArticuloDto: CreateArticuloDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.articulosService.create(
-      createArticuloDto,
-      request.user,
-    );
+    return this.articulosService.create(createArticuloDto, request.user);
   }
 
   @Get()
   @Permisos('INVENTARIO_VER')
-  findAll(
-    @Req() request: RequestAutenticada,
-  ) {
-    return this.articulosService.findAll(
-      request.user,
-    );
+  findAll(@Req() request: RequestAutenticada) {
+    return this.articulosService.findAll(request.user);
   }
 
   @Get(':id')
@@ -65,10 +52,7 @@ export class ArticulosController {
     @Param('id', ParseIntPipe) id: number,
     @Req() request: RequestAutenticada,
   ) {
-    return this.articulosService.findOne(
-      id,
-      request.user,
-    );
+    return this.articulosService.findOne(id, request.user);
   }
 
   @Patch(':id')
@@ -78,11 +62,6 @@ export class ArticulosController {
     @Body() updateData: UpdateArticuloDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.articulosService.update(
-      id,
-      updateData,
-      request.user,
-    );
+    return this.articulosService.update(id, updateData, request.user);
   }
 }
-

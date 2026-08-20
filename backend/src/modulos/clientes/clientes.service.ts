@@ -15,19 +15,15 @@ import { CrearClienteDto } from './dto/crear-cliente.dto';
 import { ActualizarClienteDto } from './dto/actualizar-cliente.dto';
 import { CambiarEstadoClienteDto } from './dto/cambiar-estado-cliente.dto';
 import { ListarClientesDto } from './dto/listar-clientes.dto';
+import { respuestaPaginada } from '../../plataforma/paginacion';
 
 @Injectable()
 export class ClientesService {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  private esSuperadmin(
-    usuarioActual: UsuarioAutenticado,
-  ) {
+  private esSuperadmin(usuarioActual: UsuarioAutenticado) {
     return (
-      usuarioActual.rol === 'SUPERADMIN' &&
-      usuarioActual.restauranteId === null
+      usuarioActual.rol === 'SUPERADMIN' && usuarioActual.restauranteId === null
     );
   }
 
@@ -49,9 +45,7 @@ export class ClientesService {
     };
   }
 
-  private obtenerRestauranteParaCreacion(
-    usuarioActual: UsuarioAutenticado,
-  ) {
+  private obtenerRestauranteParaCreacion(usuarioActual: UsuarioAutenticado) {
     if (
       this.esSuperadmin(usuarioActual) ||
       usuarioActual.restauranteId === null
@@ -64,45 +58,29 @@ export class ClientesService {
     return usuarioActual.restauranteId;
   }
 
-  private normalizarTextoOpcional(
-    valor: string | null | undefined,
-  ) {
+  private normalizarTextoOpcional(valor: string | null | undefined) {
     if (valor === undefined || valor === null) {
       return null;
     }
 
     const limpio = valor.trim();
 
-    return limpio.length > 0
-      ? limpio
-      : null;
+    return limpio.length > 0 ? limpio : null;
   }
 
-  private normalizarDocumento(
-    valor: string | null | undefined,
-  ) {
-    const limpio =
-      this.normalizarTextoOpcional(valor);
+  private normalizarDocumento(valor: string | null | undefined) {
+    const limpio = this.normalizarTextoOpcional(valor);
 
-    return limpio
-      ? limpio.toUpperCase()
-      : null;
+    return limpio ? limpio.toUpperCase() : null;
   }
 
-  private normalizarCorreo(
-    valor: string | null | undefined,
-  ) {
-    const limpio =
-      this.normalizarTextoOpcional(valor);
+  private normalizarCorreo(valor: string | null | undefined) {
+    const limpio = this.normalizarTextoOpcional(valor);
 
-    return limpio
-      ? limpio.toLowerCase()
-      : null;
+    return limpio ? limpio.toLowerCase() : null;
   }
 
-  private normalizarFechaNacimiento(
-    valor: string | null | undefined,
-  ) {
+  private normalizarFechaNacimiento(valor: string | null | undefined) {
     if (valor === undefined || valor === null) {
       return null;
     }
@@ -110,9 +88,7 @@ export class ClientesService {
     const fecha = new Date(valor);
 
     if (Number.isNaN(fecha.getTime())) {
-      throw new BadRequestException(
-        'La fecha de nacimiento no es válida',
-      );
+      throw new BadRequestException('La fecha de nacimiento no es válida');
     }
 
     if (fecha.getTime() > Date.now()) {
@@ -133,25 +109,24 @@ export class ClientesService {
       return;
     }
 
-    const existente =
-      await this.prisma.cliente.findFirst({
-        where: {
-          restauranteId,
-          numeroDocumento,
+    const existente = await this.prisma.cliente.findFirst({
+      where: {
+        restauranteId,
+        numeroDocumento,
 
-          ...(clienteIdExcluir !== undefined
-            ? {
-                id: {
-                  not: clienteIdExcluir,
-                },
-              }
-            : {}),
-        },
+        ...(clienteIdExcluir !== undefined
+          ? {
+              id: {
+                not: clienteIdExcluir,
+              },
+            }
+          : {}),
+      },
 
-        select: {
-          id: true,
-        },
-      });
+      select: {
+        id: true,
+      },
+    });
 
     if (existente) {
       throw new ConflictException(
@@ -164,155 +139,108 @@ export class ClientesService {
     id: number,
     usuarioActual: UsuarioAutenticado,
   ) {
-    const cliente =
-      await this.prisma.cliente.findFirst({
-        where: {
-          id,
-          ...this.filtroAlcance(
-            usuarioActual,
-          ),
-        },
+    const cliente = await this.prisma.cliente.findFirst({
+      where: {
+        id,
+        ...this.filtroAlcance(usuarioActual),
+      },
 
-        select: {
-          id: true,
-          restauranteId: true,
-          tipoDocumento: true,
-          numeroDocumento: true,
-          nombres: true,
-          apellidos: true,
-          telefono: true,
-          correo: true,
-          direccion: true,
-          fechaNacimiento: true,
-          estado: true,
-          creadoEn: true,
-          actualizadoEn: true,
+      select: {
+        id: true,
+        restauranteId: true,
+        tipoDocumento: true,
+        numeroDocumento: true,
+        nombres: true,
+        apellidos: true,
+        telefono: true,
+        correo: true,
+        direccion: true,
+        fechaNacimiento: true,
+        estado: true,
+        creadoEn: true,
+        actualizadoEn: true,
 
-          restaurante: {
-            select: {
-              id: true,
-              nombre: true,
-            },
-          },
-
-          _count: {
-            select: {
-              ventas: true,
-            },
+        restaurante: {
+          select: {
+            id: true,
+            nombre: true,
           },
         },
-      });
+
+        _count: {
+          select: {
+            ventas: true,
+          },
+        },
+      },
+    });
 
     if (!cliente) {
-      throw new NotFoundException(
-        'Cliente no encontrado',
-      );
+      throw new NotFoundException('Cliente no encontrado');
     }
 
     return cliente;
   }
 
-  async crear(
-    data: CrearClienteDto,
-    usuarioActual: UsuarioAutenticado,
-  ) {
-    const restauranteId =
-      this.obtenerRestauranteParaCreacion(
-        usuarioActual,
-      );
+  async crear(data: CrearClienteDto, usuarioActual: UsuarioAutenticado) {
+    const restauranteId = this.obtenerRestauranteParaCreacion(usuarioActual);
 
-    const restaurante =
-      await this.prisma.restaurante.findFirst({
-        where: {
-          id: restauranteId,
-          estado: true,
-        },
+    const restaurante = await this.prisma.restaurante.findFirst({
+      where: {
+        id: restauranteId,
+        estado: true,
+      },
 
-        select: {
-          id: true,
-        },
-      });
+      select: {
+        id: true,
+      },
+    });
 
     if (!restaurante) {
-      throw new NotFoundException(
-        'Restaurante no encontrado',
-      );
+      throw new NotFoundException('Restaurante no encontrado');
     }
 
     const nombres = data.nombres.trim();
 
     if (!nombres) {
-      throw new BadRequestException(
-        'Los nombres del cliente son obligatorios',
-      );
+      throw new BadRequestException('Los nombres del cliente son obligatorios');
     }
 
-    const numeroDocumento =
-      this.normalizarDocumento(
-        data.numeroDocumento,
-      );
+    const numeroDocumento = this.normalizarDocumento(data.numeroDocumento);
 
-    await this.validarDocumentoDisponible(
-      restauranteId,
-      numeroDocumento,
-    );
+    await this.validarDocumentoDisponible(restauranteId, numeroDocumento);
 
     return this.prisma.cliente.create({
       data: {
         restauranteId,
 
-        tipoDocumento:
-          this.normalizarDocumento(
-            data.tipoDocumento,
-          ),
+        tipoDocumento: this.normalizarDocumento(data.tipoDocumento),
 
         numeroDocumento,
         nombres,
 
-        apellidos:
-          this.normalizarTextoOpcional(
-            data.apellidos,
-          ),
+        apellidos: this.normalizarTextoOpcional(data.apellidos),
 
-        telefono:
-          this.normalizarTextoOpcional(
-            data.telefono,
-          ),
+        telefono: this.normalizarTextoOpcional(data.telefono),
 
-        correo:
-          this.normalizarCorreo(
-            data.correo,
-          ),
+        correo: this.normalizarCorreo(data.correo),
 
-        direccion:
-          this.normalizarTextoOpcional(
-            data.direccion,
-          ),
+        direccion: this.normalizarTextoOpcional(data.direccion),
 
-        fechaNacimiento:
-          this.normalizarFechaNacimiento(
-            data.fechaNacimiento,
-          ),
+        fechaNacimiento: this.normalizarFechaNacimiento(data.fechaNacimiento),
       },
     });
   }
 
-  async listar(
-    filtros: ListarClientesDto,
-    usuarioActual: UsuarioAutenticado,
-  ) {
+  async listar(filtros: ListarClientesDto, usuarioActual: UsuarioAutenticado) {
     const pagina = filtros.pagina ?? 1;
     const limite = filtros.limite ?? 20;
-    const buscar =
-      filtros.buscar?.trim() ?? '';
+    const buscar = filtros.buscar?.trim() ?? '';
 
     const where: Prisma.ClienteWhereInput = {
-      ...this.filtroAlcance(
-        usuarioActual,
-      ),
+      ...this.filtroAlcance(usuarioActual),
 
-      estado:
-        filtros.estado ?? true,
+      estado: filtros.estado ?? true,
 
       ...(buscar
         ? {
@@ -331,8 +259,7 @@ export class ClientesService {
               },
               {
                 numeroDocumento: {
-                  contains:
-                    buscar.toUpperCase(),
+                  contains: buscar.toUpperCase(),
                   mode: 'insensitive',
                 },
               },
@@ -352,77 +279,59 @@ export class ClientesService {
         : {}),
     };
 
-    const [datos, total] =
-      await this.prisma.$transaction([
-        this.prisma.cliente.findMany({
-          where,
+    const [datos, total] = await this.prisma.$transaction([
+      this.prisma.cliente.findMany({
+        where,
 
-          select: {
-            id: true,
-            restauranteId: true,
-            tipoDocumento: true,
-            numeroDocumento: true,
-            nombres: true,
-            apellidos: true,
-            telefono: true,
-            correo: true,
-            direccion: true,
-            fechaNacimiento: true,
-            estado: true,
-            creadoEn: true,
-            actualizadoEn: true,
+        select: {
+          id: true,
+          restauranteId: true,
+          tipoDocumento: true,
+          numeroDocumento: true,
+          nombres: true,
+          apellidos: true,
+          telefono: true,
+          correo: true,
+          direccion: true,
+          fechaNacimiento: true,
+          estado: true,
+          creadoEn: true,
+          actualizadoEn: true,
 
-            _count: {
-              select: {
-                ventas: true,
-              },
+          _count: {
+            select: {
+              ventas: true,
             },
           },
+        },
 
-          orderBy: [
-            {
-              nombres: 'asc',
-            },
-            {
-              apellidos: 'asc',
-            },
-            {
-              id: 'asc',
-            },
-          ],
+        orderBy: [
+          {
+            nombres: 'asc',
+          },
+          {
+            apellidos: 'asc',
+          },
+          {
+            id: 'asc',
+          },
+        ],
 
-          skip:
-            (pagina - 1) * limite,
+        skip: (pagina - 1) * limite,
 
-          take: limite,
-        }),
+        take: limite,
+      }),
 
-        this.prisma.cliente.count({
-          where,
-        }),
-      ]);
+      this.prisma.cliente.count({
+        where,
+      }),
+    ]);
 
-    return {
-      datos,
-
-      paginacion: {
-        pagina,
-        limite,
-        total,
-        totalPaginas:
-          Math.ceil(total / limite),
-      },
-    };
+    return respuestaPaginada(datos, total, pagina, limite);
   }
 
-  obtenerPorId(
-    id: number,
-    usuarioActual: UsuarioAutenticado,
-  ) {
-    return this.buscarDentroDelAlcance(
-      id,
-      usuarioActual,
-    );
+  obtenerPorId(id: number, usuarioActual: UsuarioAutenticado) {
+    return this.buscarDentroDelAlcance(id, usuarioActual);
   }
 
   async actualizar(
@@ -430,18 +339,12 @@ export class ClientesService {
     data: ActualizarClienteDto,
     usuarioActual: UsuarioAutenticado,
   ) {
-    const cliente =
-      await this.buscarDentroDelAlcance(
-        id,
-        usuarioActual,
-      );
+    const cliente = await this.buscarDentroDelAlcance(id, usuarioActual);
 
-    const cambios:
-      Prisma.ClienteUpdateInput = {};
+    const cambios: Prisma.ClienteUpdateInput = {};
 
     if (data.nombres !== undefined) {
-      const nombres =
-        data.nombres.trim();
+      const nombres = data.nombres.trim();
 
       if (!nombres) {
         throw new BadRequestException(
@@ -453,17 +356,11 @@ export class ClientesService {
     }
 
     if (data.tipoDocumento !== undefined) {
-      cambios.tipoDocumento =
-        this.normalizarDocumento(
-          data.tipoDocumento,
-        );
+      cambios.tipoDocumento = this.normalizarDocumento(data.tipoDocumento);
     }
 
     if (data.numeroDocumento !== undefined) {
-      const numeroDocumento =
-        this.normalizarDocumento(
-          data.numeroDocumento,
-        );
+      const numeroDocumento = this.normalizarDocumento(data.numeroDocumento);
 
       await this.validarDocumentoDisponible(
         cliente.restauranteId,
@@ -471,45 +368,29 @@ export class ClientesService {
         id,
       );
 
-      cambios.numeroDocumento =
-        numeroDocumento;
+      cambios.numeroDocumento = numeroDocumento;
     }
 
     if (data.apellidos !== undefined) {
-      cambios.apellidos =
-        this.normalizarTextoOpcional(
-          data.apellidos,
-        );
+      cambios.apellidos = this.normalizarTextoOpcional(data.apellidos);
     }
 
     if (data.telefono !== undefined) {
-      cambios.telefono =
-        this.normalizarTextoOpcional(
-          data.telefono,
-        );
+      cambios.telefono = this.normalizarTextoOpcional(data.telefono);
     }
 
     if (data.correo !== undefined) {
-      cambios.correo =
-        this.normalizarCorreo(
-          data.correo,
-        );
+      cambios.correo = this.normalizarCorreo(data.correo);
     }
 
     if (data.direccion !== undefined) {
-      cambios.direccion =
-        this.normalizarTextoOpcional(
-          data.direccion,
-        );
+      cambios.direccion = this.normalizarTextoOpcional(data.direccion);
     }
 
-    if (
-      data.fechaNacimiento !== undefined
-    ) {
-      cambios.fechaNacimiento =
-        this.normalizarFechaNacimiento(
-          data.fechaNacimiento,
-        );
+    if (data.fechaNacimiento !== undefined) {
+      cambios.fechaNacimiento = this.normalizarFechaNacimiento(
+        data.fechaNacimiento,
+      );
     }
 
     try {
@@ -522,8 +403,7 @@ export class ClientesService {
       });
     } catch (error) {
       if (
-        error instanceof
-          Prisma.PrismaClientKnownRequestError &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
         throw new ConflictException(
@@ -540,10 +420,7 @@ export class ClientesService {
     data: CambiarEstadoClienteDto,
     usuarioActual: UsuarioAutenticado,
   ) {
-    await this.buscarDentroDelAlcance(
-      id,
-      usuarioActual,
-    );
+    await this.buscarDentroDelAlcance(id, usuarioActual);
 
     return this.prisma.cliente.update({
       where: {

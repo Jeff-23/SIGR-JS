@@ -1,11 +1,4 @@
-﻿import {
-  Body,
-  Controller,
-  Get,
-  Post,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+﻿import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 
 import { MesasService } from './mesas.service';
 import { CreateMesaDto } from './dto/create-mesa.dto';
@@ -25,9 +18,7 @@ type RequestAutenticada = {
 @UseGuards(JwtAuthGuard, PermissionsGuard, CapabilitiesGuard)
 @Capacidades('MESAS')
 export class MesasController {
-  constructor(
-    private readonly mesasService: MesasService,
-  ) {}
+  constructor(private readonly mesasService: MesasService) {}
 
   @Post()
   @Permisos('MESAS_CREAR')
@@ -35,20 +26,12 @@ export class MesasController {
     @Body() createMesaDto: CreateMesaDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.mesasService.create(
-      createMesaDto,
-      request.user,
-    );
+    return this.mesasService.create(createMesaDto, request.user);
   }
 
   @Get()
   @Permisos('MESAS_VER')
-  findAll(
-    @Req() request: RequestAutenticada,
-  ) {
-    return this.mesasService.findAll(
-      request.user,
-    );
+  findAll(@Req() request: RequestAutenticada) {
+    return this.mesasService.findAll(request.user);
   }
 }
-

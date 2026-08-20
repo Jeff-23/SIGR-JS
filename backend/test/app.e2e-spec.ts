@@ -23,6 +23,44 @@ describe('AppController (e2e)', () => {
       .expect('Hello World!');
   });
 
+  it('propaga una correlación válida en la respuesta', async () => {
+    const respuesta = await request(app.getHttpServer())
+      .get('/')
+      .set('x-request-id', 'sigr-prueba-001')
+      .expect(200);
+
+    expect(respuesta.headers['x-request-id']).toBe('sigr-prueba-001');
+  });
+
+  it('normaliza errores sin exponer detalles internos', async () => {
+    const respuesta = await request(app.getHttpServer())
+      .get('/ruta-inexistente')
+      .expect(404);
+    const cuerpo = respuesta.body as Record<string, unknown>;
+
+    expect(respuesta.headers['x-request-id']).toBeDefined();
+    expect(cuerpo).toEqual(
+      expect.objectContaining({
+        statusCode: 404,
+        path: '/ruta-inexistente',
+        requestId: respuesta.headers['x-request-id'],
+      }),
+    );
+    expect(cuerpo.timestamp).toEqual(expect.any(String));
+  });
+
+  it('distingue vida del proceso y disponibilidad de base de datos', async () => {
+    await request(app.getHttpServer())
+      .get('/health/live')
+      .expect(200)
+      .expect({ status: 'ok' });
+
+    await request(app.getHttpServer())
+      .get('/health/ready')
+      .expect(200)
+      .expect({ status: 'ok', database: 'available' });
+  });
+
   afterEach(async () => {
     await app.close();
   });

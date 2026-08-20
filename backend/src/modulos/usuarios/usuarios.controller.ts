@@ -27,9 +27,7 @@ type RequestAutenticada = {
 @Controller('usuarios')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class UsuariosController {
-  constructor(
-    private readonly usuariosService: UsuariosService,
-  ) {}
+  constructor(private readonly usuariosService: UsuariosService) {}
 
   @Post()
   @Permisos('USUARIOS_CREAR')
@@ -37,20 +35,13 @@ export class UsuariosController {
     @Body() createUsuarioDto: CreateUsuarioDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.usuariosService.create(
-      createUsuarioDto,
-      request.user,
-    );
+    return this.usuariosService.create(createUsuarioDto, request.user);
   }
 
   @Get()
   @Permisos('USUARIOS_VER')
-  findAll(
-    @Req() request: RequestAutenticada,
-  ) {
-    return this.usuariosService.findAll(
-      request.user,
-    );
+  findAll(@Req() request: RequestAutenticada) {
+    return this.usuariosService.findAll(request.user);
   }
 
   @Get(':id')
@@ -59,10 +50,7 @@ export class UsuariosController {
     @Param('id', ParseIntPipe) id: number,
     @Req() request: RequestAutenticada,
   ) {
-    return this.usuariosService.findOne(
-      id,
-      request.user,
-    );
+    return this.usuariosService.findOne(id, request.user);
   }
 
   @Patch(':id')
@@ -72,11 +60,7 @@ export class UsuariosController {
     @Body() updateUsuarioDto: UpdateUsuarioDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.usuariosService.update(
-      id,
-      updateUsuarioDto,
-      request.user,
-    );
+    return this.usuariosService.update(id, updateUsuarioDto, request.user);
   }
 
   @Delete(':id')
@@ -85,9 +69,6 @@ export class UsuariosController {
     @Param('id', ParseIntPipe) id: number,
     @Req() request: RequestAutenticada,
   ) {
-    return this.usuariosService.remove(
-      id,
-      request.user,
-    );
+    return this.usuariosService.remove(id, request.user);
   }
 }

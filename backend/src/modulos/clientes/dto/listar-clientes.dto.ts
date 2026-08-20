@@ -1,19 +1,13 @@
-import { Transform, Type } from 'class-transformer';
-import {
-  IsBoolean,
-  IsInt,
-  IsOptional,
-  IsString,
-  Max,
-  Min,
-} from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsBoolean, IsOptional, IsString } from 'class-validator';
+import { PaginacionDto } from '../../../plataforma/paginacion';
 
-export class ListarClientesDto {
+export class ListarClientesDto extends PaginacionDto {
   @IsString()
   @IsOptional()
   buscar?: string;
 
-  @Transform(({ value }) => {
+  @Transform(({ value }: { value: unknown }) => {
     if (value === undefined) {
       return undefined;
     }
@@ -31,17 +25,4 @@ export class ListarClientesDto {
   @IsBoolean()
   @IsOptional()
   estado?: boolean;
-
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @IsOptional()
-  pagina?: number = 1;
-
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  @IsOptional()
-  limite?: number = 20;
 }

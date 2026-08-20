@@ -7,20 +7,12 @@ import { DocumentosElectronicosController } from './documentos-electronicos.cont
 import { DocumentosElectronicosService } from './documentos-electronicos.service';
 
 @Module({
-  imports: [
-    PrismaModule,
-  ],
+  imports: [PrismaModule],
 
-  controllers: [
-    DocumentosElectronicosController,
-  ],
+  controllers: [DocumentosElectronicosController],
 
-  providers: [
-    DocumentosElectronicosService,
-  ],
+  providers: [DocumentosElectronicosService],
 
-  exports: [
-    DocumentosElectronicosService,
-  ],
+  exports: [DocumentosElectronicosService],
 })
 export class DocumentosElectronicosModule {}

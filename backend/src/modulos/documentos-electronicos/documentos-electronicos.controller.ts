@@ -26,14 +26,10 @@ type RequestAutenticada = {
 };
 
 @Controller('documentos-electronicos')
-@UseGuards(
-  JwtAuthGuard,
-  PermissionsGuard,
-)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class DocumentosElectronicosController {
   constructor(
-    private readonly documentosService:
-      DocumentosElectronicosService,
+    private readonly documentosService: DocumentosElectronicosService,
   ) {}
 
   /*
@@ -52,10 +48,7 @@ export class DocumentosElectronicosController {
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.documentosService.preparar(
-      data.facturaIds,
-      request.user,
-    );
+    return this.documentosService.preparar(data.facturaIds, request.user);
   }
 
   @Get()
@@ -64,26 +57,18 @@ export class DocumentosElectronicosController {
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.documentosService.findAll(
-      request.user,
-    );
+    return this.documentosService.findAll(request.user);
   }
 
   @Get(':id')
   @Permisos('FACTURAS_VER')
   findOne(
-    @Param(
-      'id',
-      ParseIntPipe,
-    )
+    @Param('id', ParseIntPipe)
     id: number,
 
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.documentosService.findOne(
-      id,
-      request.user,
-    );
+    return this.documentosService.findOne(id, request.user);
   }
 }

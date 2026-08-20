@@ -21,25 +21,15 @@ import { RegistrarMovimientoCajaDto } from './dto/registrar-movimiento-caja.dto'
 
 @Injectable()
 export class CajasService {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  private esSuperadmin(
-    usuario: UsuarioAutenticado,
-  ) {
-    return (
-      usuario.rol === 'SUPERADMIN' &&
-      usuario.restauranteId === null
-    );
+  private esSuperadmin(usuario: UsuarioAutenticado) {
+    return usuario.rol === 'SUPERADMIN' && usuario.restauranteId === null;
   }
 
-  private permiteMulticaja(
-    usuario: UsuarioAutenticado,
-  ) {
+  private permiteMulticaja(usuario: UsuarioAutenticado) {
     return (
-      this.esSuperadmin(usuario) ||
-      usuario.capacidades.includes('MULTICAJA')
+      this.esSuperadmin(usuario) || usuario.capacidades.includes('MULTICAJA')
     );
   }
 
@@ -54,7 +44,7 @@ export class CajasService {
 
         ...(!this.esSuperadmin(usuario)
           ? {
-              id: usuario.restauranteId!,
+              id: usuario.restauranteId,
             }
           : {}),
       },
@@ -81,10 +71,7 @@ export class CajasService {
     );
   }
 
-  private async bloquearCaja(
-    tx: Prisma.TransactionClient,
-    cajaId: number,
-  ) {
+  private async bloquearCaja(tx: Prisma.TransactionClient, cajaId: number) {
     await tx.$queryRaw(
       Prisma.sql`
         SELECT "id"
@@ -100,12 +87,7 @@ export class CajasService {
     cajaId: number,
     saldoInicial: Prisma.Decimal,
   ) {
-    const [
-      efectivo,
-      otros,
-      ingresos,
-      egresos,
-    ] = await Promise.all([
+    const [efectivo, otros, ingresos, egresos] = await Promise.all([
       tx.pago.aggregate({
         where: {
           cajaId,
@@ -153,27 +135,18 @@ export class CajasService {
       }),
     ]);
 
-    const totalEfectivoSistema =
-      efectivo._sum.monto ??
-      new Prisma.Decimal(0);
+    const totalEfectivoSistema = efectivo._sum.monto ?? new Prisma.Decimal(0);
 
-    const totalOtrosPagos =
-      otros._sum.monto ??
-      new Prisma.Decimal(0);
+    const totalOtrosPagos = otros._sum.monto ?? new Prisma.Decimal(0);
 
-    const totalIngresos =
-      ingresos._sum.monto ??
-      new Prisma.Decimal(0);
+    const totalIngresos = ingresos._sum.monto ?? new Prisma.Decimal(0);
 
-    const totalEgresos =
-      egresos._sum.monto ??
-      new Prisma.Decimal(0);
+    const totalEgresos = egresos._sum.monto ?? new Prisma.Decimal(0);
 
-    const saldoEsperado =
-      saldoInicial
-        .plus(totalEfectivoSistema)
-        .plus(totalIngresos)
-        .minus(totalEgresos);
+    const saldoEsperado = saldoInicial
+      .plus(totalEfectivoSistema)
+      .plus(totalIngresos)
+      .minus(totalEgresos);
 
     return {
       totalEfectivoSistema,
@@ -184,99 +157,76 @@ export class CajasService {
     };
   }
 
-  async abrir(
-    data: AbrirCajaDto,
-    usuario: UsuarioAutenticado,
-  ) {
-    return this.prisma.$transaction(
-      async (tx) => {
-        const sucursal =
-          await tx.sucursal.findFirst({
-            where: {
-              AND: [
-                {
-                  id: data.sucursalId,
-                },
-                this.filtroSucursal(usuario),
-              ],
+  async abrir(data: AbrirCajaDto, usuario: UsuarioAutenticado) {
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const sucursal = await tx.sucursal.findFirst({
+        where: {
+          AND: [
+            {
+              id: data.sucursalId,
             },
-          });
+            this.filtroSucursal(usuario),
+          ],
+        },
+      });
 
-        if (!sucursal) {
-          throw new NotFoundException(
-            'Sucursal no encontrada',
-          );
-        }
+      if (!sucursal) {
+        throw new NotFoundException('Sucursal no encontrada');
+      }
 
-        await this.bloquearSucursal(
-          tx,
-          sucursal.id,
-        );
+      await this.bloquearSucursal(tx, sucursal.id);
 
-        if (!this.permiteMulticaja(usuario)) {
-          const cajaAbierta =
-            await tx.caja.findFirst({
-              where: {
-                sucursalId: sucursal.id,
-                estado: EstadoCaja.ABIERTA,
-              },
-              select: {
-                id: true,
-                nombre: true,
-              },
-            });
-
-          if (cajaAbierta) {
-            throw new BadRequestException(
-              'El plan del restaurante permite una sola caja abierta por sucursal',
-            );
-          }
-        }
-
-        const nombre = data.nombre.trim();
-
-        if (!nombre) {
-          throw new BadRequestException(
-            'El nombre de la caja es obligatorio',
-          );
-        }
-
-        const observacion =
-          data.observacion?.trim() || null;
-
-        return tx.caja.create({
-          data: {
-            nombre,
-            saldoInicial: new Prisma.Decimal(
-              data.saldoInicial,
-            ),
-            observacionApertura: observacion,
+      if (!this.permiteMulticaja(usuario)) {
+        const cajaAbierta = await tx.caja.findFirst({
+          where: {
             sucursalId: sucursal.id,
-            abiertaPorId: usuario.id,
+            estado: EstadoCaja.ABIERTA,
           },
-          include: {
-            sucursal: true,
-            abiertaPor: {
-              select: {
-                id: true,
-                nombres: true,
-                apellidos: true,
-                email: true,
-              },
-            },
+          select: {
+            id: true,
+            nombre: true,
           },
         });
-      },
-      {
-        isolationLevel:
-          Prisma.TransactionIsolationLevel.Serializable,
-      },
-    );
+
+        if (cajaAbierta) {
+          throw new BadRequestException(
+            'El plan del restaurante permite una sola caja abierta por sucursal',
+          );
+        }
+      }
+
+      const nombre = data.nombre.trim();
+
+      if (!nombre) {
+        throw new BadRequestException('El nombre de la caja es obligatorio');
+      }
+
+      const observacion = data.observacion?.trim() || null;
+
+      return tx.caja.create({
+        data: {
+          nombre,
+          saldoInicial: new Prisma.Decimal(data.saldoInicial),
+          observacionApertura: observacion,
+          sucursalId: sucursal.id,
+          abiertaPorId: usuario.id,
+        },
+        include: {
+          sucursal: true,
+          abiertaPor: {
+            select: {
+              id: true,
+              nombres: true,
+              apellidos: true,
+              email: true,
+            },
+          },
+        },
+      });
+    });
   }
 
-  listarAbiertas(
-    usuario: UsuarioAutenticado,
-  ) {
+  listarAbiertas(usuario: UsuarioAutenticado) {
     return this.prisma.caja.findMany({
       where: {
         estado: EstadoCaja.ABIERTA,
@@ -299,10 +249,7 @@ export class CajasService {
     });
   }
 
-  async historial(
-    filtros: ListarCajasDto,
-    usuario: UsuarioAutenticado,
-  ) {
+  async historial(filtros: ListarCajasDto, usuario: UsuarioAutenticado) {
     let desde: Date | undefined;
     let hasta: Date | undefined;
 
@@ -314,11 +261,7 @@ export class CajasService {
       hasta = new Date(filtros.hasta);
     }
 
-    if (
-      desde &&
-      hasta &&
-      desde.getTime() > hasta.getTime()
-    ) {
+    if (desde && hasta && desde.getTime() > hasta.getTime()) {
       throw new BadRequestException(
         'La fecha desde no puede ser posterior a la fecha hasta',
       );
@@ -369,99 +312,86 @@ export class CajasService {
     });
   }
 
-  async detalle(
-    id: number,
-    usuario: UsuarioAutenticado,
-  ) {
-    return this.prisma.$transaction(
-      async (tx) => {
-        const caja =
-          await tx.caja.findFirst({
-            where: {
-              id,
-              sucursal: this.filtroSucursal(usuario),
+  async detalle(id: number, usuario: UsuarioAutenticado) {
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const caja = await tx.caja.findFirst({
+        where: {
+          id,
+          sucursal: this.filtroSucursal(usuario),
+        },
+        include: {
+          sucursal: true,
+          abiertaPor: {
+            select: {
+              id: true,
+              nombres: true,
+              apellidos: true,
+              email: true,
             },
+          },
+          cerradaPor: {
+            select: {
+              id: true,
+              nombres: true,
+              apellidos: true,
+              email: true,
+            },
+          },
+          movimientos: {
             include: {
-              sucursal: true,
-              abiertaPor: {
+              usuario: {
                 select: {
                   id: true,
                   nombres: true,
                   apellidos: true,
-                  email: true,
-                },
-              },
-              cerradaPor: {
-                select: {
-                  id: true,
-                  nombres: true,
-                  apellidos: true,
-                  email: true,
-                },
-              },
-              movimientos: {
-                include: {
-                  usuario: {
-                    select: {
-                      id: true,
-                      nombres: true,
-                      apellidos: true,
-                    },
-                  },
-                },
-                orderBy: {
-                  creadoEn: 'asc',
-                },
-              },
-              pagos: {
-                include: {
-                  metodoPago: true,
-                  usuario: {
-                    select: {
-                      id: true,
-                      nombres: true,
-                      apellidos: true,
-                    },
-                  },
-                  venta: {
-                    select: {
-                      id: true,
-                      total: true,
-                      origen: true,
-                      fechaOperacion: true,
-                    },
-                  },
-                },
-                orderBy: {
-                  creadoEn: 'asc',
                 },
               },
             },
-          });
+            orderBy: {
+              creadoEn: 'asc',
+            },
+          },
+          pagos: {
+            include: {
+              metodoPago: true,
+              usuario: {
+                select: {
+                  id: true,
+                  nombres: true,
+                  apellidos: true,
+                },
+              },
+              venta: {
+                select: {
+                  id: true,
+                  total: true,
+                  origen: true,
+                  fechaOperacion: true,
+                },
+              },
+            },
+            orderBy: {
+              creadoEn: 'asc',
+            },
+          },
+        },
+      });
 
-        if (!caja) {
-          throw new NotFoundException(
-            'Caja no encontrada',
-          );
-        }
+      if (!caja) {
+        throw new NotFoundException('Caja no encontrada');
+      }
 
-        const resumen =
-          await this.calcularResumen(
-            tx,
-            caja.id,
-            caja.saldoInicial,
-          );
+      const resumen = await this.calcularResumen(
+        tx,
+        caja.id,
+        caja.saldoInicial,
+      );
 
-        return {
-          ...caja,
-          resumen,
-        };
-      },
-      {
-        isolationLevel:
-          Prisma.TransactionIsolationLevel.Serializable,
-      },
-    );
+      return {
+        ...caja,
+        resumen,
+      };
+    });
   }
 
   async registrarMovimiento(
@@ -469,63 +399,49 @@ export class CajasService {
     data: RegistrarMovimientoCajaDto,
     usuario: UsuarioAutenticado,
   ) {
-    return this.prisma.$transaction(
-      async (tx) => {
-        await this.bloquearCaja(
-          tx,
-          cajaId,
+    return this.prisma.transaccionSerializable(async (tx) => {
+      await this.bloquearCaja(tx, cajaId);
+
+      const caja = await tx.caja.findFirst({
+        where: {
+          id: cajaId,
+          estado: EstadoCaja.ABIERTA,
+          sucursal: this.filtroSucursal(usuario),
+        },
+      });
+
+      if (!caja) {
+        throw new NotFoundException('Caja abierta no encontrada');
+      }
+
+      const concepto = data.concepto.trim();
+
+      if (!concepto) {
+        throw new BadRequestException(
+          'El concepto del movimiento es obligatorio',
         );
+      }
 
-        const caja =
-          await tx.caja.findFirst({
-            where: {
-              id: cajaId,
-              estado: EstadoCaja.ABIERTA,
-              sucursal: this.filtroSucursal(usuario),
-            },
-          });
-
-        if (!caja) {
-          throw new NotFoundException(
-            'Caja abierta no encontrada',
-          );
-        }
-
-        const concepto =
-          data.concepto.trim();
-
-        if (!concepto) {
-          throw new BadRequestException(
-            'El concepto del movimiento es obligatorio',
-          );
-        }
-
-        return tx.movimientoCaja.create({
-          data: {
-            tipo: data.tipo,
-            monto: new Prisma.Decimal(data.monto),
-            concepto,
-            observacion:
-              data.observacion?.trim() || null,
-            cajaId: caja.id,
-            usuarioId: usuario.id,
-          },
-          include: {
-            usuario: {
-              select: {
-                id: true,
-                nombres: true,
-                apellidos: true,
-              },
+      return tx.movimientoCaja.create({
+        data: {
+          tipo: data.tipo,
+          monto: new Prisma.Decimal(data.monto),
+          concepto,
+          observacion: data.observacion?.trim() || null,
+          cajaId: caja.id,
+          usuarioId: usuario.id,
+        },
+        include: {
+          usuario: {
+            select: {
+              id: true,
+              nombres: true,
+              apellidos: true,
             },
           },
-        });
-      },
-      {
-        isolationLevel:
-          Prisma.TransactionIsolationLevel.Serializable,
-      },
-    );
+        },
+      });
+    });
   }
 
   async cerrar(
@@ -533,91 +449,66 @@ export class CajasService {
     data: CerrarCajaDto,
     usuario: UsuarioAutenticado,
   ) {
-    return this.prisma.$transaction(
-      async (tx) => {
-        await this.bloquearCaja(
-          tx,
-          cajaId,
-        );
+    return this.prisma.transaccionSerializable(async (tx) => {
+      await this.bloquearCaja(tx, cajaId);
 
-        const caja =
-          await tx.caja.findFirst({
-            where: {
-              id: cajaId,
-              estado: EstadoCaja.ABIERTA,
-              sucursal: this.filtroSucursal(usuario),
-            },
-          });
+      const caja = await tx.caja.findFirst({
+        where: {
+          id: cajaId,
+          estado: EstadoCaja.ABIERTA,
+          sucursal: this.filtroSucursal(usuario),
+        },
+      });
 
-        if (!caja) {
-          throw new NotFoundException(
-            'Caja abierta no encontrada',
-          );
-        }
+      if (!caja) {
+        throw new NotFoundException('Caja abierta no encontrada');
+      }
 
-        const resumen =
-          await this.calcularResumen(
-            tx,
-            caja.id,
-            caja.saldoInicial,
-          );
+      const resumen = await this.calcularResumen(
+        tx,
+        caja.id,
+        caja.saldoInicial,
+      );
 
-        const saldoContado =
-          new Prisma.Decimal(
-            data.saldoContado,
-          );
+      const saldoContado = new Prisma.Decimal(data.saldoContado);
 
-        const diferencia =
-          saldoContado.minus(
-            resumen.saldoEsperado,
-          );
+      const diferencia = saldoContado.minus(resumen.saldoEsperado);
 
-        return tx.caja.update({
-          where: {
-            id: caja.id,
-          },
-          data: {
-            estado: EstadoCaja.CERRADA,
-            fechaCierre: new Date(),
-            cerradaPorId: usuario.id,
-            saldoEsperado:
-              resumen.saldoEsperado,
-            saldoContado,
-            diferencia,
-            totalEfectivoSistema:
-              resumen.totalEfectivoSistema,
-            totalOtrosPagos:
-              resumen.totalOtrosPagos,
-            totalIngresos:
-              resumen.totalIngresos,
-            totalEgresos:
-              resumen.totalEgresos,
-            observacionCierre:
-              data.observacion?.trim() || null,
-          },
-          include: {
-            sucursal: true,
-            abiertaPor: {
-              select: {
-                id: true,
-                nombres: true,
-                apellidos: true,
-              },
-            },
-            cerradaPor: {
-              select: {
-                id: true,
-                nombres: true,
-                apellidos: true,
-              },
+      return tx.caja.update({
+        where: {
+          id: caja.id,
+        },
+        data: {
+          estado: EstadoCaja.CERRADA,
+          fechaCierre: new Date(),
+          cerradaPorId: usuario.id,
+          saldoEsperado: resumen.saldoEsperado,
+          saldoContado,
+          diferencia,
+          totalEfectivoSistema: resumen.totalEfectivoSistema,
+          totalOtrosPagos: resumen.totalOtrosPagos,
+          totalIngresos: resumen.totalIngresos,
+          totalEgresos: resumen.totalEgresos,
+          observacionCierre: data.observacion?.trim() || null,
+        },
+        include: {
+          sucursal: true,
+          abiertaPor: {
+            select: {
+              id: true,
+              nombres: true,
+              apellidos: true,
             },
           },
-        });
-      },
-      {
-        isolationLevel:
-          Prisma.TransactionIsolationLevel.Serializable,
-      },
-    );
+          cerradaPor: {
+            select: {
+              id: true,
+              nombres: true,
+              apellidos: true,
+            },
+          },
+        },
+      });
+    });
   }
 }

@@ -1,7 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateMesaDto } from './dto/create-mesa.dto';
@@ -9,19 +6,11 @@ import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 @Injectable()
 export class MesasService {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  private esSuperadmin(
-    usuarioActual:
-      UsuarioAutenticado,
-  ) {
+  private esSuperadmin(usuarioActual: UsuarioAutenticado) {
     return (
-      usuarioActual.rol ===
-        'SUPERADMIN' &&
-      usuarioActual.restauranteId ===
-        null
+      usuarioActual.rol === 'SUPERADMIN' && usuarioActual.restauranteId === null
     );
   }
 
@@ -39,8 +28,7 @@ export class MesasService {
 
           ...(!this.esSuperadmin(usuarioActual)
             ? {
-                restauranteId:
-                  usuarioActual.restauranteId!,
+                restauranteId: usuarioActual.restauranteId,
               }
             : {}),
 
@@ -58,31 +46,21 @@ export class MesasService {
     });
 
     if (!zona) {
-      throw new NotFoundException(
-        'Zona no encontrada',
-      );
+      throw new NotFoundException('Zona no encontrada');
     }
 
     return zona;
   }
 
-  async create(
-    data: CreateMesaDto,
-    usuarioActual: UsuarioAutenticado,
-  ) {
-    await this.validarZonaDentroDelAlcance(
-      data.zonaId,
-      usuarioActual,
-    );
+  async create(data: CreateMesaDto, usuarioActual: UsuarioAutenticado) {
+    await this.validarZonaDentroDelAlcance(data.zonaId, usuarioActual);
 
     return this.prisma.mesa.create({
       data,
     });
   }
 
-  async findAll(
-    usuarioActual: UsuarioAutenticado,
-  ) {
+  async findAll(usuarioActual: UsuarioAutenticado) {
     return this.prisma.mesa.findMany({
       where: {
         estado: true,
@@ -95,8 +73,7 @@ export class MesasService {
 
             ...(!this.esSuperadmin(usuarioActual)
               ? {
-                  restauranteId:
-                    usuarioActual.restauranteId!,
+                  restauranteId: usuarioActual.restauranteId,
                 }
               : {}),
 

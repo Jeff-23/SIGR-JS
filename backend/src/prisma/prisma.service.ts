@@ -1,8 +1,10 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import 'dotenv/config'; // Fuerza la lectura de tu archivo .env
+import { obtenerEntorno } from '../config/entorno';
+import { ejecutarConReintentos } from './transacciones';
 
 @Injectable()
 export class PrismaService
@@ -14,7 +16,7 @@ export class PrismaService
 
   constructor() {
     // 1. Configuramos el pool de conexiones usando tu DATABASE_URL
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const pool = new Pool({ connectionString: obtenerEntorno().databaseUrl });
 
     // 2. Creamos el adaptador oficial de Postgres
     const adapter = new PrismaPg(pool);
@@ -33,5 +35,18 @@ export class PrismaService
     this.destruido = true;
     await this.$disconnect();
     await this.pool.end();
+  }
+
+  transaccionSerializable<T>(
+    operacion: (cliente: Prisma.TransactionClient) => Promise<T>,
+    maximoIntentos = 3,
+  ) {
+    return ejecutarConReintentos(
+      () =>
+        this.$transaction(operacion, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        }),
+      maximoIntentos,
+    );
   }
 }

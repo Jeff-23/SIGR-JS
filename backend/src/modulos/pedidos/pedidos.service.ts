@@ -13,21 +13,13 @@ import {
   TipoPedido,
 } from '@prisma/client';
 
-import {
-  PrismaService,
-} from '../../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 
-import {
-  CreatePedidoDto,
-} from './dto/create-pedido.dto';
+import { CreatePedidoDto } from './dto/create-pedido.dto';
 
-import {
-  AgregarDetallesPedidoDto,
-} from './dto/agregar-detalles-pedido.dto';
+import { AgregarDetallesPedidoDto } from './dto/agregar-detalles-pedido.dto';
 
-import {
-  UsuarioAutenticado,
-} from '../auth/types/usuario-autenticado.type';
+import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 type DetalleEntrada = {
   productoId: number;
@@ -37,34 +29,22 @@ type DetalleEntrada = {
 type DetallePreparado = {
   productoId: number;
   cantidad: number;
-  precioUnitario:
-    Prisma.Decimal;
-  subtotal:
-    Prisma.Decimal;
+  precioUnitario: Prisma.Decimal;
+  subtotal: Prisma.Decimal;
 };
 
 @Injectable()
 export class PedidosService {
-  constructor(
-    private readonly prisma:
-      PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  private esSuperadmin(
-    usuarioActual:
-      UsuarioAutenticado,
-  ) {
+  private esSuperadmin(usuarioActual: UsuarioAutenticado) {
     return (
-      usuarioActual.rol ===
-        'SUPERADMIN' &&
-      usuarioActual.restauranteId ===
-        null
+      usuarioActual.rol === 'SUPERADMIN' && usuarioActual.restauranteId === null
     );
   }
 
   private filtroSucursal(
-    usuarioActual:
-      UsuarioAutenticado,
+    usuarioActual: UsuarioAutenticado,
   ): Prisma.SucursalWhereInput {
     return {
       estado: true,
@@ -72,71 +52,41 @@ export class PedidosService {
       restaurante: {
         estado: true,
 
-        ...(!this.esSuperadmin(
-          usuarioActual,
-        )
+        ...(!this.esSuperadmin(usuarioActual)
           ? {
-              id:
-                usuarioActual
-                  .restauranteId!,
+              id: usuarioActual.restauranteId,
             }
           : {}),
       },
 
-      ...(usuarioActual.sucursalId !==
-      null
+      ...(usuarioActual.sucursalId !== null
         ? {
-            id:
-              usuarioActual
-                .sucursalId,
+            id: usuarioActual.sucursalId,
           }
         : {}),
     };
   }
 
-  private validarCapacidadMesas(
-    usuarioActual:
-      UsuarioAutenticado,
-  ) {
-    if (
-      this.esSuperadmin(
-        usuarioActual,
-      )
-    ) {
+  private validarCapacidadMesas(usuarioActual: UsuarioAutenticado) {
+    if (this.esSuperadmin(usuarioActual)) {
       return;
     }
 
-    if (
-      !usuarioActual.capacidades.includes(
-        'MESAS',
-      )
-    ) {
+    if (!usuarioActual.capacidades.includes('MESAS')) {
       throw new ForbiddenException(
         'La gestion de mesas no esta incluida en el plan del restaurante',
       );
     }
   }
 
-  private agruparCantidades(
-    detalles:
-      DetalleEntrada[],
-  ) {
-    const cantidades =
-      new Map<
-        number,
-        number
-      >();
+  private agruparCantidades(detalles: DetalleEntrada[]) {
+    const cantidades = new Map<number, number>();
 
-    for (
-      const detalle of detalles
-    ) {
+    for (const detalle of detalles) {
       cantidades.set(
         detalle.productoId,
 
-        (cantidades.get(
-          detalle.productoId,
-        ) ?? 0) +
-          detalle.cantidad,
+        (cantidades.get(detalle.productoId) ?? 0) + detalle.cantidad,
       );
     }
 
@@ -144,87 +94,56 @@ export class PedidosService {
   }
 
   private async prepararDetalles(
-    tx:
-      Prisma.TransactionClient,
+    tx: Prisma.TransactionClient,
 
-    sucursalId:
-      number,
+    sucursalId: number,
 
-    detalles:
-      DetalleEntrada[],
+    detalles: DetalleEntrada[],
   ): Promise<{
-    total:
-      Prisma.Decimal;
+    total: Prisma.Decimal;
 
-    detalles:
-      DetallePreparado[];
+    detalles: DetallePreparado[];
   }> {
-    const cantidades =
-      this.agruparCantidades(
-        detalles,
-      );
+    const cantidades = this.agruparCantidades(detalles);
 
-    const productosIds = [
-      ...cantidades.keys(),
-    ];
+    const productosIds = [...cantidades.keys()];
 
-    const productos =
-      await tx.producto.findMany({
-        where: {
-          id: {
-            in:
-              productosIds,
-          },
+    const productos = await tx.producto.findMany({
+      where: {
+        id: {
+          in: productosIds,
+        },
 
+        estado: true,
+
+        categoria: {
           estado: true,
 
-          categoria: {
+          sucursalId,
+
+          sucursal: {
             estado: true,
-
-            sucursalId,
-
-            sucursal: {
-              estado: true,
-            },
           },
         },
-      });
+      },
+    });
 
-    if (
-      productos.length !==
-      productosIds.length
-    ) {
+    if (productos.length !== productosIds.length) {
       throw new NotFoundException(
         'Uno o mas productos no existen o no pertenecen a la sucursal',
       );
     }
 
-    const productosPorId =
-      new Map(
-        productos.map(
-          (producto) => [
-            producto.id,
-            producto,
-          ],
-        ),
-      );
+    const productosPorId = new Map(
+      productos.map((producto) => [producto.id, producto]),
+    );
 
-    let total =
-      new Prisma.Decimal(0);
+    let total = new Prisma.Decimal(0);
 
-    const detallesPreparados:
-      DetallePreparado[] = [];
+    const detallesPreparados: DetallePreparado[] = [];
 
-    for (
-      const [
-        productoId,
-        cantidad,
-      ] of cantidades
-    ) {
-      const producto =
-        productosPorId.get(
-          productoId,
-        );
+    for (const [productoId, cantidad] of cantidades) {
+      const producto = productosPorId.get(productoId);
 
       if (!producto) {
         throw new NotFoundException(
@@ -232,24 +151,16 @@ export class PedidosService {
         );
       }
 
-      const subtotal =
-        producto.precio.mul(
-          cantidad,
-        );
+      const subtotal = producto.precio.mul(cantidad);
 
-      total =
-        total.plus(
-          subtotal,
-        );
+      total = total.plus(subtotal);
 
       detallesPreparados.push({
-        productoId:
-          producto.id,
+        productoId: producto.id,
 
         cantidad,
 
-        precioUnitario:
-          producto.precio,
+        precioUnitario: producto.precio,
 
         subtotal,
       });
@@ -258,79 +169,32 @@ export class PedidosService {
     return {
       total,
 
-      detalles:
-        detallesPreparados,
+      detalles: detallesPreparados,
     };
   }
 
   private async resolverSucursalSinMesa(
-    tx:
-      Prisma.TransactionClient,
+    tx: Prisma.TransactionClient,
 
-    data:
-      CreatePedidoDto,
+    data: CreatePedidoDto,
 
-    usuarioActual:
-      UsuarioAutenticado,
+    usuarioActual: UsuarioAutenticado,
   ) {
-    if (
-      usuarioActual.sucursalId !==
-      null
-    ) {
+    if (usuarioActual.sucursalId !== null) {
       if (
-        data.sucursalId !==
-          undefined &&
-        data.sucursalId !==
-          usuarioActual.sucursalId
+        data.sucursalId !== undefined &&
+        data.sucursalId !== usuarioActual.sucursalId
       ) {
         throw new ForbiddenException(
           'No puedes crear pedidos en otra sucursal',
         );
       }
 
-      const sucursal =
-        await tx.sucursal.findFirst({
-          where: {
-            id:
-              usuarioActual
-                .sucursalId,
-
-            ...this.filtroSucursal(
-              usuarioActual,
-            ),
-          },
-
-          select: {
-            id: true,
-          },
-        });
-
-      if (!sucursal) {
-        throw new NotFoundException(
-          'Sucursal no encontrada',
-        );
-      }
-
-      return sucursal.id;
-    }
-
-    if (
-      data.sucursalId === undefined
-    ) {
-      throw new BadRequestException(
-        'Debe indicar la sucursal del pedido',
-      );
-    }
-
-    const sucursal =
-      await tx.sucursal.findFirst({
+      const sucursal = await tx.sucursal.findFirst({
         where: {
-          id:
-            data.sucursalId,
+          id: usuarioActual.sucursalId,
 
-          ...this.filtroSucursal(
-            usuarioActual,
-          ),
+          ...this.filtroSucursal(usuarioActual),
         },
 
         select: {
@@ -338,159 +202,140 @@ export class PedidosService {
         },
       });
 
+      if (!sucursal) {
+        throw new NotFoundException('Sucursal no encontrada');
+      }
+
+      return sucursal.id;
+    }
+
+    if (data.sucursalId === undefined) {
+      throw new BadRequestException('Debe indicar la sucursal del pedido');
+    }
+
+    const sucursal = await tx.sucursal.findFirst({
+      where: {
+        id: data.sucursalId,
+
+        ...this.filtroSucursal(usuarioActual),
+      },
+
+      select: {
+        id: true,
+      },
+    });
+
     if (!sucursal) {
-      throw new NotFoundException(
-        'Sucursal no encontrada',
-      );
+      throw new NotFoundException('Sucursal no encontrada');
     }
 
     return sucursal.id;
   }
 
   private async resolverContextoPedido(
-    tx:
-      Prisma.TransactionClient,
+    tx: Prisma.TransactionClient,
 
-    data:
-      CreatePedidoDto,
+    data: CreatePedidoDto,
 
-    usuarioActual:
-      UsuarioAutenticado,
+    usuarioActual: UsuarioAutenticado,
   ): Promise<{
     sucursalId: number;
     mesaId: number | null;
   }> {
-    if (
-      data.tipo ===
-      TipoPedido.MANUAL
-    ) {
+    if (data.tipo === TipoPedido.MANUAL) {
       throw new BadRequestException(
         'Los registros manuales de cierre deben realizarse mediante el flujo de ventas manuales',
       );
     }
 
-    if (
-      data.tipo ===
-      TipoPedido.MESA
-    ) {
-      this.validarCapacidadMesas(
-        usuarioActual,
-      );
+    if (data.tipo === TipoPedido.MESA) {
+      this.validarCapacidadMesas(usuarioActual);
 
-      if (
-        data.mesaId ===
-        undefined
-      ) {
-        throw new BadRequestException(
-          'Un pedido de tipo MESA requiere mesaId',
-        );
+      if (data.mesaId === undefined) {
+        throw new BadRequestException('Un pedido de tipo MESA requiere mesaId');
       }
 
-      const mesa =
-        await tx.mesa.findFirst({
-          where: {
-            id:
-              data.mesaId,
+      const mesa = await tx.mesa.findFirst({
+        where: {
+          id: data.mesaId,
 
+          estado: true,
+
+          zona: {
             estado: true,
 
-            zona: {
-              estado: true,
-
-              sucursal: {
-                ...this.filtroSucursal(
-                  usuarioActual,
-                ),
-              },
+            sucursal: {
+              ...this.filtroSucursal(usuarioActual),
             },
           },
+        },
 
-          include: {
-            zona: {
-              select: {
-                sucursalId: true,
-              },
+        include: {
+          zona: {
+            select: {
+              sucursalId: true,
             },
           },
-        });
+        },
+      });
 
       if (!mesa) {
-        throw new NotFoundException(
-          'Mesa no encontrada',
-        );
+        throw new NotFoundException('Mesa no encontrada');
       }
 
       if (
-        data.sucursalId !==
-          undefined &&
-        data.sucursalId !==
-          mesa.zona.sucursalId
+        data.sucursalId !== undefined &&
+        data.sucursalId !== mesa.zona.sucursalId
       ) {
         throw new BadRequestException(
           'La mesa no pertenece a la sucursal indicada',
         );
       }
 
-      if (
-        mesa.situacion !==
-        EstadoMesa.LIBRE
-      ) {
+      if (mesa.situacion !== EstadoMesa.LIBRE) {
         throw new BadRequestException(
           'La mesa ya esta ocupada o no esta disponible',
         );
       }
 
-      const mesaReservada =
-        await tx.mesa.updateMany({
-          where: {
-            id:
-              mesa.id,
+      const mesaReservada = await tx.mesa.updateMany({
+        where: {
+          id: mesa.id,
 
-            estado: true,
+          estado: true,
 
-            situacion:
-              EstadoMesa.LIBRE,
-          },
+          situacion: EstadoMesa.LIBRE,
+        },
 
-          data: {
-            situacion:
-              EstadoMesa.OCUPADA,
-          },
-        });
+        data: {
+          situacion: EstadoMesa.OCUPADA,
+        },
+      });
 
-      if (
-        mesaReservada.count !==
-        1
-      ) {
+      if (mesaReservada.count !== 1) {
         throw new BadRequestException(
           'La mesa acaba de ser ocupada por otro pedido',
         );
       }
 
       return {
-        sucursalId:
-          mesa.zona.sucursalId,
+        sucursalId: mesa.zona.sucursalId,
 
-        mesaId:
-          mesa.id,
+        mesaId: mesa.id,
       };
     }
 
-    if (
-      data.mesaId !==
-      undefined
-    ) {
+    if (data.mesaId !== undefined) {
       throw new BadRequestException(
         `Un pedido ${data.tipo} no debe tener mesaId`,
       );
     }
 
-    const sucursalId =
-      await this.resolverSucursalSinMesa(
-        tx,
-        data,
-        usuarioActual,
-      );
+    const sucursalId = await this.resolverSucursalSinMesa(
+      tx,
+      data,
+      usuarioActual,
+    );
 
     return {
       sucursalId,
@@ -499,52 +344,40 @@ export class PedidosService {
   }
 
   async create(
-    data:
-      CreatePedidoDto,
+    data: CreatePedidoDto,
 
-    usuarioActual:
-      UsuarioAutenticado,
+    usuarioActual: UsuarioAutenticado,
   ) {
     return this.prisma.$transaction(
       async (tx) => {
-        const contexto =
-          await this.resolverContextoPedido(
-            tx,
-            data,
-            usuarioActual,
-          );
+        const contexto = await this.resolverContextoPedido(
+          tx,
+          data,
+          usuarioActual,
+        );
 
-        const preparado =
-          await this
-            .prepararDetalles(
-              tx,
-              contexto.sucursalId,
-              data.detalles,
-            );
+        const preparado = await this.prepararDetalles(
+          tx,
+          contexto.sucursalId,
+          data.detalles,
+        );
 
         return tx.pedido.create({
           data: {
-            sucursalId:
-              contexto.sucursalId,
+            sucursalId: contexto.sucursalId,
 
-            mesaId:
-              contexto.mesaId,
+            mesaId: contexto.mesaId,
 
-            usuarioId:
-              usuarioActual.id,
+            usuarioId: usuarioActual.id,
 
-            tipo:
-              data.tipo,
+            tipo: data.tipo,
 
-            estado:
-              EstadoPedido.PENDIENTE,
+            estado: EstadoPedido.PENDIENTE,
 
-            total:
-              preparado.total,
+            total: preparado.total,
 
             detalles: {
-              create:
-                preparado.detalles,
+              create: preparado.detalles,
             },
           },
 
@@ -565,119 +398,90 @@ export class PedidosService {
       },
 
       {
-        isolationLevel:
-          Prisma.TransactionIsolationLevel
-            .Serializable,
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
   }
 
   async agregarDetalles(
-    pedidoId:
-      number,
+    pedidoId: number,
 
-    data:
-      AgregarDetallesPedidoDto,
+    data: AgregarDetallesPedidoDto,
 
-    usuarioActual:
-      UsuarioAutenticado,
+    usuarioActual: UsuarioAutenticado,
   ) {
     return this.prisma.$transaction(
       async (tx) => {
-        const pedido =
-          await tx.pedido.findFirst({
-            where: {
-              id:
-                pedidoId,
+        const pedido = await tx.pedido.findFirst({
+          where: {
+            id: pedidoId,
 
-              sucursal:
-                this.filtroSucursal(
-                  usuarioActual,
-                ),
-            },
+            sucursal: this.filtroSucursal(usuarioActual),
+          },
 
-            include: {
-              venta: {
-                select: {
-                  id: true,
-                },
-              },
-
-              factura: {
-                select: {
-                  id: true,
-                },
+          include: {
+            venta: {
+              select: {
+                id: true,
               },
             },
-          });
+
+            factura: {
+              select: {
+                id: true,
+              },
+            },
+          },
+        });
 
         if (!pedido) {
-          throw new NotFoundException(
-            'Pedido no encontrado',
-          );
+          throw new NotFoundException('Pedido no encontrado');
         }
 
-        if (
-          pedido.estado ===
-          EstadoPedido.CANCELADO
-        ) {
+        if (pedido.estado === EstadoPedido.CANCELADO) {
           throw new BadRequestException(
             'No se pueden agregar productos a un pedido cancelado',
           );
         }
 
-        if (
-          pedido.estado ===
-            EstadoPedido.FACTURADO ||
-          pedido.factura
-        ) {
+        if (pedido.estado === EstadoPedido.FACTURADO || pedido.factura) {
           throw new BadRequestException(
             'No se pueden agregar productos a un pedido facturado',
           );
         }
 
-        if (
-          pedido.venta
-        ) {
+        if (pedido.venta) {
           throw new BadRequestException(
             'No se pueden agregar productos despues de generar la venta del pedido',
           );
         }
 
-        const preparado =
-          await this
-            .prepararDetalles(
-              tx,
-              pedido.sucursalId,
-              data.detalles,
-            );
+        const preparado = await this.prepararDetalles(
+          tx,
+          pedido.sucursalId,
+          data.detalles,
+        );
 
         const estadoNuevo =
-          pedido.estado ===
-            EstadoPedido.LISTO ||
-          pedido.estado ===
-            EstadoPedido.ENTREGADO
+          pedido.estado === EstadoPedido.LISTO ||
+          pedido.estado === EstadoPedido.ENTREGADO
             ? EstadoPedido.PENDIENTE
             : pedido.estado;
 
         return tx.pedido.update({
           where: {
-            id:
-              pedido.id,
+            id: pedido.id,
           },
 
           data: {
             total: {
-              increment:
-                preparado.total,
+              increment: preparado.total,
             },
 
-            estado:
-              estadoNuevo,
+            estado: estadoNuevo,
 
             detalles: {
-              create:
-                preparado.detalles,
+              create: preparado.detalles,
             },
           },
 
@@ -714,9 +518,7 @@ export class PedidosService {
       },
 
       {
-        isolationLevel:
-          Prisma.TransactionIsolationLevel
-            .Serializable,
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
   }
@@ -745,112 +547,85 @@ export class PedidosService {
    * exclusivamente a Venta.
    */
   async cancelar(
-    pedidoId:
-      number,
+    pedidoId: number,
 
-    usuarioActual:
-      UsuarioAutenticado,
+    usuarioActual: UsuarioAutenticado,
   ) {
     return this.prisma.$transaction(
       async (tx) => {
-        const pedido =
-          await tx.pedido.findFirst({
-            where: {
-              id:
-                pedidoId,
+        const pedido = await tx.pedido.findFirst({
+          where: {
+            id: pedidoId,
 
-              sucursal:
-                this.filtroSucursal(
-                  usuarioActual,
-                ),
-            },
+            sucursal: this.filtroSucursal(usuarioActual),
+          },
 
-            include: {
-              venta: {
-                select: {
-                  id: true,
-                  estado: true,
-                },
-              },
-
-              factura: {
-                select: {
-                  id: true,
-                },
-              },
-
-              mesa: {
-                select: {
-                  id: true,
-                  situacion: true,
-                },
-              },
-
-              comandas: {
-                select: {
-                  id: true,
-                  estado: true,
-                },
+          include: {
+            venta: {
+              select: {
+                id: true,
+                estado: true,
               },
             },
-          });
+
+            factura: {
+              select: {
+                id: true,
+              },
+            },
+
+            mesa: {
+              select: {
+                id: true,
+                situacion: true,
+              },
+            },
+
+            comandas: {
+              select: {
+                id: true,
+                estado: true,
+              },
+            },
+          },
+        });
 
         if (!pedido) {
-          throw new NotFoundException(
-            'Pedido no encontrado',
-          );
+          throw new NotFoundException('Pedido no encontrado');
         }
 
-        if (
-          pedido.estado ===
-          EstadoPedido.CANCELADO
-        ) {
-          throw new BadRequestException(
-            'El pedido ya esta cancelado',
-          );
+        if (pedido.estado === EstadoPedido.CANCELADO) {
+          throw new BadRequestException('El pedido ya esta cancelado');
         }
 
-        if (
-          pedido.estado ===
-            EstadoPedido.FACTURADO ||
-          pedido.factura
-        ) {
+        if (pedido.estado === EstadoPedido.FACTURADO || pedido.factura) {
           throw new BadRequestException(
             'No se puede cancelar un pedido facturado',
           );
         }
 
-        if (
-          pedido.venta
-        ) {
+        if (pedido.venta) {
           throw new BadRequestException(
             'No se puede cancelar el pedido despues de generar su venta',
           );
         }
 
         if (
-          pedido.estado ===
-            EstadoPedido.EN_PREPARACION ||
-          pedido.estado ===
-            EstadoPedido.LISTO ||
-          pedido.estado ===
-            EstadoPedido.ENTREGADO
+          pedido.estado === EstadoPedido.EN_PREPARACION ||
+          pedido.estado === EstadoPedido.LISTO ||
+          pedido.estado === EstadoPedido.ENTREGADO
         ) {
           throw new BadRequestException(
             'No se puede cancelar el pedido porque su preparacion ya avanzo',
           );
         }
 
-        const comandaAvanzada =
-          pedido.comandas.find(
-            (comanda) =>
-              comanda.estado ===
-                EstadoComanda.EN_PREPARACION ||
-              comanda.estado ===
-                EstadoComanda.LISTA ||
-              comanda.estado ===
-                EstadoComanda.ENTREGADA,
-          );
+        const comandaAvanzada = pedido.comandas.find(
+          (comanda) =>
+            comanda.estado === EstadoComanda.EN_PREPARACION ||
+            comanda.estado === EstadoComanda.LISTA ||
+            comanda.estado === EstadoComanda.ENTREGADA,
+        );
 
         if (comandaAvanzada) {
           throw new BadRequestException(
@@ -864,16 +639,13 @@ export class PedidosService {
          */
         await tx.comanda.updateMany({
           where: {
-            pedidoId:
-              pedido.id,
+            pedidoId: pedido.id,
 
-            estado:
-              EstadoComanda.PENDIENTE,
+            estado: EstadoComanda.PENDIENTE,
           },
 
           data: {
-            estado:
-              EstadoComanda.CANCELADA,
+            estado: EstadoComanda.CANCELADA,
           },
         });
 
@@ -885,14 +657,8 @@ export class PedidosService {
          * Solo corresponde cuando esta mesa sigue
          * ocupada por este pedido.
          */
-        if (
-          pedido.mesaId !==
-          null
-        ) {
-          if (
-            pedido.mesa?.situacion ===
-            EstadoMesa.PENDIENTE_PAGO
-          ) {
+        if (pedido.mesaId !== null) {
+          if (pedido.mesa?.situacion === EstadoMesa.PENDIENTE_PAGO) {
             /*
              * En condiciones normales esto no puede
              * ocurrir sin Venta. Aun asi evitamos
@@ -906,16 +672,13 @@ export class PedidosService {
 
           await tx.mesa.updateMany({
             where: {
-              id:
-                pedido.mesaId,
+              id: pedido.mesaId,
 
-              situacion:
-                EstadoMesa.OCUPADA,
+              situacion: EstadoMesa.OCUPADA,
             },
 
             data: {
-              situacion:
-                EstadoMesa.LIBRE,
+              situacion: EstadoMesa.LIBRE,
             },
           });
         }
@@ -927,13 +690,11 @@ export class PedidosService {
          */
         return tx.pedido.update({
           where: {
-            id:
-              pedido.id,
+            id: pedido.id,
           },
 
           data: {
-            estado:
-              EstadoPedido.CANCELADO,
+            estado: EstadoPedido.CANCELADO,
           },
 
           include: {
@@ -961,8 +722,7 @@ export class PedidosService {
               },
 
               orderBy: {
-                fechaEnvio:
-                  'asc',
+                fechaEnvio: 'asc',
               },
             },
           },
@@ -970,23 +730,15 @@ export class PedidosService {
       },
 
       {
-        isolationLevel:
-          Prisma.TransactionIsolationLevel
-            .Serializable,
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
   }
 
-  findAll(
-    usuarioActual:
-      UsuarioAutenticado,
-  ) {
+  findAll(usuarioActual: UsuarioAutenticado) {
     return this.prisma.pedido.findMany({
       where: {
-        sucursal:
-          this.filtroSucursal(
-            usuarioActual,
-          ),
+        sucursal: this.filtroSucursal(usuarioActual),
       },
 
       include: {
@@ -1034,89 +786,81 @@ export class PedidosService {
   }
 
   async findOne(
-    id:
-      number,
+    id: number,
 
-    usuarioActual:
-      UsuarioAutenticado,
+    usuarioActual: UsuarioAutenticado,
   ) {
-    const pedido =
-      await this.prisma.pedido.findFirst({
-        where: {
-          id,
+    const pedido = await this.prisma.pedido.findFirst({
+      where: {
+        id,
 
-          sucursal:
-            this.filtroSucursal(
-              usuarioActual,
-            ),
+        sucursal: this.filtroSucursal(usuarioActual),
+      },
+
+      include: {
+        sucursal: true,
+
+        mesa: {
+          include: {
+            zona: true,
+          },
         },
 
-        include: {
-          sucursal: true,
-
-          mesa: {
-            include: {
-              zona: true,
-            },
+        usuario: {
+          select: {
+            id: true,
+            nombres: true,
+            apellidos: true,
+            email: true,
           },
+        },
 
-          usuario: {
-            select: {
-              id: true,
-              nombres: true,
-              apellidos: true,
-              email: true,
-            },
-          },
+        detalles: {
+          include: {
+            producto: true,
 
-          detalles: {
-            include: {
-              producto: true,
-
-              comandas: {
-                include: {
-                  comanda: true,
-                },
+            comandas: {
+              include: {
+                comanda: true,
               },
             },
           },
+        },
 
-          comandas: {
-            include: {
-              detalles: {
-                include: {
-                  detallePedido: {
-                    include: {
-                      producto: true,
-                    },
+        comandas: {
+          include: {
+            detalles: {
+              include: {
+                detallePedido: {
+                  include: {
+                    producto: true,
                   },
                 },
               },
             },
-
-            orderBy: {
-              fechaEnvio: 'asc',
-            },
           },
 
-          venta: {
-            include: {
-              pagos: {
-                include: {
-                  metodoPago: true,
-                },
-              },
-
-              factura: true,
-            },
+          orderBy: {
+            fechaEnvio: 'asc',
           },
         },
-      });
+
+        venta: {
+          include: {
+            pagos: {
+              include: {
+                metodoPago: true,
+              },
+            },
+
+            factura: true,
+          },
+        },
+      },
+    });
 
     if (!pedido) {
-      throw new NotFoundException(
-        'Pedido no encontrado',
-      );
+      throw new NotFoundException('Pedido no encontrado');
     }
 
     return pedido;

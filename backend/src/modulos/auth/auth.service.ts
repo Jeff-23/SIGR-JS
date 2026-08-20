@@ -35,11 +35,12 @@ export class AuthService {
     }
 
     // 4. Creamos el "Carnet Digital" (Token) con la info clave del usuario
-    const payload = {sub: usuario.id};
+    const payload = { sub: usuario.id };
     const token = this.jwtService.sign(payload);
     // 5. Ocultamos la contraseña antes de responderle al frontend
-    const { password: _, ...usuarioLimpio } = usuario;
-    
+    const { password: passwordHash, ...usuarioLimpio } = usuario;
+    void passwordHash;
+
     return {
       mensaje: 'Autenticación exitosa',
       usuario: usuarioLimpio,

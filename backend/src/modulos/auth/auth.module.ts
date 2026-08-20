@@ -7,20 +7,21 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { RolesGuard } from './roles.guard';
 import { PermissionsGuard } from './permissions.guard';
+import { obtenerEntorno } from '../../config/entorno';
+
+const entorno = obtenerEntorno();
 
 @Module({
   imports: [
     JwtModule.register({
-      secret: process.env.JWT_SECRET,
+      secret: entorno.jwtSecret,
       signOptions: {
-        expiresIn: '12h',
+        expiresIn: entorno.jwtExpiraEn,
       },
     }),
   ],
 
-  controllers: [
-    AuthController,
-  ],
+  controllers: [AuthController],
 
   providers: [
     AuthService,
@@ -30,10 +31,6 @@ import { PermissionsGuard } from './permissions.guard';
     CapabilitiesGuard,
   ],
 
-  exports: [
-    RolesGuard,
-    PermissionsGuard,
-    CapabilitiesGuard,
-  ],
+  exports: [RolesGuard, PermissionsGuard, CapabilitiesGuard],
 })
 export class AuthModule {}

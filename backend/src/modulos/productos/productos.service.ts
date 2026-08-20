@@ -13,55 +13,35 @@ import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 @Injectable()
 export class ProductosService {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  private esSuperadmin(
-    usuarioActual:
-      UsuarioAutenticado,
-  ) {
+  private esSuperadmin(usuarioActual: UsuarioAutenticado) {
     return (
-      usuarioActual.rol ===
-        'SUPERADMIN' &&
-      usuarioActual.restauranteId ===
-        null
+      usuarioActual.rol === 'SUPERADMIN' && usuarioActual.restauranteId === null
     );
   }
 
   private validarCapacidadesInventario(
-    estrategia:
-      EstrategiaInventario | undefined,
-    usuarioActual:
-      UsuarioAutenticado,
+    estrategia: EstrategiaInventario | undefined,
+    usuarioActual: UsuarioAutenticado,
   ) {
     if (
       estrategia === undefined ||
-      estrategia ===
-        EstrategiaInventario.NO_CONTROLAR ||
-      this.esSuperadmin(
-        usuarioActual,
-      )
+      estrategia === EstrategiaInventario.NO_CONTROLAR ||
+      this.esSuperadmin(usuarioActual)
     ) {
       return;
     }
 
-    if (
-      !usuarioActual.capacidades.includes(
-        'INVENTARIO',
-      )
-    ) {
+    if (!usuarioActual.capacidades.includes('INVENTARIO')) {
       throw new ForbiddenException(
         'El control de inventario no está incluido en el plan del restaurante',
       );
     }
 
     if (
-      estrategia ===
-        EstrategiaInventario.POR_RECETA &&
-      !usuarioActual.capacidades.includes(
-        'RECETAS',
-      )
+      estrategia === EstrategiaInventario.POR_RECETA &&
+      !usuarioActual.capacidades.includes('RECETAS')
     ) {
       throw new ForbiddenException(
         'El control por receta no está incluido en el plan del restaurante',
@@ -73,10 +53,50 @@ export class ProductosService {
     categoriaId: number,
     usuarioActual: UsuarioAutenticado,
   ) {
-    const categoria =
-      await this.prisma.categoria.findFirst({
-        where: {
-          id: categoriaId,
+    const categoria = await this.prisma.categoria.findFirst({
+      where: {
+        id: categoriaId,
+        estado: true,
+
+        sucursal: {
+          estado: true,
+
+          ...(!this.esSuperadmin(usuarioActual)
+            ? {
+                restauranteId: usuarioActual.restauranteId,
+              }
+            : {}),
+
+          ...(usuarioActual.sucursalId !== null
+            ? {
+                id: usuarioActual.sucursalId,
+              }
+            : {}),
+        },
+      },
+      select: {
+        id: true,
+        sucursalId: true,
+      },
+    });
+
+    if (!categoria) {
+      throw new NotFoundException('Categoría no encontrada');
+    }
+
+    return categoria;
+  }
+
+  private async buscarProductoDentroDelAlcance(
+    id: number,
+    usuarioActual: UsuarioAutenticado,
+  ) {
+    const producto = await this.prisma.producto.findFirst({
+      where: {
+        id,
+        estado: true,
+
+        categoria: {
           estado: true,
 
           sucursal: {
@@ -84,8 +104,7 @@ export class ProductosService {
 
             ...(!this.esSuperadmin(usuarioActual)
               ? {
-                  restauranteId:
-                    usuarioActual.restauranteId!,
+                  restauranteId: usuarioActual.restauranteId,
                 }
               : {}),
 
@@ -96,71 +115,18 @@ export class ProductosService {
               : {}),
           },
         },
-        select: {
-          id: true,
-          sucursalId: true,
-        },
-      });
-
-    if (!categoria) {
-      throw new NotFoundException(
-        'Categoría no encontrada',
-      );
-    }
-
-    return categoria;
-  }
-
-  private async buscarProductoDentroDelAlcance(
-    id: number,
-    usuarioActual: UsuarioAutenticado,
-  ) {
-    const producto =
-      await this.prisma.producto.findFirst({
-        where: {
-          id,
-          estado: true,
-
-          categoria: {
-            estado: true,
-
-            sucursal: {
-              estado: true,
-
-              ...(!this.esSuperadmin(usuarioActual)
-                ? {
-                    restauranteId:
-                      usuarioActual.restauranteId!,
-                  }
-                : {}),
-
-              ...(usuarioActual.sucursalId !== null
-                ? {
-                    id: usuarioActual.sucursalId,
-                  }
-                : {}),
-            },
-          },
-        },
-      });
+      },
+    });
 
     if (!producto) {
-      throw new NotFoundException(
-        'Producto no encontrado',
-      );
+      throw new NotFoundException('Producto no encontrado');
     }
 
     return producto;
   }
 
-  async create(
-    data: CreateProductoDto,
-    usuarioActual: UsuarioAutenticado,
-  ) {
-    this.validarCapacidadesInventario(
-      data.estrategiaInventario,
-      usuarioActual,
-    );
+  async create(data: CreateProductoDto, usuarioActual: UsuarioAutenticado) {
+    this.validarCapacidadesInventario(data.estrategiaInventario, usuarioActual);
 
     await this.validarCategoriaDentroDelAlcance(
       data.categoriaId,
@@ -172,9 +138,7 @@ export class ProductosService {
     });
   }
 
-  async findAll(
-    usuarioActual: UsuarioAutenticado,
-  ) {
+  async findAll(usuarioActual: UsuarioAutenticado) {
     return this.prisma.producto.findMany({
       where: {
         estado: true,
@@ -187,8 +151,7 @@ export class ProductosService {
 
             ...(!this.esSuperadmin(usuarioActual)
               ? {
-                  restauranteId:
-                    usuarioActual.restauranteId!,
+                  restauranteId: usuarioActual.restauranteId,
                 }
               : {}),
 
@@ -216,29 +179,22 @@ export class ProductosService {
     data: UpdateProductoDto,
     usuarioActual: UsuarioAutenticado,
   ) {
-    const producto =
-      await this.buscarProductoDentroDelAlcance(
-        id,
-        usuarioActual,
-      );
+    const producto = await this.buscarProductoDentroDelAlcance(
+      id,
+      usuarioActual,
+    );
 
-    if (
-      data.estrategiaInventario !==
-      undefined
-    ) {
+    if (data.estrategiaInventario !== undefined) {
       this.validarCapacidadesInventario(
         data.estrategiaInventario,
         usuarioActual,
       );
     }
 
-    if (
-      producto.stock.gt(0)
-    ) {
+    if (producto.stock.gt(0)) {
       if (
         data.unidadInventario !== undefined &&
-        data.unidadInventario !==
-          producto.unidadInventario
+        data.unidadInventario !== producto.unidadInventario
       ) {
         throw new BadRequestException(
           'No se puede cambiar la unidad de inventario de un producto con stock existente. Ajuste primero el stock a cero.',
@@ -247,8 +203,7 @@ export class ProductosService {
 
       if (
         data.estrategiaInventario !== undefined &&
-        data.estrategiaInventario !==
-          producto.estrategiaInventario
+        data.estrategiaInventario !== producto.estrategiaInventario
       ) {
         throw new BadRequestException(
           'No se puede cambiar la estrategia de inventario de un producto con stock existente. Ajuste primero el stock a cero.',

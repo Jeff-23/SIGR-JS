@@ -1,10 +1,4 @@
-﻿import {
-  Body,
-  Controller,
-  Post,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+﻿import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 
 import { RecetasService } from './recetas.service';
 import { CreateRecetaDto } from './dto/create-receta.dto';
@@ -24,9 +18,7 @@ type RequestAutenticada = {
 @UseGuards(JwtAuthGuard, PermissionsGuard, CapabilitiesGuard)
 @Capacidades('RECETAS')
 export class RecetasController {
-  constructor(
-    private readonly recetasService: RecetasService,
-  ) {}
+  constructor(private readonly recetasService: RecetasService) {}
 
   @Post()
   @Permisos('RECETAS_CREAR')
@@ -34,10 +26,6 @@ export class RecetasController {
     @Body() createRecetaDto: CreateRecetaDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.recetasService.create(
-      createRecetaDto,
-      request.user,
-    );
+    return this.recetasService.create(createRecetaDto, request.user);
   }
 }
-

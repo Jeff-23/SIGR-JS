@@ -1,7 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateZonaDto } from './dto/create-zona.dto';
@@ -9,19 +6,11 @@ import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 @Injectable()
 export class ZonasService {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  private esSuperadmin(
-    usuarioActual:
-      UsuarioAutenticado,
-  ) {
+  private esSuperadmin(usuarioActual: UsuarioAutenticado) {
     return (
-      usuarioActual.rol ===
-        'SUPERADMIN' &&
-      usuarioActual.restauranteId ===
-        null
+      usuarioActual.rol === 'SUPERADMIN' && usuarioActual.restauranteId === null
     );
   }
 
@@ -33,42 +22,30 @@ export class ZonasService {
       usuarioActual.sucursalId !== null &&
       usuarioActual.sucursalId !== sucursalId
     ) {
-      throw new NotFoundException(
-        'Sucursal no encontrada',
-      );
+      throw new NotFoundException('Sucursal no encontrada');
     }
 
-    const sucursal =
-      await this.prisma.sucursal.findFirst({
-        where: {
-          id: sucursalId,
-          estado: true,
-          ...(!this.esSuperadmin(usuarioActual)
-            ? {
-                restauranteId:
-                  usuarioActual.restauranteId!,
-              }
-            : {}),
-        },
-      });
+    const sucursal = await this.prisma.sucursal.findFirst({
+      where: {
+        id: sucursalId,
+        estado: true,
+        ...(!this.esSuperadmin(usuarioActual)
+          ? {
+              restauranteId: usuarioActual.restauranteId,
+            }
+          : {}),
+      },
+    });
 
     if (!sucursal) {
-      throw new NotFoundException(
-        'Sucursal no encontrada',
-      );
+      throw new NotFoundException('Sucursal no encontrada');
     }
 
     return sucursal;
   }
 
-  async create(
-    data: CreateZonaDto,
-    usuarioActual: UsuarioAutenticado,
-  ) {
-    await this.validarSucursalDentroDelAlcance(
-      data.sucursalId,
-      usuarioActual,
-    );
+  async create(data: CreateZonaDto, usuarioActual: UsuarioAutenticado) {
+    await this.validarSucursalDentroDelAlcance(data.sucursalId, usuarioActual);
 
     return this.prisma.zona.create({
       data,
@@ -79,10 +56,7 @@ export class ZonasService {
     sucursalId: number,
     usuarioActual: UsuarioAutenticado,
   ) {
-    await this.validarSucursalDentroDelAlcance(
-      sucursalId,
-      usuarioActual,
-    );
+    await this.validarSucursalDentroDelAlcance(sucursalId, usuarioActual);
 
     return this.prisma.zona.findMany({
       where: {

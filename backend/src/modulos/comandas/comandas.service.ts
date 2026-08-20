@@ -4,11 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import {
-  EstadoComanda,
-  EstadoPedido,
-  Prisma,
-} from '@prisma/client';
+import { EstadoComanda, EstadoPedido, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -18,20 +14,10 @@ import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 @Injectable()
 export class ComandasService {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  private esSuperadmin(
-    usuario:
-      UsuarioAutenticado,
-  ) {
-    return (
-      usuario.rol ===
-        'SUPERADMIN' &&
-      usuario.restauranteId ===
-        null
-    );
+  private esSuperadmin(usuario: UsuarioAutenticado) {
+    return usuario.rol === 'SUPERADMIN' && usuario.restauranteId === null;
   }
 
   private filtroSucursal(
@@ -46,8 +32,7 @@ export class ComandasService {
 
       ...(!this.esSuperadmin(usuario)
         ? {
-            restauranteId:
-              usuario.restauranteId!,
+            restauranteId: usuario.restauranteId,
           }
         : {}),
 
@@ -59,12 +44,9 @@ export class ComandasService {
     };
   }
 
-  private filtroPedido(
-    usuario: UsuarioAutenticado,
-  ): Prisma.PedidoWhereInput {
+  private filtroPedido(usuario: UsuarioAutenticado): Prisma.PedidoWhereInput {
     return {
-      sucursal:
-        this.filtroSucursal(usuario),
+      sucursal: this.filtroSucursal(usuario),
     };
   }
 
@@ -75,34 +57,26 @@ export class ComandasService {
   ) {
     return this.prisma.$transaction(
       async (tx) => {
-        const pedido =
-          await tx.pedido.findFirst({
-            where: {
-              id: pedidoId,
+        const pedido = await tx.pedido.findFirst({
+          where: {
+            id: pedidoId,
 
-              ...this.filtroPedido(
-                usuario,
-              ),
-            },
+            ...this.filtroPedido(usuario),
+          },
 
-            include: {
-              detalles: true,
-            },
-          });
+          include: {
+            detalles: true,
+          },
+        });
 
         if (!pedido) {
-          throw new NotFoundException(
-            'Pedido no encontrado',
-          );
+          throw new NotFoundException('Pedido no encontrado');
         }
 
         if (
-          pedido.estado ===
-            EstadoPedido.CANCELADO ||
-          pedido.estado ===
-            EstadoPedido.FACTURADO ||
-          pedido.estado ===
-            EstadoPedido.ENTREGADO
+          pedido.estado === EstadoPedido.CANCELADO ||
+          pedido.estado === EstadoPedido.FACTURADO ||
+          pedido.estado === EstadoPedido.ENTREGADO
         ) {
           throw new BadRequestException(
             'El pedido ya no admite nuevas comandas',
@@ -115,32 +89,21 @@ export class ComandasService {
          * También evita errores si el cliente HTTP
          * repite accidentalmente el mismo detalle.
          */
-        const solicitados =
-          new Map<number, number>();
+        const solicitados = new Map<number, number>();
 
         for (const item of data.detalles) {
           solicitados.set(
             item.detallePedidoId,
 
-            (solicitados.get(
-              item.detallePedidoId,
-            ) ?? 0) + item.cantidad,
+            (solicitados.get(item.detallePedidoId) ?? 0) + item.cantidad,
           );
         }
 
-        const idsDetalles = [
-          ...solicitados.keys(),
-        ];
+        const idsDetalles = [...solicitados.keys()];
 
-        const detallesPedido =
-          new Map(
-            pedido.detalles.map(
-              (detalle) => [
-                detalle.id,
-                detalle,
-              ],
-            ),
-          );
+        const detallesPedido = new Map(
+          pedido.detalles.map((detalle) => [detalle.id, detalle]),
+        );
 
         for (const id of idsDetalles) {
           if (!detallesPedido.has(id)) {
@@ -156,40 +119,34 @@ export class ComandasService {
          *
          * Las comandas CANCELADAS no cuentan.
          */
-        const enviados =
-          await tx.detalleComanda.findMany({
-            where: {
-              detallePedidoId: {
-                in: idsDetalles,
-              },
-
-              comanda: {
-                pedidoId:
-                  pedido.id,
-
-                estado: {
-                  not:
-                    EstadoComanda.CANCELADA,
-                },
-              },
+        const enviados = await tx.detalleComanda.findMany({
+          where: {
+            detallePedidoId: {
+              in: idsDetalles,
             },
 
-            select: {
-              detallePedidoId: true,
-              cantidad: true,
-            },
-          });
+            comanda: {
+              pedidoId: pedido.id,
 
-        const cantidadesEnviadas =
-          new Map<number, number>();
+              estado: {
+                not: EstadoComanda.CANCELADA,
+              },
+            },
+          },
+
+          select: {
+            detallePedidoId: true,
+            cantidad: true,
+          },
+        });
+
+        const cantidadesEnviadas = new Map<number, number>();
 
         for (const detalle of enviados) {
           cantidadesEnviadas.set(
             detalle.detallePedidoId,
 
-            (cantidadesEnviadas.get(
-              detalle.detallePedidoId,
-            ) ?? 0) +
+            (cantidadesEnviadas.get(detalle.detallePedidoId) ?? 0) +
               detalle.cantidad,
           );
         }
@@ -199,30 +156,14 @@ export class ComandasService {
           cantidad: number;
         }[] = [];
 
-        for (
-          const [
-            detallePedidoId,
-            cantidadSolicitada,
-          ] of solicitados
-        ) {
-          const detallePedido =
-            detallesPedido.get(
-              detallePedidoId,
-            )!;
+        for (const [detallePedidoId, cantidadSolicitada] of solicitados) {
+          const detallePedido = detallesPedido.get(detallePedidoId);
 
-          const yaEnviado =
-            cantidadesEnviadas.get(
-              detallePedidoId,
-            ) ?? 0;
+          const yaEnviado = cantidadesEnviadas.get(detallePedidoId) ?? 0;
 
-          const disponible =
-            detallePedido.cantidad -
-            yaEnviado;
+          const disponible = detallePedido.cantidad - yaEnviado;
 
-          if (
-            cantidadSolicitada >
-            disponible
-          ) {
+          if (cantidadSolicitada > disponible) {
             throw new BadRequestException(
               `El detalle ${detallePedidoId} solo tiene ${disponible} unidad(es) pendientes de enviar a cocina`,
             );
@@ -230,19 +171,16 @@ export class ComandasService {
 
           detallesComanda.push({
             detallePedidoId,
-            cantidad:
-              cantidadSolicitada,
+            cantidad: cantidadSolicitada,
           });
         }
 
         return tx.comanda.create({
           data: {
-            pedidoId:
-              pedido.id,
+            pedidoId: pedido.id,
 
             detalles: {
-              create:
-                detallesComanda,
+              create: detallesComanda,
             },
           },
 
@@ -267,16 +205,12 @@ export class ComandasService {
       },
 
       {
-        isolationLevel:
-          Prisma.TransactionIsolationLevel
-            .Serializable,
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
   }
 
-  listarKds(
-    usuario: UsuarioAutenticado,
-  ) {
+  listarKds(usuario: UsuarioAutenticado) {
     return this.prisma.comanda.findMany({
       where: {
         estado: {
@@ -288,9 +222,7 @@ export class ComandasService {
         },
 
         pedido: {
-          ...this.filtroPedido(
-            usuario,
-          ),
+          ...this.filtroPedido(usuario),
         },
       },
 
@@ -329,130 +261,85 @@ export class ComandasService {
   ) {
     return this.prisma.$transaction(
       async (tx) => {
-        const comanda =
-          await tx.comanda.findFirst({
-            where: {
-              id,
+        const comanda = await tx.comanda.findFirst({
+          where: {
+            id,
 
-              pedido: {
-                ...this.filtroPedido(
-                  usuario,
-                ),
-              },
+            pedido: {
+              ...this.filtroPedido(usuario),
             },
-          });
+          },
+        });
 
         if (!comanda) {
-          throw new NotFoundException(
-            'Comanda no encontrada',
-          );
+          throw new NotFoundException('Comanda no encontrada');
         }
 
-        this.validarTransicion(
-          comanda.estado,
-          nuevoEstado,
-        );
+        this.validarTransicion(comanda.estado, nuevoEstado);
 
-        const ahora =
-          new Date();
+        const ahora = new Date();
 
-        const data:
-          Prisma.ComandaUpdateInput = {
-          estado:
-            nuevoEstado,
+        const data: Prisma.ComandaUpdateInput = {
+          estado: nuevoEstado,
         };
 
-        if (
-          nuevoEstado ===
-          EstadoComanda.EN_PREPARACION
-        ) {
+        if (nuevoEstado === EstadoComanda.EN_PREPARACION) {
           data.fechaInicio = ahora;
         }
 
-        if (
-          nuevoEstado ===
-          EstadoComanda.LISTA
-        ) {
+        if (nuevoEstado === EstadoComanda.LISTA) {
           data.fechaLista = ahora;
         }
 
-        if (
-          nuevoEstado ===
-          EstadoComanda.ENTREGADA
-        ) {
+        if (nuevoEstado === EstadoComanda.ENTREGADA) {
           data.fechaEntrega = ahora;
         }
 
-        const actualizada =
-          await tx.comanda.update({
-            where: {
-              id:
-                comanda.id,
-            },
+        const actualizada = await tx.comanda.update({
+          where: {
+            id: comanda.id,
+          },
 
-            data,
+          data,
 
-            include: {
-              detalles: {
-                include: {
-                  detallePedido: {
-                    include: {
-                      producto: true,
-                    },
+          include: {
+            detalles: {
+              include: {
+                detallePedido: {
+                  include: {
+                    producto: true,
                   },
                 },
               },
             },
-          });
+          },
+        });
 
-        await this.sincronizarPedido(
-          tx,
-          comanda.pedidoId,
-        );
+        await this.sincronizarPedido(tx, comanda.pedidoId);
 
         return actualizada;
       },
 
       {
-        isolationLevel:
-          Prisma.TransactionIsolationLevel
-            .Serializable,
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
   }
 
-  private validarTransicion(
-    actual: EstadoComanda,
-    siguiente: EstadoComanda,
-  ) {
-    const permitidas:
-      Record<
-        EstadoComanda,
-        EstadoComanda[]
-      > = {
-        PENDIENTE: [
-          EstadoComanda.EN_PREPARACION,
-          EstadoComanda.CANCELADA,
-        ],
+  private validarTransicion(actual: EstadoComanda, siguiente: EstadoComanda) {
+    const permitidas: Record<EstadoComanda, EstadoComanda[]> = {
+      PENDIENTE: [EstadoComanda.EN_PREPARACION, EstadoComanda.CANCELADA],
 
-        EN_PREPARACION: [
-          EstadoComanda.LISTA,
-        ],
+      EN_PREPARACION: [EstadoComanda.LISTA],
 
-        LISTA: [
-          EstadoComanda.ENTREGADA,
-        ],
+      LISTA: [EstadoComanda.ENTREGADA],
 
-        ENTREGADA: [],
+      ENTREGADA: [],
 
-        CANCELADA: [],
-      };
+      CANCELADA: [],
+    };
 
-    if (
-      !permitidas[actual].includes(
-        siguiente,
-      )
-    ) {
+    if (!permitidas[actual].includes(siguiente)) {
       throw new BadRequestException(
         `Transición de comanda no permitida: ${actual} -> ${siguiente}`,
       );
@@ -463,29 +350,27 @@ export class ComandasService {
     tx: Prisma.TransactionClient,
     pedidoId: number,
   ) {
-    const pedido =
-      await tx.pedido.findUnique({
-        where: {
-          id: pedidoId,
-        },
+    const pedido = await tx.pedido.findUnique({
+      where: {
+        id: pedidoId,
+      },
 
-        include: {
-          detalles: true,
+      include: {
+        detalles: true,
 
-          comandas: {
-            where: {
-              estado: {
-                not:
-                  EstadoComanda.CANCELADA,
-              },
-            },
-
-            include: {
-              detalles: true,
+        comandas: {
+          where: {
+            estado: {
+              not: EstadoComanda.CANCELADA,
             },
           },
+
+          include: {
+            detalles: true,
+          },
         },
-      });
+      },
+    });
 
     if (!pedido) {
       return;
@@ -496,10 +381,8 @@ export class ComandasService {
      * no deben ser sobrescritos por KDS.
      */
     if (
-      pedido.estado ===
-        EstadoPedido.CANCELADO ||
-      pedido.estado ===
-        EstadoPedido.FACTURADO
+      pedido.estado === EstadoPedido.CANCELADO ||
+      pedido.estado === EstadoPedido.FACTURADO
     ) {
       return;
     }
@@ -507,114 +390,69 @@ export class ComandasService {
     if (pedido.comandas.length === 0) {
       await tx.pedido.update({
         where: {
-          id:
-            pedido.id,
+          id: pedido.id,
         },
 
         data: {
-          estado:
-            EstadoPedido.PENDIENTE,
+          estado: EstadoPedido.PENDIENTE,
         },
       });
 
       return;
     }
 
-    const enviados =
-      new Map<number, number>();
+    const enviados = new Map<number, number>();
 
-    for (
-      const comanda of pedido.comandas
-    ) {
-      for (
-        const detalle of comanda.detalles
-      ) {
+    for (const comanda of pedido.comandas) {
+      for (const detalle of comanda.detalles) {
         enviados.set(
           detalle.detallePedidoId,
 
-          (enviados.get(
-            detalle.detallePedidoId,
-          ) ?? 0) +
-            detalle.cantidad,
+          (enviados.get(detalle.detallePedidoId) ?? 0) + detalle.cantidad,
         );
       }
     }
 
-    const todoEnviado =
-      pedido.detalles.every(
-        (detalle) =>
-          (enviados.get(
-            detalle.id,
-          ) ?? 0) >=
-          detalle.cantidad,
-      );
+    const todoEnviado = pedido.detalles.every(
+      (detalle) => (enviados.get(detalle.id) ?? 0) >= detalle.cantidad,
+    );
 
-    const estados =
-      pedido.comandas.map(
-        (comanda) =>
-          comanda.estado,
-      );
+    const estados = pedido.comandas.map((comanda) => comanda.estado);
 
-    let nuevoEstado: EstadoPedido =
-        EstadoPedido.PENDIENTE;
+    let nuevoEstado: EstadoPedido = EstadoPedido.PENDIENTE;
 
-    const todasEntregadas =
-      estados.every(
-        (estado) =>
-          estado ===
-          EstadoComanda.ENTREGADA,
-      );
+    const todasEntregadas = estados.every(
+      (estado) => estado === EstadoComanda.ENTREGADA,
+    );
 
-    const todasTerminadas =
-      estados.every(
-        (estado) =>
-          estado ===
-            EstadoComanda.LISTA ||
-          estado ===
-            EstadoComanda.ENTREGADA,
-      );
+    const todasTerminadas = estados.every(
+      (estado) =>
+        estado === EstadoComanda.LISTA || estado === EstadoComanda.ENTREGADA,
+    );
 
-    const algunaAvanzo =
-      estados.some(
-        (estado) =>
-          estado ===
-            EstadoComanda.EN_PREPARACION ||
-          estado ===
-            EstadoComanda.LISTA ||
-          estado ===
-            EstadoComanda.ENTREGADA,
-      );
+    const algunaAvanzo = estados.some(
+      (estado) =>
+        estado === EstadoComanda.EN_PREPARACION ||
+        estado === EstadoComanda.LISTA ||
+        estado === EstadoComanda.ENTREGADA,
+    );
 
-    if (
-      todoEnviado &&
-      todasEntregadas
-    ) {
-      nuevoEstado =
-        EstadoPedido.ENTREGADO;
-    } else if (
-      todoEnviado &&
-      todasTerminadas
-    ) {
-      nuevoEstado =
-        EstadoPedido.LISTO;
+    if (todoEnviado && todasEntregadas) {
+      nuevoEstado = EstadoPedido.ENTREGADO;
+    } else if (todoEnviado && todasTerminadas) {
+      nuevoEstado = EstadoPedido.LISTO;
     } else if (algunaAvanzo) {
-      nuevoEstado =
-        EstadoPedido.EN_PREPARACION;
+      nuevoEstado = EstadoPedido.EN_PREPARACION;
     }
 
-    if (
-      pedido.estado !==
-      nuevoEstado
-    ) {
+    if (pedido.estado !== nuevoEstado) {
       await tx.pedido.update({
         where: {
-          id:
-            pedido.id,
+          id: pedido.id,
         },
 
         data: {
-          estado:
-            nuevoEstado,
+          estado: nuevoEstado,
         },
       });
     }

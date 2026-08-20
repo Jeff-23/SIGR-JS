@@ -1,10 +1,4 @@
-import {
-  Controller,
-  Get,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 
 import { ReportesService } from './reportes.service';
 import {
@@ -24,27 +18,18 @@ type RequestAutenticada = {
 };
 
 @Controller('reportes')
-@UseGuards(
-  JwtAuthGuard,
-  PermissionsGuard,
-  CapabilitiesGuard,
-)
+@UseGuards(JwtAuthGuard, PermissionsGuard, CapabilitiesGuard)
 @Permisos('REPORTES_VER')
 @Capacidades('ANALYTICS')
 export class ReportesController {
-  constructor(
-    private readonly reportesService: ReportesService,
-  ) {}
+  constructor(private readonly reportesService: ReportesService) {}
 
   @Get('resumen')
   resumen(
     @Query() filtros: FiltroReportesDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.reportesService.resumen(
-      filtros,
-      request.user,
-    );
+    return this.reportesService.resumen(filtros, request.user);
   }
 
   @Get('ventas-diarias')
@@ -52,10 +37,7 @@ export class ReportesController {
     @Query() filtros: FiltroReportesDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.reportesService.ventasDiarias(
-      filtros,
-      request.user,
-    );
+    return this.reportesService.ventasDiarias(filtros, request.user);
   }
 
   @Get('productos-mas-vendidos')
@@ -63,10 +45,7 @@ export class ReportesController {
     @Query() filtros: FiltroTopProductosDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.reportesService.productosMasVendidos(
-      filtros,
-      request.user,
-    );
+    return this.reportesService.productosMasVendidos(filtros, request.user);
   }
 
   @Get('metodos-pago')
@@ -74,10 +53,7 @@ export class ReportesController {
     @Query() filtros: FiltroReportesDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.reportesService.metodosPago(
-      filtros,
-      request.user,
-    );
+    return this.reportesService.metodosPago(filtros, request.user);
   }
 
   @Get('inventario-sin-stock')
@@ -85,9 +61,6 @@ export class ReportesController {
     @Query() filtros: FiltroReportesDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.reportesService.inventarioSinStock(
-      filtros,
-      request.user,
-    );
+    return this.reportesService.inventarioSinStock(filtros, request.user);
   }
 }

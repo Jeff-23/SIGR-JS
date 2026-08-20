@@ -147,7 +147,7 @@ describe('SPRINT 8 | Autorizacion administrable y dinamica (e2e)', () => {
     await prisma.rolPermiso.createMany({
       data: ['AUTORIZACION_VER', 'AUTORIZACION_GESTIONAR'].map((codigo) => ({
         rolId: rolAdminA.id,
-        permisoId: permisoPorCodigo.get(codigo)!,
+        permisoId: permisoPorCodigo.get(codigo),
       })),
     });
 

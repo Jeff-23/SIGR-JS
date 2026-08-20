@@ -24,6 +24,7 @@ Copie `.env.example` como `.env` y reemplace todos los valores de ejemplo. La ap
 | `THROTTLE_TTL_MS` | Ventana del limitador en milisegundos. |
 | `THROTTLE_LIMIT` | Solicitudes permitidas por ventana. |
 | `SEED_ADMIN_PASSWORD` | Contraseña usada únicamente al ejecutar el seed. |
+| `TIME_ZONE` | Zona horaria IANA usada como referencia operativa, por ejemplo `America/Bogota`. |
 
 No deben versionarse archivos `.env`, secretos JWT, contraseñas ni tokens.
 
@@ -82,3 +83,13 @@ Los listados paginados aceptan `pagina` desde 1 y `limite` entre 1 y 100. El con
 Ventas y cajas ejecutan sus operaciones críticas con aislamiento `Serializable`, bloqueos de fila donde corresponda y hasta tres intentos ante el conflicto transaccional Prisma `P2034`. Los errores funcionales no se reintentan.
 
 Este endurecimiento no fusiona entidades ni responsabilidades: Pedido, Venta, Pago, Factura y Documento Electrónico siguen siendo conceptos separados. El aislamiento por restaurante y sucursal, los planes, capacidades y permisos continúan aplicándose en sus módulos y guards existentes.
+
+## Integridad comercial e idempotencia
+
+La creación de ventas y el registro de pagos requieren el encabezado `Idempotency-Key`, con entre 8 y 100 caracteres válidos. Repetir la misma clave con el mismo cuerpo devuelve el recurso existente; reutilizarla con otro cuerpo responde `409 Conflict`. La clave se aísla por sucursal para ventas y por venta para pagos.
+
+Factura y Documento Electrónico aplican idempotencia natural mediante sus relaciones uno a uno. Repetir la emisión de una factura para la misma venta o la preparación electrónica para la misma factura no crea duplicados.
+
+Las fechas de ventas manuales deben incluir `Z` o desplazamiento `±HH:mm`. PostgreSQL conserva el instante normalizado y `TIME_ZONE` identifica la zona operativa configurada. Los montos comerciales usan `Prisma.Decimal`, máximo dos decimales y la capacidad común `Decimal(12,2)`.
+
+Los reversos de inventario son movimientos compensatorios: no borran salidas originales y `movimientoOrigenId` es único. Las ventas con pagos o factura siguen bloqueadas para anulación directa porque requieren flujos explícitos de devolución o reversión documental.

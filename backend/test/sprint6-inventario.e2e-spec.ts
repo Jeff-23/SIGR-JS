@@ -404,6 +404,7 @@ describe('SPRINT 6 | Inventario operativo (e2e)', () => {
         ],
       },
       usuarioA,
+      `s6-inventario-${sufijo}`,
     );
 
     const [directoTrasVenta, articuloTrasVenta, libreTrasVenta] =
@@ -497,6 +498,7 @@ describe('SPRINT 6 | Inventario operativo (e2e)', () => {
           ],
         },
         usuarioA,
+        `s6-sin-stock-${sufijo}`,
       ),
     ).rejects.toThrow(/Stock insuficiente/);
 
@@ -530,6 +532,7 @@ describe('SPRINT 6 | Inventario operativo (e2e)', () => {
           ],
         },
         usuarioB,
+        `s6-otro-tenant-${sufijo}`,
       ),
     ).rejects.toThrow('Sucursal no encontrada');
 

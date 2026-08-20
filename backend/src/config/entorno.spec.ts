@@ -15,7 +15,14 @@ describe('validarEntorno', () => {
       throttleTtlMs: 60000,
       throttleLimite: 1000,
       jwtExpiraEn: '12h',
+      zonaHoraria: 'America/Bogota',
     });
+  });
+
+  it('rechaza zonas horarias inexistentes', () => {
+    expect(() =>
+      validarEntorno({ ...BASE, TIME_ZONE: 'Planeta/Marte' }),
+    ).toThrow('TIME_ZONE debe ser una zona horaria IANA válida');
   });
 
   it('rechaza variables obligatorias ausentes', () => {

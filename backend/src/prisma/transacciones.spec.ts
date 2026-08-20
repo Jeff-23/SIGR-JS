@@ -27,4 +27,14 @@ describe('ejecutarConReintentos', () => {
     await expect(ejecutarConReintentos(operacion, 2)).rejects.toBe(error);
     expect(operacion).toHaveBeenCalledTimes(2);
   });
+
+  it('reconoce SQLSTATE 40001 encapsulado por una consulta raw', async () => {
+    const operacion = jest
+      .fn<Promise<string>, []>()
+      .mockRejectedValueOnce({ code: 'P2010', meta: { code: '40001' } })
+      .mockResolvedValue('recuperada');
+
+    await expect(ejecutarConReintentos(operacion)).resolves.toBe('recuperada');
+    expect(operacion).toHaveBeenCalledTimes(2);
+  });
 });

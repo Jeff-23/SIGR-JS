@@ -348,59 +348,53 @@ export class PedidosService {
 
     usuarioActual: UsuarioAutenticado,
   ) {
-    return this.prisma.$transaction(
-      async (tx) => {
-        const contexto = await this.resolverContextoPedido(
-          tx,
-          data,
-          usuarioActual,
-        );
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const contexto = await this.resolverContextoPedido(
+        tx,
+        data,
+        usuarioActual,
+      );
 
-        const preparado = await this.prepararDetalles(
-          tx,
-          contexto.sucursalId,
-          data.detalles,
-        );
+      const preparado = await this.prepararDetalles(
+        tx,
+        contexto.sucursalId,
+        data.detalles,
+      );
 
-        return tx.pedido.create({
-          data: {
-            sucursalId: contexto.sucursalId,
+      return tx.pedido.create({
+        data: {
+          sucursalId: contexto.sucursalId,
 
-            mesaId: contexto.mesaId,
+          mesaId: contexto.mesaId,
 
-            usuarioId: usuarioActual.id,
+          usuarioId: usuarioActual.id,
 
-            tipo: data.tipo,
+          tipo: data.tipo,
 
-            estado: EstadoPedido.PENDIENTE,
+          estado: EstadoPedido.PENDIENTE,
 
-            total: preparado.total,
+          total: preparado.total,
 
-            detalles: {
-              create: preparado.detalles,
+          detalles: {
+            create: preparado.detalles,
+          },
+        },
+
+        include: {
+          detalles: {
+            include: {
+              producto: true,
             },
           },
 
-          include: {
-            detalles: {
-              include: {
-                producto: true,
-              },
-            },
-
-            mesa: {
-              include: {
-                zona: true,
-              },
+          mesa: {
+            include: {
+              zona: true,
             },
           },
-        });
-      },
-
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
-    );
+        },
+      });
+    });
   }
 
   async agregarDetalles(
@@ -410,117 +404,111 @@ export class PedidosService {
 
     usuarioActual: UsuarioAutenticado,
   ) {
-    return this.prisma.$transaction(
-      async (tx) => {
-        const pedido = await tx.pedido.findFirst({
-          where: {
-            id: pedidoId,
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const pedido = await tx.pedido.findFirst({
+        where: {
+          id: pedidoId,
 
-            sucursal: this.filtroSucursal(usuarioActual),
-          },
+          sucursal: this.filtroSucursal(usuarioActual),
+        },
 
-          include: {
-            venta: {
-              select: {
-                id: true,
-              },
-            },
-
-            factura: {
-              select: {
-                id: true,
-              },
+        include: {
+          venta: {
+            select: {
+              id: true,
             },
           },
-        });
 
-        if (!pedido) {
-          throw new NotFoundException('Pedido no encontrado');
-        }
+          factura: {
+            select: {
+              id: true,
+            },
+          },
+        },
+      });
 
-        if (pedido.estado === EstadoPedido.CANCELADO) {
-          throw new BadRequestException(
-            'No se pueden agregar productos a un pedido cancelado',
-          );
-        }
+      if (!pedido) {
+        throw new NotFoundException('Pedido no encontrado');
+      }
 
-        if (pedido.estado === EstadoPedido.FACTURADO || pedido.factura) {
-          throw new BadRequestException(
-            'No se pueden agregar productos a un pedido facturado',
-          );
-        }
-
-        if (pedido.venta) {
-          throw new BadRequestException(
-            'No se pueden agregar productos despues de generar la venta del pedido',
-          );
-        }
-
-        const preparado = await this.prepararDetalles(
-          tx,
-          pedido.sucursalId,
-          data.detalles,
+      if (pedido.estado === EstadoPedido.CANCELADO) {
+        throw new BadRequestException(
+          'No se pueden agregar productos a un pedido cancelado',
         );
+      }
 
-        const estadoNuevo =
-          pedido.estado === EstadoPedido.LISTO ||
-          pedido.estado === EstadoPedido.ENTREGADO
-            ? EstadoPedido.PENDIENTE
-            : pedido.estado;
+      if (pedido.estado === EstadoPedido.FACTURADO || pedido.factura) {
+        throw new BadRequestException(
+          'No se pueden agregar productos a un pedido facturado',
+        );
+      }
 
-        return tx.pedido.update({
-          where: {
-            id: pedido.id,
+      if (pedido.venta) {
+        throw new BadRequestException(
+          'No se pueden agregar productos despues de generar la venta del pedido',
+        );
+      }
+
+      const preparado = await this.prepararDetalles(
+        tx,
+        pedido.sucursalId,
+        data.detalles,
+      );
+
+      const estadoNuevo =
+        pedido.estado === EstadoPedido.LISTO ||
+        pedido.estado === EstadoPedido.ENTREGADO
+          ? EstadoPedido.PENDIENTE
+          : pedido.estado;
+
+      return tx.pedido.update({
+        where: {
+          id: pedido.id,
+        },
+
+        data: {
+          total: {
+            increment: preparado.total,
           },
 
-          data: {
-            total: {
-              increment: preparado.total,
+          estado: estadoNuevo,
+
+          detalles: {
+            create: preparado.detalles,
+          },
+        },
+
+        include: {
+          detalles: {
+            include: {
+              producto: true,
             },
 
-            estado: estadoNuevo,
-
-            detalles: {
-              create: preparado.detalles,
+            orderBy: {
+              id: 'asc',
             },
           },
 
-          include: {
-            detalles: {
-              include: {
-                producto: true,
-              },
-
-              orderBy: {
-                id: 'asc',
-              },
-            },
-
-            mesa: {
-              include: {
-                zona: true,
-              },
-            },
-
-            comandas: {
-              select: {
-                id: true,
-                estado: true,
-                fechaEnvio: true,
-              },
-
-              orderBy: {
-                fechaEnvio: 'asc',
-              },
+          mesa: {
+            include: {
+              zona: true,
             },
           },
-        });
-      },
 
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
-    );
+          comandas: {
+            select: {
+              id: true,
+              estado: true,
+              fechaEnvio: true,
+            },
+
+            orderBy: {
+              fechaEnvio: 'asc',
+            },
+          },
+        },
+      });
+    });
   }
 
   /*
@@ -551,188 +539,182 @@ export class PedidosService {
 
     usuarioActual: UsuarioAutenticado,
   ) {
-    return this.prisma.$transaction(
-      async (tx) => {
-        const pedido = await tx.pedido.findFirst({
-          where: {
-            id: pedidoId,
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const pedido = await tx.pedido.findFirst({
+        where: {
+          id: pedidoId,
 
-            sucursal: this.filtroSucursal(usuarioActual),
-          },
+          sucursal: this.filtroSucursal(usuarioActual),
+        },
 
-          include: {
-            venta: {
-              select: {
-                id: true,
-                estado: true,
-              },
-            },
-
-            factura: {
-              select: {
-                id: true,
-              },
-            },
-
-            mesa: {
-              select: {
-                id: true,
-                situacion: true,
-              },
-            },
-
-            comandas: {
-              select: {
-                id: true,
-                estado: true,
-              },
+        include: {
+          venta: {
+            select: {
+              id: true,
+              estado: true,
             },
           },
-        });
 
-        if (!pedido) {
-          throw new NotFoundException('Pedido no encontrado');
-        }
+          factura: {
+            select: {
+              id: true,
+            },
+          },
 
-        if (pedido.estado === EstadoPedido.CANCELADO) {
-          throw new BadRequestException('El pedido ya esta cancelado');
-        }
+          mesa: {
+            select: {
+              id: true,
+              situacion: true,
+            },
+          },
 
-        if (pedido.estado === EstadoPedido.FACTURADO || pedido.factura) {
-          throw new BadRequestException(
-            'No se puede cancelar un pedido facturado',
-          );
-        }
+          comandas: {
+            select: {
+              id: true,
+              estado: true,
+            },
+          },
+        },
+      });
 
-        if (pedido.venta) {
-          throw new BadRequestException(
-            'No se puede cancelar el pedido despues de generar su venta',
-          );
-        }
+      if (!pedido) {
+        throw new NotFoundException('Pedido no encontrado');
+      }
 
-        if (
-          pedido.estado === EstadoPedido.EN_PREPARACION ||
-          pedido.estado === EstadoPedido.LISTO ||
-          pedido.estado === EstadoPedido.ENTREGADO
-        ) {
-          throw new BadRequestException(
-            'No se puede cancelar el pedido porque su preparacion ya avanzo',
-          );
-        }
+      if (pedido.estado === EstadoPedido.CANCELADO) {
+        throw new BadRequestException('El pedido ya esta cancelado');
+      }
 
-        const comandaAvanzada = pedido.comandas.find(
-          (comanda) =>
-            comanda.estado === EstadoComanda.EN_PREPARACION ||
-            comanda.estado === EstadoComanda.LISTA ||
-            comanda.estado === EstadoComanda.ENTREGADA,
+      if (pedido.estado === EstadoPedido.FACTURADO || pedido.factura) {
+        throw new BadRequestException(
+          'No se puede cancelar un pedido facturado',
         );
+      }
 
-        if (comandaAvanzada) {
+      if (pedido.venta) {
+        throw new BadRequestException(
+          'No se puede cancelar el pedido despues de generar su venta',
+        );
+      }
+
+      if (
+        pedido.estado === EstadoPedido.EN_PREPARACION ||
+        pedido.estado === EstadoPedido.LISTO ||
+        pedido.estado === EstadoPedido.ENTREGADO
+      ) {
+        throw new BadRequestException(
+          'No se puede cancelar el pedido porque su preparacion ya avanzo',
+        );
+      }
+
+      const comandaAvanzada = pedido.comandas.find(
+        (comanda) =>
+          comanda.estado === EstadoComanda.EN_PREPARACION ||
+          comanda.estado === EstadoComanda.LISTA ||
+          comanda.estado === EstadoComanda.ENTREGADA,
+      );
+
+      if (comandaAvanzada) {
+        throw new BadRequestException(
+          'No se puede cancelar el pedido porque existe una comanda que ya inicio preparacion',
+        );
+      }
+
+      /*
+       * Cancelar todas las comandas que
+       * aun no han iniciado preparacion.
+       */
+      await tx.comanda.updateMany({
+        where: {
+          pedidoId: pedido.id,
+
+          estado: EstadoComanda.PENDIENTE,
+        },
+
+        data: {
+          estado: EstadoComanda.CANCELADA,
+        },
+      });
+
+      /*
+       * =================================================
+       * LIBERAR MESA
+       * =================================================
+       *
+       * Solo corresponde cuando esta mesa sigue
+       * ocupada por este pedido.
+       */
+      if (pedido.mesaId !== null) {
+        if (pedido.mesa?.situacion === EstadoMesa.PENDIENTE_PAGO) {
+          /*
+           * En condiciones normales esto no puede
+           * ocurrir sin Venta. Aun asi evitamos
+           * liberar silenciosamente una mesa en
+           * estado comercial inconsistente.
+           */
           throw new BadRequestException(
-            'No se puede cancelar el pedido porque existe una comanda que ya inicio preparacion',
+            'La mesa esta pendiente de pago y el pedido no puede cancelarse desde este flujo',
           );
         }
 
-        /*
-         * Cancelar todas las comandas que
-         * aun no han iniciado preparacion.
-         */
-        await tx.comanda.updateMany({
+        await tx.mesa.updateMany({
           where: {
-            pedidoId: pedido.id,
+            id: pedido.mesaId,
 
-            estado: EstadoComanda.PENDIENTE,
+            situacion: EstadoMesa.OCUPADA,
           },
 
           data: {
-            estado: EstadoComanda.CANCELADA,
+            situacion: EstadoMesa.LIBRE,
           },
         });
+      }
 
-        /*
-         * =================================================
-         * LIBERAR MESA
-         * =================================================
-         *
-         * Solo corresponde cuando esta mesa sigue
-         * ocupada por este pedido.
-         */
-        if (pedido.mesaId !== null) {
-          if (pedido.mesa?.situacion === EstadoMesa.PENDIENTE_PAGO) {
-            /*
-             * En condiciones normales esto no puede
-             * ocurrir sin Venta. Aun asi evitamos
-             * liberar silenciosamente una mesa en
-             * estado comercial inconsistente.
-             */
-            throw new BadRequestException(
-              'La mesa esta pendiente de pago y el pedido no puede cancelarse desde este flujo',
-            );
-          }
+      /*
+       * =================================================
+       * CANCELAR PEDIDO
+       * =================================================
+       */
+      return tx.pedido.update({
+        where: {
+          id: pedido.id,
+        },
 
-          await tx.mesa.updateMany({
-            where: {
-              id: pedido.mesaId,
+        data: {
+          estado: EstadoPedido.CANCELADO,
+        },
 
-              situacion: EstadoMesa.OCUPADA,
-            },
+        include: {
+          sucursal: true,
 
-            data: {
-              situacion: EstadoMesa.LIBRE,
-            },
-          });
-        }
-
-        /*
-         * =================================================
-         * CANCELAR PEDIDO
-         * =================================================
-         */
-        return tx.pedido.update({
-          where: {
-            id: pedido.id,
-          },
-
-          data: {
-            estado: EstadoPedido.CANCELADO,
-          },
-
-          include: {
-            sucursal: true,
-
-            mesa: {
-              include: {
-                zona: true,
-              },
-            },
-
-            detalles: {
-              include: {
-                producto: true,
-              },
-
-              orderBy: {
-                id: 'asc',
-              },
-            },
-
-            comandas: {
-              include: {
-                detalles: true,
-              },
-
-              orderBy: {
-                fechaEnvio: 'asc',
-              },
+          mesa: {
+            include: {
+              zona: true,
             },
           },
-        });
-      },
 
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
-    );
+          detalles: {
+            include: {
+              producto: true,
+            },
+
+            orderBy: {
+              id: 'asc',
+            },
+          },
+
+          comandas: {
+            include: {
+              detalles: true,
+            },
+
+            orderBy: {
+              fechaEnvio: 'asc',
+            },
+          },
+        },
+      });
+    });
   }
 
   findAll(usuarioActual: UsuarioAutenticado) {

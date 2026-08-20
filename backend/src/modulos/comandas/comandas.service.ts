@@ -55,159 +55,151 @@ export class ComandasService {
     data: CrearComandaDto,
     usuario: UsuarioAutenticado,
   ) {
-    return this.prisma.$transaction(
-      async (tx) => {
-        const pedido = await tx.pedido.findFirst({
-          where: {
-            id: pedidoId,
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const pedido = await tx.pedido.findFirst({
+        where: {
+          id: pedidoId,
 
-            ...this.filtroPedido(usuario),
-          },
+          ...this.filtroPedido(usuario),
+        },
 
-          include: {
-            detalles: true,
-          },
-        });
+        include: {
+          detalles: true,
+        },
+      });
 
-        if (!pedido) {
-          throw new NotFoundException('Pedido no encontrado');
-        }
+      if (!pedido) {
+        throw new NotFoundException('Pedido no encontrado');
+      }
 
-        if (
-          pedido.estado === EstadoPedido.CANCELADO ||
-          pedido.estado === EstadoPedido.FACTURADO ||
-          pedido.estado === EstadoPedido.ENTREGADO
-        ) {
-          throw new BadRequestException(
-            'El pedido ya no admite nuevas comandas',
-          );
-        }
+      if (
+        pedido.estado === EstadoPedido.CANCELADO ||
+        pedido.estado === EstadoPedido.FACTURADO ||
+        pedido.estado === EstadoPedido.ENTREGADO
+      ) {
+        throw new BadRequestException('El pedido ya no admite nuevas comandas');
+      }
 
-        /*
-         * Agrupar por detallePedidoId.
-         *
-         * También evita errores si el cliente HTTP
-         * repite accidentalmente el mismo detalle.
-         */
-        const solicitados = new Map<number, number>();
+      /*
+       * Agrupar por detallePedidoId.
+       *
+       * También evita errores si el cliente HTTP
+       * repite accidentalmente el mismo detalle.
+       */
+      const solicitados = new Map<number, number>();
 
-        for (const item of data.detalles) {
-          solicitados.set(
-            item.detallePedidoId,
+      for (const item of data.detalles) {
+        solicitados.set(
+          item.detallePedidoId,
 
-            (solicitados.get(item.detallePedidoId) ?? 0) + item.cantidad,
-          );
-        }
-
-        const idsDetalles = [...solicitados.keys()];
-
-        const detallesPedido = new Map(
-          pedido.detalles.map((detalle) => [detalle.id, detalle]),
+          (solicitados.get(item.detallePedidoId) ?? 0) + item.cantidad,
         );
+      }
 
-        for (const id of idsDetalles) {
-          if (!detallesPedido.has(id)) {
-            throw new BadRequestException(
-              `El detalle ${id} no pertenece al pedido`,
-            );
-          }
-        }
+      const idsDetalles = [...solicitados.keys()];
 
-        /*
-         * Obtener cantidades ya enviadas mediante
-         * comandas que siguen siendo válidas.
-         *
-         * Las comandas CANCELADAS no cuentan.
-         */
-        const enviados = await tx.detalleComanda.findMany({
-          where: {
-            detallePedidoId: {
-              in: idsDetalles,
-            },
+      const detallesPedido = new Map(
+        pedido.detalles.map((detalle) => [detalle.id, detalle]),
+      );
 
-            comanda: {
-              pedidoId: pedido.id,
-
-              estado: {
-                not: EstadoComanda.CANCELADA,
-              },
-            },
-          },
-
-          select: {
-            detallePedidoId: true,
-            cantidad: true,
-          },
-        });
-
-        const cantidadesEnviadas = new Map<number, number>();
-
-        for (const detalle of enviados) {
-          cantidadesEnviadas.set(
-            detalle.detallePedidoId,
-
-            (cantidadesEnviadas.get(detalle.detallePedidoId) ?? 0) +
-              detalle.cantidad,
+      for (const id of idsDetalles) {
+        if (!detallesPedido.has(id)) {
+          throw new BadRequestException(
+            `El detalle ${id} no pertenece al pedido`,
           );
         }
+      }
 
-        const detallesComanda: {
-          detallePedidoId: number;
-          cantidad: number;
-        }[] = [];
+      /*
+       * Obtener cantidades ya enviadas mediante
+       * comandas que siguen siendo válidas.
+       *
+       * Las comandas CANCELADAS no cuentan.
+       */
+      const enviados = await tx.detalleComanda.findMany({
+        where: {
+          detallePedidoId: {
+            in: idsDetalles,
+          },
 
-        for (const [detallePedidoId, cantidadSolicitada] of solicitados) {
-          const detallePedido = detallesPedido.get(detallePedidoId);
-
-          const yaEnviado = cantidadesEnviadas.get(detallePedidoId) ?? 0;
-
-          const disponible = detallePedido.cantidad - yaEnviado;
-
-          if (cantidadSolicitada > disponible) {
-            throw new BadRequestException(
-              `El detalle ${detallePedidoId} solo tiene ${disponible} unidad(es) pendientes de enviar a cocina`,
-            );
-          }
-
-          detallesComanda.push({
-            detallePedidoId,
-            cantidad: cantidadSolicitada,
-          });
-        }
-
-        return tx.comanda.create({
-          data: {
+          comanda: {
             pedidoId: pedido.id,
 
-            detalles: {
-              create: detallesComanda,
+            estado: {
+              not: EstadoComanda.CANCELADA,
             },
           },
+        },
 
-          include: {
-            detalles: {
-              include: {
-                detallePedido: {
-                  include: {
-                    producto: true,
-                  },
+        select: {
+          detallePedidoId: true,
+          cantidad: true,
+        },
+      });
+
+      const cantidadesEnviadas = new Map<number, number>();
+
+      for (const detalle of enviados) {
+        cantidadesEnviadas.set(
+          detalle.detallePedidoId,
+
+          (cantidadesEnviadas.get(detalle.detallePedidoId) ?? 0) +
+            detalle.cantidad,
+        );
+      }
+
+      const detallesComanda: {
+        detallePedidoId: number;
+        cantidad: number;
+      }[] = [];
+
+      for (const [detallePedidoId, cantidadSolicitada] of solicitados) {
+        const detallePedido = detallesPedido.get(detallePedidoId);
+
+        const yaEnviado = cantidadesEnviadas.get(detallePedidoId) ?? 0;
+
+        const disponible = detallePedido.cantidad - yaEnviado;
+
+        if (cantidadSolicitada > disponible) {
+          throw new BadRequestException(
+            `El detalle ${detallePedidoId} solo tiene ${disponible} unidad(es) pendientes de enviar a cocina`,
+          );
+        }
+
+        detallesComanda.push({
+          detallePedidoId,
+          cantidad: cantidadSolicitada,
+        });
+      }
+
+      return tx.comanda.create({
+        data: {
+          pedidoId: pedido.id,
+
+          detalles: {
+            create: detallesComanda,
+          },
+        },
+
+        include: {
+          detalles: {
+            include: {
+              detallePedido: {
+                include: {
+                  producto: true,
                 },
               },
             },
+          },
 
-            pedido: {
-              include: {
-                mesa: true,
-              },
+          pedido: {
+            include: {
+              mesa: true,
             },
           },
-        });
-      },
-
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
-    );
+        },
+      });
+    });
   }
 
   listarKds(usuario: UsuarioAutenticado) {
@@ -259,71 +251,65 @@ export class ComandasService {
     nuevoEstado: EstadoComanda,
     usuario: UsuarioAutenticado,
   ) {
-    return this.prisma.$transaction(
-      async (tx) => {
-        const comanda = await tx.comanda.findFirst({
-          where: {
-            id,
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const comanda = await tx.comanda.findFirst({
+        where: {
+          id,
 
-            pedido: {
-              ...this.filtroPedido(usuario),
-            },
+          pedido: {
+            ...this.filtroPedido(usuario),
           },
-        });
+        },
+      });
 
-        if (!comanda) {
-          throw new NotFoundException('Comanda no encontrada');
-        }
+      if (!comanda) {
+        throw new NotFoundException('Comanda no encontrada');
+      }
 
-        this.validarTransicion(comanda.estado, nuevoEstado);
+      this.validarTransicion(comanda.estado, nuevoEstado);
 
-        const ahora = new Date();
+      const ahora = new Date();
 
-        const data: Prisma.ComandaUpdateInput = {
-          estado: nuevoEstado,
-        };
+      const data: Prisma.ComandaUpdateInput = {
+        estado: nuevoEstado,
+      };
 
-        if (nuevoEstado === EstadoComanda.EN_PREPARACION) {
-          data.fechaInicio = ahora;
-        }
+      if (nuevoEstado === EstadoComanda.EN_PREPARACION) {
+        data.fechaInicio = ahora;
+      }
 
-        if (nuevoEstado === EstadoComanda.LISTA) {
-          data.fechaLista = ahora;
-        }
+      if (nuevoEstado === EstadoComanda.LISTA) {
+        data.fechaLista = ahora;
+      }
 
-        if (nuevoEstado === EstadoComanda.ENTREGADA) {
-          data.fechaEntrega = ahora;
-        }
+      if (nuevoEstado === EstadoComanda.ENTREGADA) {
+        data.fechaEntrega = ahora;
+      }
 
-        const actualizada = await tx.comanda.update({
-          where: {
-            id: comanda.id,
-          },
+      const actualizada = await tx.comanda.update({
+        where: {
+          id: comanda.id,
+        },
 
-          data,
+        data,
 
-          include: {
-            detalles: {
-              include: {
-                detallePedido: {
-                  include: {
-                    producto: true,
-                  },
+        include: {
+          detalles: {
+            include: {
+              detallePedido: {
+                include: {
+                  producto: true,
                 },
               },
             },
           },
-        });
+        },
+      });
 
-        await this.sincronizarPedido(tx, comanda.pedidoId);
+      await this.sincronizarPedido(tx, comanda.pedidoId);
 
-        return actualizada;
-      },
-
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
-    );
+      return actualizada;
+    });
   }
 
   private validarTransicion(actual: EstadoComanda, siguiente: EstadoComanda) {

@@ -20,6 +20,7 @@ import { PermissionsGuard } from '../auth/permissions.guard';
 import { Permisos } from '../auth/permisos.decorator';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import { NumerarDocumentoDto } from './dto/numerar-documento.dto';
 
 type RequestAutenticada = {
   user: UsuarioAutenticado;
@@ -49,6 +50,16 @@ export class DocumentosElectronicosController {
     request: RequestAutenticada,
   ) {
     return this.documentosService.preparar(data.facturaIds, request.user);
+  }
+
+  @Post(':id/numerar')
+  @Permisos('FACTURAS_EMITIR')
+  numerar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: NumerarDocumentoDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.documentosService.numerar(id, data.resolucionId, request.user);
   }
 
   @Get()

@@ -36,6 +36,7 @@ import { ExcepcionesFilter } from './plataforma/excepciones.filter';
 import { TrazabilidadInterceptor } from './plataforma/trazabilidad.interceptor';
 import { PlataformaModule } from './plataforma/plataforma.module';
 import { RespuestaSeguraInterceptor } from './plataforma/respuesta-segura.interceptor';
+import { FiscalModule } from './modulos/fiscal/fiscal.module';
 
 const entorno = obtenerEntorno();
 
@@ -73,6 +74,7 @@ const entorno = obtenerEntorno();
     AutorizacionModule,
     AuditoriaModule,
     PlataformaModule,
+    FiscalModule,
   ],
   controllers: [AppController],
   providers: [

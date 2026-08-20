@@ -98,6 +98,12 @@ La creación de ventas y el registro de pagos requieren el encabezado `Idempoten
 
 Factura y Documento Electrónico aplican idempotencia natural mediante sus relaciones uno a uno. Repetir la emisión de una factura para la misma venta o la preparación electrónica para la misma factura no crea duplicados.
 
+## Flujo fiscal multiempresa
+
+Una venta manual proveniente de una comanda de papel es un registro comercial y no crea automáticamente una factura. La secuencia fiscal requiere acciones explícitas y auditables: emitir Factura, preparar Documento Electrónico y asignar numeración mediante una resolución vigente. Configurar un perfil fiscal activo exige referencias `secret://...`; las credenciales y certificados nunca se reciben ni se almacenan en claro.
+
+El estado `NUMERADO` significa únicamente que se reservó un consecutivo y se produjo un borrador con hash. No significa firma, transmisión ni aceptación DIAN.
+
 Las fechas de ventas manuales deben incluir `Z` o desplazamiento `±HH:mm`. PostgreSQL conserva el instante normalizado y `TIME_ZONE` identifica la zona operativa configurada. Los montos comerciales usan `Prisma.Decimal`, máximo dos decimales y la capacidad común `Decimal(12,2)`.
 
 Los reversos de inventario son movimientos compensatorios: no borran salidas originales y `movimientoOrigenId` es único. Las ventas con pagos o factura siguen bloqueadas para anulación directa porque requieren flujos explícitos de devolución o reversión documental.

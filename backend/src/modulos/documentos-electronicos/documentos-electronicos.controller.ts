@@ -21,6 +21,7 @@ import { Permisos } from '../auth/permisos.decorator';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { NumerarDocumentoDto } from './dto/numerar-documento.dto';
+import { ProcesarColaFiscalDto } from './dto/procesar-cola-fiscal.dto';
 
 type RequestAutenticada = {
   user: UsuarioAutenticado;
@@ -32,6 +33,18 @@ export class DocumentosElectronicosController {
   constructor(
     private readonly documentosService: DocumentosElectronicosService,
   ) {}
+
+  @Post('procesar-cola')
+  @Permisos('FACTURAS_EMITIR')
+  procesarCola(
+    @Body() data: ProcesarColaFiscalDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.documentosService.procesarPendientes(
+      data.limite ?? 20,
+      request.user,
+    );
+  }
 
   /*
    * Preparar NO significa enviar.
@@ -60,6 +73,24 @@ export class DocumentosElectronicosController {
     @Req() request: RequestAutenticada,
   ) {
     return this.documentosService.numerar(id, data.resolucionId, request.user);
+  }
+
+  @Post(':id/encolar')
+  @Permisos('FACTURAS_EMITIR')
+  encolar(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.documentosService.encolar(id, request.user);
+  }
+
+  @Post(':id/consultar-estado')
+  @Permisos('FACTURAS_EMITIR')
+  consultarEstado(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.documentosService.consultarEstado(id, request.user);
   }
 
   @Get()

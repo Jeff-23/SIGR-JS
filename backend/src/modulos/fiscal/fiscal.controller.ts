@@ -24,6 +24,24 @@ type RequestAutenticada = { user: UsuarioAutenticado };
 export class FiscalController {
   constructor(private readonly fiscal: FiscalService) {}
 
+  @Get('diagnostico')
+  @Permisos('CONFIGURACION_VER')
+  diagnostico(
+    @Param('restauranteId', ParseIntPipe) id: number,
+    @Req() req: RequestAutenticada,
+  ) {
+    return this.fiscal.diagnosticarAlta(id, req.user);
+  }
+
+  @Get('resumen')
+  @Permisos('FACTURAS_VER')
+  resumen(
+    @Param('restauranteId', ParseIntPipe) id: number,
+    @Req() req: RequestAutenticada,
+  ) {
+    return this.fiscal.resumenOperacion(id, req.user);
+  }
+
   @Get('perfil')
   @Permisos('CONFIGURACION_VER')
   perfil(

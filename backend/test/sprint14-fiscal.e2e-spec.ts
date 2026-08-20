@@ -49,6 +49,7 @@ describe('Sprint 14 | Configuración fiscal multiempresa (e2e)', () => {
             'CONFIGURACION_VER',
             'CONFIGURACION_GESTIONAR',
             'FACTURAS_EMITIR',
+            'FACTURAS_VER',
           ],
         },
       },
@@ -196,6 +197,28 @@ describe('Sprint 14 | Configuración fiscal multiempresa (e2e)', () => {
     resolucionId = resolucion.body.id as number;
   });
 
+  it('diagnostica el alta sin confundir configuración con transmisión real', async () => {
+    const diagnostico = await request(app.getHttpServer())
+      .get(`/fiscal/restaurantes/${restaurantes[0]}/diagnostico`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .expect(200);
+    expect(diagnostico.body).toMatchObject({
+      restauranteId: restaurantes[0],
+      listoConfiguracion: true,
+      listoTransmision: false,
+      checks: {
+        perfilFiscalActivo: true,
+        referenciasSecretasSeguras: true,
+        resolucionVigenteDisponible: true,
+        proveedorConfigurado: true,
+        proveedorSoportado: false,
+      },
+    });
+    expect(diagnostico.body.proveedorDiagnostico.mensaje).toContain(
+      'No existe un adaptador registrado',
+    );
+  });
+
   it('mantiene la venta manual independiente y numera sólo por acción explícita', async () => {
     const categoria = await prisma.categoria.create({
       data: { nombre: `Fiscal ${sufijo}`, sucursalId: sucursales[0] },
@@ -270,9 +293,39 @@ describe('Sprint 14 | Configuración fiscal multiempresa (e2e)', () => {
     expect(resolucion.siguienteNumero).toBe(2);
   });
 
+  it('falla cerrado y no encola con un proveedor no instalado', async () => {
+    await request(app.getHttpServer())
+      .post(`/documentos-electronicos/${documentoId}/encolar`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({})
+      .expect(400);
+    const documento = await prisma.documentoElectronico.findUniqueOrThrow({
+      where: { id: documentoId },
+      include: { outbox: true },
+    });
+    expect(documento.estado).toBe('NUMERADO');
+    expect(documento.outbox).toBeNull();
+  });
+
+  it('resume la operación fiscal del tenant sin exponer otro restaurante', async () => {
+    const resumen = await request(app.getHttpServer())
+      .get(`/fiscal/restaurantes/${restaurantes[0]}/resumen`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .expect(200);
+    expect(resumen.body).toMatchObject({
+      restauranteId: restaurantes[0],
+      documentos: { NUMERADO: 1 },
+      outbox: {},
+    });
+  });
+
   it('no permite cruzar a otro restaurante', async () => {
     await request(app.getHttpServer())
       .get(`/fiscal/restaurantes/${restaurantes[1]}/perfil`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .expect(404);
+    await request(app.getHttpServer())
+      .get(`/fiscal/restaurantes/${restaurantes[1]}/diagnostico`)
       .set('Authorization', `Bearer ${tokenA}`)
       .expect(404);
   });

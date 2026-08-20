@@ -104,6 +104,8 @@ Una venta manual proveniente de una comanda de papel es un registro comercial y 
 
 El estado `NUMERADO` significa únicamente que se reservó un consecutivo y se produjo un borrador con hash. No significa firma, transmisión ni aceptación DIAN.
 
+Antes de operar un cliente debe consultarse `GET /fiscal/restaurantes/:id/diagnostico`. `listoConfiguracion` confirma datos, referencias y numeración; `listoTransmision` exige además un adaptador registrado y su diagnóstico satisfactorio. `POST /documentos-electronicos/:id/encolar` falla cerrado si el proveedor no está soportado. `POST /documentos-electronicos/procesar-cola` procesa únicamente documentos visibles para el tenant del actor, con reintentos acotados; una respuesta pendiente se actualiza explícitamente con `POST /documentos-electronicos/:id/consultar-estado`. Ninguna respuesta se considera `ACEPTADO` sin referencia, CUFE y QR verificables.
+
 Las fechas de ventas manuales deben incluir `Z` o desplazamiento `±HH:mm`. PostgreSQL conserva el instante normalizado y `TIME_ZONE` identifica la zona operativa configurada. Los montos comerciales usan `Prisma.Decimal`, máximo dos decimales y la capacidad común `Decimal(12,2)`.
 
 Los reversos de inventario son movimientos compensatorios: no borran salidas originales y `movimientoOrigenId` es único. Las ventas con pagos o factura siguen bloqueadas para anulación directa porque requieren flujos explícitos de devolución o reversión documental.

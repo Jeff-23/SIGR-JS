@@ -6,9 +6,10 @@ import { DocumentosElectronicosController } from './documentos-electronicos.cont
 
 import { DocumentosElectronicosService } from './documentos-electronicos.service';
 import { UblFiscalService } from './ubl-fiscal.service';
+import { FiscalModule } from '../fiscal/fiscal.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, FiscalModule],
 
   controllers: [DocumentosElectronicosController],
 

@@ -26,9 +26,7 @@ type RequestAutenticada = {
 @Controller('productos')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class ProductosController {
-  constructor(
-    private readonly productosService: ProductosService,
-  ) {}
+  constructor(private readonly productosService: ProductosService) {}
 
   @Post()
   @Permisos('PRODUCTOS_CREAR')
@@ -36,20 +34,13 @@ export class ProductosController {
     @Body() createProductoDto: CreateProductoDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.productosService.create(
-      createProductoDto,
-      request.user,
-    );
+    return this.productosService.create(createProductoDto, request.user);
   }
 
   @Get()
   @Permisos('PRODUCTOS_VER')
-  findAll(
-    @Req() request: RequestAutenticada,
-  ) {
-    return this.productosService.findAll(
-      request.user,
-    );
+  findAll(@Req() request: RequestAutenticada) {
+    return this.productosService.findAll(request.user);
   }
 
   @Patch(':id')
@@ -59,11 +50,6 @@ export class ProductosController {
     @Body() updateData: UpdateProductoDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.productosService.update(
-      id,
-      updateData,
-      request.user,
-    );
+    return this.productosService.update(id, updateData, request.user);
   }
 }
-

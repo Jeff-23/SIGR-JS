@@ -1,53 +1,27 @@
-﻿import {
-  Body,
-  Controller,
-  Post,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+﻿import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 
-import {
-  FacturasService,
-} from './facturas.service';
+import { FacturasService } from './facturas.service';
 
-import {
-  CreateFacturaDto,
-} from './dto/create-factura.dto';
+import { CreateFacturaDto } from './dto/create-factura.dto';
 
-import {
-  CreateFacturaVentaDto,
-} from './dto/create-factura-venta.dto';
+import { CreateFacturaVentaDto } from './dto/create-factura-venta.dto';
 
-import {
-  JwtAuthGuard,
-} from '../auth/jwt-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
-import {
-  PermissionsGuard,
-} from '../auth/permissions.guard';
+import { PermissionsGuard } from '../auth/permissions.guard';
 
-import {
-  Permisos,
-} from '../auth/permisos.decorator';
+import { Permisos } from '../auth/permisos.decorator';
 
-import {
-  UsuarioAutenticado,
-} from '../auth/types/usuario-autenticado.type';
+import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 type RequestAutenticada = {
   user: UsuarioAutenticado;
 };
 
 @Controller('facturas')
-@UseGuards(
-  JwtAuthGuard,
-  PermissionsGuard,
-)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class FacturasController {
-  constructor(
-    private readonly facturasService:
-      FacturasService,
-  ) {}
+  constructor(private readonly facturasService: FacturasService) {}
 
   /*
    * =====================================================
@@ -71,17 +45,12 @@ export class FacturasController {
   @Permisos('FACTURAS_EMITIR')
   createLegacy(
     @Body()
-    data:
-      CreateFacturaDto,
+    data: CreateFacturaDto,
 
     @Req()
-    request:
-      RequestAutenticada,
+    request: RequestAutenticada,
   ) {
-    return this.facturasService.createLegacy(
-      data,
-      request.user,
-    );
+    return this.facturasService.createLegacy(data, request.user);
   }
 
   /*
@@ -100,16 +69,11 @@ export class FacturasController {
   @Permisos('FACTURAS_EMITIR')
   crearDesdeVenta(
     @Body()
-    data:
-      CreateFacturaVentaDto,
+    data: CreateFacturaVentaDto,
 
     @Req()
-    request:
-      RequestAutenticada,
+    request: RequestAutenticada,
   ) {
-    return this.facturasService.crearDesdeVenta(
-      data.ventaId,
-      request.user,
-    );
+    return this.facturasService.crearDesdeVenta(data.ventaId, request.user);
   }
 }

@@ -64,7 +64,11 @@ export class AuditoriaInterceptor implements NestInterceptor {
           catchError((error: unknown) => {
             this.logger.error(
               `No fue posible registrar auditoría transversal: ${
-                error instanceof Error ? error.message : String(error)
+                error instanceof Error
+                  ? error.message
+                  : typeof error === 'string'
+                    ? error
+                    : 'error no serializable'
               }`,
             );
             return of(resultado);

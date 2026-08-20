@@ -4,24 +4,11 @@ import {
   IsInt,
   IsOptional,
   IsString,
-  Max,
   Min,
 } from 'class-validator';
+import { PaginacionDto } from '../../../plataforma/paginacion';
 
-export class ListarAuditoriaDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  pagina = 1;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limite = 25;
-
+export class ListarAuditoriaDto extends PaginacionDto {
   @IsOptional()
   @IsString()
   accion?: string;

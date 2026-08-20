@@ -1,16 +1,8 @@
-import {
-  ArrayMinSize,
-  IsArray,
-  ValidateNested,
-} from 'class-validator';
+import { ArrayMinSize, IsArray, ValidateNested } from 'class-validator';
 
-import {
-  Type,
-} from 'class-transformer';
+import { Type } from 'class-transformer';
 
-import {
-  DetallePedidoDto,
-} from './create-pedido.dto';
+import { DetallePedidoDto } from './create-pedido.dto';
 
 export class AgregarDetallesPedidoDto {
   @IsArray()
@@ -18,8 +10,6 @@ export class AgregarDetallesPedidoDto {
   @ValidateNested({
     each: true,
   })
-  @Type(
-    () => DetallePedidoDto,
-  )
+  @Type(() => DetallePedidoDto)
   detalles: DetallePedidoDto[];
 }

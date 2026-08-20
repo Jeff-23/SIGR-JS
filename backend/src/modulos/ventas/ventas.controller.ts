@@ -32,14 +32,9 @@ type RequestAutenticada = {
 };
 
 @Controller('ventas')
-@UseGuards(
-  JwtAuthGuard,
-  PermissionsGuard,
-)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class VentasController {
-  constructor(
-    private readonly ventasService: VentasService,
-  ) {}
+  constructor(private readonly ventasService: VentasService) {}
 
   @Post('pedido')
   @Permisos('VENTAS_CREAR')
@@ -50,10 +45,7 @@ export class VentasController {
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.ventasService.crearDesdePedido(
-      data,
-      request.user,
-    );
+    return this.ventasService.crearDesdePedido(data, request.user);
   }
 
   @Post('directa')
@@ -65,17 +57,11 @@ export class VentasController {
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.ventasService.crearDirecta(
-      data,
-      request.user,
-    );
+    return this.ventasService.crearDirecta(data, request.user);
   }
 
   @Post('manual')
-  @Permisos(
-    'VENTAS_CREAR',
-    'VENTAS_REGISTRAR_MANUAL',
-  )
+  @Permisos('VENTAS_CREAR', 'VENTAS_REGISTRAR_MANUAL')
   crearManual(
     @Body()
     data: CrearVentaManualDto,
@@ -83,10 +69,7 @@ export class VentasController {
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.ventasService.crearManual(
-      data,
-      request.user,
-    );
+    return this.ventasService.crearManual(data, request.user);
   }
 
   @Get()
@@ -95,9 +78,7 @@ export class VentasController {
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.ventasService.findAll(
-      request.user,
-    );
+    return this.ventasService.findAll(request.user);
   }
 
   /*
@@ -120,11 +101,7 @@ export class VentasController {
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.ventasService.obtenerCorteComercial(
-      inicio,
-      fin,
-      request.user,
-    );
+    return this.ventasService.obtenerCorteComercial(inicio, fin, request.user);
   }
 
   /*
@@ -135,28 +112,19 @@ export class VentasController {
   @Get(':id')
   @Permisos('VENTAS_VER')
   findOne(
-    @Param(
-      'id',
-      ParseIntPipe,
-    )
+    @Param('id', ParseIntPipe)
     id: number,
 
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.ventasService.findOne(
-      id,
-      request.user,
-    );
+    return this.ventasService.findOne(id, request.user);
   }
 
   @Post(':id/pagos')
   @Permisos('PAGOS_REGISTRAR')
   registrarPago(
-    @Param(
-      'id',
-      ParseIntPipe,
-    )
+    @Param('id', ParseIntPipe)
     id: number,
 
     @Body()
@@ -165,28 +133,18 @@ export class VentasController {
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.ventasService.registrarPago(
-      id,
-      data,
-      request.user,
-    );
+    return this.ventasService.registrarPago(id, data, request.user);
   }
 
   @Patch(':id/anular')
   @Permisos('VENTAS_ANULAR')
   anular(
-    @Param(
-      'id',
-      ParseIntPipe,
-    )
+    @Param('id', ParseIntPipe)
     id: number,
 
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.ventasService.anular(
-      id,
-      request.user,
-    );
+    return this.ventasService.anular(id, request.user);
   }
 }

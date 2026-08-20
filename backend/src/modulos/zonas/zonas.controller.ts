@@ -24,9 +24,7 @@ type RequestAutenticada = {
 @Controller('zonas')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class ZonasController {
-  constructor(
-    private readonly zonasService: ZonasService,
-  ) {}
+  constructor(private readonly zonasService: ZonasService) {}
 
   @Post()
   @Permisos('ZONAS_CREAR')
@@ -34,10 +32,7 @@ export class ZonasController {
     @Body() createZonaDto: CreateZonaDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.zonasService.create(
-      createZonaDto,
-      request.user,
-    );
+    return this.zonasService.create(createZonaDto, request.user);
   }
 
   @Get('sucursal/:sucursalId')
@@ -47,10 +42,6 @@ export class ZonasController {
     sucursalId: number,
     @Req() request: RequestAutenticada,
   ) {
-    return this.zonasService.findAllPorSucursal(
-      sucursalId,
-      request.user,
-    );
+    return this.zonasService.findAllPorSucursal(sucursalId, request.user);
   }
 }
-

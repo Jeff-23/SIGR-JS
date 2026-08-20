@@ -238,6 +238,15 @@ describe('SPRINT 8 | Configuracion multiempresa y multisucursal (e2e)', () => {
       .set('Authorization', `Bearer ${tokenA}`)
       .expect(200);
 
+    expect(auditoriaA.body.paginacion).toEqual(
+      expect.objectContaining({
+        pagina: 1,
+        limite: 20,
+        total: expect.any(Number),
+        totalPaginas: expect.any(Number),
+      }),
+    );
+
     const evento = auditoriaA.body.datos.find(
       (item: { correlacionId: string }) =>
         item.correlacionId === `e2e-config-${sufijo}`,

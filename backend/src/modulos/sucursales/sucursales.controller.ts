@@ -27,9 +27,7 @@ type RequestAutenticada = {
 @Controller('sucursales')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class SucursalesController {
-  constructor(
-    private readonly sucursalesService: SucursalesService,
-  ) {}
+  constructor(private readonly sucursalesService: SucursalesService) {}
 
   @Post()
   @Permisos('SUCURSALES_CREAR')
@@ -37,20 +35,13 @@ export class SucursalesController {
     @Body() createSucursalDto: CreateSucursalDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.sucursalesService.create(
-      createSucursalDto,
-      request.user,
-    );
+    return this.sucursalesService.create(createSucursalDto, request.user);
   }
 
   @Get()
   @Permisos('SUCURSALES_VER')
-  findAll(
-    @Req() request: RequestAutenticada,
-  ) {
-    return this.sucursalesService.findAll(
-      request.user,
-    );
+  findAll(@Req() request: RequestAutenticada) {
+    return this.sucursalesService.findAll(request.user);
   }
 
   @Get(':id')
@@ -59,10 +50,7 @@ export class SucursalesController {
     @Param('id', ParseIntPipe) id: number,
     @Req() request: RequestAutenticada,
   ) {
-    return this.sucursalesService.findOne(
-      id,
-      request.user,
-    );
+    return this.sucursalesService.findOne(id, request.user);
   }
 
   @Patch(':id')
@@ -72,11 +60,7 @@ export class SucursalesController {
     @Body() updateSucursalDto: UpdateSucursalDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.sucursalesService.update(
-      id,
-      updateSucursalDto,
-      request.user,
-    );
+    return this.sucursalesService.update(id, updateSucursalDto, request.user);
   }
 
   @Delete(':id')
@@ -85,10 +69,6 @@ export class SucursalesController {
     @Param('id', ParseIntPipe) id: number,
     @Req() request: RequestAutenticada,
   ) {
-    return this.sucursalesService.remove(
-      id,
-      request.user,
-    );
+    return this.sucursalesService.remove(id, request.user);
   }
 }
-

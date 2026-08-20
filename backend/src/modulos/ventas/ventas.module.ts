@@ -7,21 +7,12 @@ import { VentasController } from './ventas.controller';
 import { VentasService } from './ventas.service';
 
 @Module({
-  imports: [
-    PrismaModule,
-    InventarioModule,
-  ],
+  imports: [PrismaModule, InventarioModule],
 
-  controllers: [
-    VentasController,
-  ],
+  controllers: [VentasController],
 
-  providers: [
-    VentasService,
-  ],
+  providers: [VentasService],
 
-  exports: [
-    VentasService,
-  ],
+  exports: [VentasService],
 })
 export class VentasModule {}

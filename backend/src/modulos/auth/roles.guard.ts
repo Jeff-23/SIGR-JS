@@ -14,14 +14,10 @@ export class RolesGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const rolesPermitidos =
-      this.reflector.getAllAndOverride<string[]>(
-        ROLES_KEY,
-        [
-          context.getHandler(),
-          context.getClass(),
-        ],
-      );
+    const rolesPermitidos = this.reflector.getAllAndOverride<string[]>(
+      ROLES_KEY,
+      [context.getHandler(), context.getClass()],
+    );
 
     if (!rolesPermitidos || rolesPermitidos.length === 0) {
       return true;
@@ -45,10 +41,7 @@ export class RolesGuard implements CanActivate {
     //
     // restauranteId === null evita que un rol de
     // restaurante llamado SUPERADMIN obtenga este bypass.
-    if (
-      usuario.rol === 'SUPERADMIN' &&
-      usuario.restauranteId === null
-    ) {
+    if (usuario.rol === 'SUPERADMIN' && usuario.restauranteId === null) {
       return true;
     }
 

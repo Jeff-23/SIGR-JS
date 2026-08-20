@@ -1,11 +1,5 @@
 import { UnidadInventario } from '@prisma/client';
-import {
-  IsEnum,
-  IsInt,
-  IsNumber,
-  IsOptional,
-  Min,
-} from 'class-validator';
+import { IsEnum, IsInt, IsNumber, IsOptional, Min } from 'class-validator';
 
 export class CreateRecetaDto {
   @IsInt()

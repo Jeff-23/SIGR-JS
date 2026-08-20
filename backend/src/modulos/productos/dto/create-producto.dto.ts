@@ -1,7 +1,4 @@
-import {
-  EstrategiaInventario,
-  UnidadInventario,
-} from '@prisma/client';
+import { EstrategiaInventario, UnidadInventario } from '@prisma/client';
 import {
   IsEnum,
   IsInt,

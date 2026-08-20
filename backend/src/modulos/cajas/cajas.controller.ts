@@ -26,35 +26,20 @@ type RequestAutenticada = {
 };
 
 @Controller('cajas')
-@UseGuards(
-  JwtAuthGuard,
-  PermissionsGuard,
-)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class CajasController {
-  constructor(
-    private readonly cajasService: CajasService,
-  ) {}
+  constructor(private readonly cajasService: CajasService) {}
 
   @Post('abrir')
   @Permisos('CAJA_ABRIR')
-  abrir(
-    @Body() data: AbrirCajaDto,
-    @Req() request: RequestAutenticada,
-  ) {
-    return this.cajasService.abrir(
-      data,
-      request.user,
-    );
+  abrir(@Body() data: AbrirCajaDto, @Req() request: RequestAutenticada) {
+    return this.cajasService.abrir(data, request.user);
   }
 
   @Get('abiertas')
   @Permisos('CAJA_VER')
-  listarAbiertas(
-    @Req() request: RequestAutenticada,
-  ) {
-    return this.cajasService.listarAbiertas(
-      request.user,
-    );
+  listarAbiertas(@Req() request: RequestAutenticada) {
+    return this.cajasService.listarAbiertas(request.user);
   }
 
   @Get('historial')
@@ -63,10 +48,7 @@ export class CajasController {
     @Query() filtros: ListarCajasDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.cajasService.historial(
-      filtros,
-      request.user,
-    );
+    return this.cajasService.historial(filtros, request.user);
   }
 
   @Get(':id')
@@ -75,10 +57,7 @@ export class CajasController {
     @Param('id', ParseIntPipe) id: number,
     @Req() request: RequestAutenticada,
   ) {
-    return this.cajasService.detalle(
-      id,
-      request.user,
-    );
+    return this.cajasService.detalle(id, request.user);
   }
 
   @Post(':id/movimientos')
@@ -88,11 +67,7 @@ export class CajasController {
     @Body() data: RegistrarMovimientoCajaDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.cajasService.registrarMovimiento(
-      id,
-      data,
-      request.user,
-    );
+    return this.cajasService.registrarMovimiento(id, data, request.user);
   }
 
   @Post(':id/cerrar')
@@ -102,10 +77,6 @@ export class CajasController {
     @Body() data: CerrarCajaDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.cajasService.cerrar(
-      id,
-      data,
-      request.user,
-    );
+    return this.cajasService.cerrar(id, data, request.user);
   }
 }

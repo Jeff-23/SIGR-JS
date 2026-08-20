@@ -1,11 +1,4 @@
-﻿import {
-  Body,
-  Controller,
-  Get,
-  Post,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+﻿import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 
 import { MetodosPagoService } from './metodos-pago.service';
 import { CreateMetodoPagoDto } from './dto/create-metodo-pago.dto';
@@ -22,9 +15,7 @@ type RequestAutenticada = {
 @Controller('metodos-pago')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class MetodosPagoController {
-  constructor(
-    private readonly metodosPagoService: MetodosPagoService,
-  ) {}
+  constructor(private readonly metodosPagoService: MetodosPagoService) {}
 
   @Post()
   @Permisos('METODOS_PAGO_GESTIONAR')
@@ -32,10 +23,7 @@ export class MetodosPagoController {
     @Body() createMetodoPagoDto: CreateMetodoPagoDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.metodosPagoService.create(
-      createMetodoPagoDto,
-      request.user,
-    );
+    return this.metodosPagoService.create(createMetodoPagoDto, request.user);
   }
 
   @Get()
@@ -44,4 +32,3 @@ export class MetodosPagoController {
     return this.metodosPagoService.findAll();
   }
 }
-

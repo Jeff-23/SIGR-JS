@@ -28,28 +28,19 @@ type RequestAutenticada = {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('SUPERADMIN')
 export class RestaurantesController {
-  constructor(
-    private readonly restaurantesService: RestaurantesService,
-  ) {}
+  constructor(private readonly restaurantesService: RestaurantesService) {}
 
   @Post()
   create(
     @Body() createRestauranteDto: CreateRestauranteDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.restaurantesService.create(
-      createRestauranteDto,
-      request.user,
-    );
+    return this.restaurantesService.create(createRestauranteDto, request.user);
   }
 
   @Get()
-  findAll(
-    @Req() request: RequestAutenticada,
-  ) {
-    return this.restaurantesService.findAll(
-      request.user,
-    );
+  findAll(@Req() request: RequestAutenticada) {
+    return this.restaurantesService.findAll(request.user);
   }
 
   @Get(':id')
@@ -57,10 +48,7 @@ export class RestaurantesController {
     @Param('id', ParseIntPipe) id: number,
     @Req() request: RequestAutenticada,
   ) {
-    return this.restaurantesService.findOne(
-      id,
-      request.user,
-    );
+    return this.restaurantesService.findOne(id, request.user);
   }
 
   @Patch(':id')
@@ -81,9 +69,6 @@ export class RestaurantesController {
     @Param('id', ParseIntPipe) id: number,
     @Req() request: RequestAutenticada,
   ) {
-    return this.restaurantesService.remove(
-      id,
-      request.user,
-    );
+    return this.restaurantesService.remove(id, request.user);
   }
 }

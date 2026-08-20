@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { ContextoAuditoria } from './auditoria-contexto';
 import { ListarAuditoriaDto } from './dto/listar-auditoria.dto';
+import { respuestaPaginada } from '../../plataforma/paginacion';
 
 type ClienteAuditoria = Prisma.TransactionClient | PrismaService;
 
@@ -97,13 +98,12 @@ export class AuditoriaService {
       this.prisma.eventoAuditoria.count({ where }),
     ]);
 
-    return {
-      datos: datos.map((evento) => ({ ...evento, id: evento.id.toString() })),
-      pagina: filtros.pagina,
-      limite: filtros.limite,
+    return respuestaPaginada(
+      datos.map((evento) => ({ ...evento, id: evento.id.toString() })),
       total,
-      paginas: Math.ceil(total / filtros.limite),
-    };
+      filtros.pagina,
+      filtros.limite,
+    );
   }
 
   private sanitizar(valor: unknown): Prisma.InputJsonValue | undefined {

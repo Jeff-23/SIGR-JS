@@ -1,13 +1,9 @@
-import {
-  TipoMovimientoInventario,
-  UnidadInventario,
-} from '@prisma/client';
+import { TipoMovimientoInventario, UnidadInventario } from '@prisma/client';
 import {
   IsEnum,
   IsInt,
   IsNotEmpty,
   IsNumber,
-  IsOptional,
   IsString,
   MaxLength,
   Min,
@@ -19,25 +15,17 @@ export class AjustarInventarioDto {
   @Min(1)
   sucursalId: number;
 
-  @ValidateIf(
-    (obj) =>
-      obj.articuloId === undefined,
-  )
+  @ValidateIf((obj: AjustarInventarioDto) => obj.articuloId === undefined)
   @IsInt()
   @Min(1)
   productoId?: number;
 
-  @ValidateIf(
-    (obj) =>
-      obj.productoId === undefined,
-  )
+  @ValidateIf((obj: AjustarInventarioDto) => obj.productoId === undefined)
   @IsInt()
   @Min(1)
   articuloId?: number;
 
-  @IsEnum(
-    TipoMovimientoInventario,
-  )
+  @IsEnum(TipoMovimientoInventario)
   tipo: TipoMovimientoInventario;
 
   @IsNumber({

@@ -1,10 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import {
-  EstadoCaja,
-  EstadoMesa,
-  EstadoPedido,
-  Prisma,
-} from '@prisma/client';
+import { EstadoCaja, EstadoMesa, EstadoPedido, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
@@ -18,12 +13,9 @@ export class DashboardService {
     private readonly reportesService: ReportesService,
   ) {}
 
-  private esSuperadmin(
-    usuarioActual: UsuarioAutenticado,
-  ) {
+  private esSuperadmin(usuarioActual: UsuarioAutenticado) {
     return (
-      usuarioActual.rol === 'SUPERADMIN' &&
-      usuarioActual.restauranteId === null
+      usuarioActual.rol === 'SUPERADMIN' && usuarioActual.restauranteId === null
     );
   }
 
@@ -34,14 +26,11 @@ export class DashboardService {
     return {
       estado: true,
 
-      ...(sucursalId !== undefined
-        ? { id: sucursalId }
-        : {}),
+      ...(sucursalId !== undefined ? { id: sucursalId } : {}),
 
       ...(!this.esSuperadmin(usuarioActual)
         ? {
-            restauranteId:
-              usuarioActual.restauranteId!,
+            restauranteId: usuarioActual.restauranteId,
           }
         : {}),
 
@@ -63,24 +52,15 @@ export class DashboardService {
     }
 
     return {
-      id: usuarioActual.restauranteId!,
+      id: usuarioActual.restauranteId,
       estado: true,
     };
   }
 
-  async resumen(
-    filtros: FiltroReportesDto,
-    usuarioActual: UsuarioAutenticado,
-  ) {
-    const { inicio, fin } =
-      this.reportesService.resolverRango(
-        filtros,
-      );
+  async resumen(filtros: FiltroReportesDto, usuarioActual: UsuarioAutenticado) {
+    const { inicio, fin } = this.reportesService.resolverRango(filtros);
 
-    const sucursal = this.filtroSucursal(
-      usuarioActual,
-      filtros.sucursalId,
-    );
+    const sucursal = this.filtroSucursal(usuarioActual, filtros.sucursalId);
 
     const [
       ventas,
@@ -92,10 +72,7 @@ export class DashboardService {
       mesasPendientesPago,
       clientesNuevos,
     ] = await Promise.all([
-      this.reportesService.resumen(
-        filtros,
-        usuarioActual,
-      ),
+      this.reportesService.resumen(filtros, usuarioActual),
 
       this.reportesService.productosMasVendidos(
         {
@@ -105,10 +82,7 @@ export class DashboardService {
         usuarioActual,
       ),
 
-      this.reportesService.inventarioSinStock(
-        filtros,
-        usuarioActual,
-      ),
+      this.reportesService.inventarioSinStock(filtros, usuarioActual),
 
       this.prisma.pedido.count({
         where: {
@@ -143,8 +117,7 @@ export class DashboardService {
       this.prisma.mesa.count({
         where: {
           estado: true,
-          situacion:
-            EstadoMesa.PENDIENTE_PAGO,
+          situacion: EstadoMesa.PENDIENTE_PAGO,
           zona: {
             sucursal,
           },
@@ -158,10 +131,7 @@ export class DashboardService {
             gte: inicio,
             lte: fin,
           },
-          restaurante:
-            this.filtroRestauranteClientes(
-              usuarioActual,
-            ),
+          restaurante: this.filtroRestauranteClientes(usuarioActual),
         },
       }),
     ]);
@@ -184,11 +154,9 @@ export class DashboardService {
       },
       clientes: {
         nuevosRestaurante: clientesNuevos,
-        nota:
-          'Los clientes pertenecen al restaurante, no a una sucursal específica.',
+        nota: 'Los clientes pertenecen al restaurante, no a una sucursal específica.',
       },
-      productosMasVendidos:
-        topProductos.datos,
+      productosMasVendidos: topProductos.datos,
       inventario: {
         sinStock: sinStock.total,
         criterio: sinStock.criterio,

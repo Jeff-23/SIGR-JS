@@ -6,7 +6,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import {
   AmbitoRol,
   EstrategiaInventario,
-  Prisma,
   UnidadInventario,
 } from '@prisma/client';
 import * as request from 'supertest';
@@ -38,7 +37,6 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
   let categoriaAId = 0;
   let categoriaBId = 0;
   let productoAId = 0;
-  let productoBId = 0;
   let clienteAId = 0;
   let clienteBId = 0;
 
@@ -203,7 +201,7 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
     await prisma.rolPermiso.createMany({
       data: codigosRequeridos.map((codigo) => ({
         rolId: rolA.id,
-        permisoId: permisosPorCodigo.get(codigo)!,
+        permisoId: permisosPorCodigo.get(codigo),
       })),
     });
 
@@ -211,7 +209,7 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
       data: ['CLIENTES_VER', 'CLIENTES_CREAR', 'REPORTES_VER'].map(
         (codigo) => ({
           rolId: rolB.id,
-          permisoId: permisosPorCodigo.get(codigo)!,
+          permisoId: permisosPorCodigo.get(codigo),
         }),
       ),
     });
@@ -284,7 +282,7 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
       },
     });
 
-    const productoB = await prisma.producto.create({
+    await prisma.producto.create({
       data: {
         nombre: `E2E S7 Producto B ${sufijo}`,
         precio: 99000,
@@ -297,7 +295,6 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
     });
 
     productoAId = productoA.id;
-    productoBId = productoB.id;
   }, 30000);
 
   afterAll(async () => {
@@ -478,6 +475,28 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
       .set('Authorization', `Bearer ${tokenB}`)
       .expect(404);
   }, 15000);
+
+  it('expone paginacion uniforme y valida sus limites', async () => {
+    const listado = await request(app.getHttpServer())
+      .get('/clientes?pagina=1&limite=10')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .expect(200);
+
+    expect(Array.isArray(listado.body.datos)).toBe(true);
+    expect(listado.body.paginacion).toEqual(
+      expect.objectContaining({
+        pagina: 1,
+        limite: 10,
+        total: expect.any(Number),
+        totalPaginas: expect.any(Number),
+      }),
+    );
+
+    await request(app.getHttpServer())
+      .get('/clientes?pagina=0&limite=101')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .expect(400);
+  });
 
   it('asocia Cliente a Venta y rechaza clientes de otro tenant', async () => {
     const venta = await request(app.getHttpServer())

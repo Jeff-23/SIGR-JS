@@ -10,9 +10,7 @@ import {
 
 import { Type } from 'class-transformer';
 
-import {
-  TipoPedido,
-} from '@prisma/client';
+import { TipoPedido } from '@prisma/client';
 
 export class DetallePedidoDto {
   @IsInt()
@@ -58,8 +56,6 @@ export class CreatePedidoDto {
   @ValidateNested({
     each: true,
   })
-  @Type(
-    () => DetallePedidoDto,
-  )
+  @Type(() => DetallePedidoDto)
   detalles: DetallePedidoDto[];
 }

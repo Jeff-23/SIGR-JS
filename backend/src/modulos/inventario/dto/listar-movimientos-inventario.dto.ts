@@ -1,14 +1,6 @@
 import { Type } from 'class-transformer';
-import {
-  TipoMovimientoInventario,
-} from '@prisma/client';
-import {
-  IsDateString,
-  IsEnum,
-  IsInt,
-  IsOptional,
-  Min,
-} from 'class-validator';
+import { TipoMovimientoInventario } from '@prisma/client';
+import { IsDateString, IsEnum, IsInt, IsOptional, Min } from 'class-validator';
 
 export class ListarMovimientosInventarioDto {
   @Type(() => Number)
@@ -29,12 +21,9 @@ export class ListarMovimientosInventarioDto {
   @IsOptional()
   articuloId?: number;
 
-  @IsEnum(
-    TipoMovimientoInventario,
-  )
+  @IsEnum(TipoMovimientoInventario)
   @IsOptional()
-  tipo?:
-    TipoMovimientoInventario;
+  tipo?: TipoMovimientoInventario;
 
   @IsDateString()
   @IsOptional()

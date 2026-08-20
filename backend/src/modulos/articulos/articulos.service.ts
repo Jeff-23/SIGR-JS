@@ -3,10 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  Prisma,
-  TipoMovimientoInventario,
-} from '@prisma/client';
+import { Prisma, TipoMovimientoInventario } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateArticuloDto } from './dto/create-articulo.dto';
@@ -15,19 +12,11 @@ import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 @Injectable()
 export class ArticulosService {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  private esSuperadmin(
-    usuarioActual:
-      UsuarioAutenticado,
-  ) {
+  private esSuperadmin(usuarioActual: UsuarioAutenticado) {
     return (
-      usuarioActual.rol ===
-        'SUPERADMIN' &&
-      usuarioActual.restauranteId ===
-        null
+      usuarioActual.rol === 'SUPERADMIN' && usuarioActual.restauranteId === null
     );
   }
 
@@ -39,30 +28,24 @@ export class ArticulosService {
       usuarioActual.sucursalId !== null &&
       usuarioActual.sucursalId !== sucursalId
     ) {
-      throw new NotFoundException(
-        'Sucursal no encontrada',
-      );
+      throw new NotFoundException('Sucursal no encontrada');
     }
 
-    const sucursal =
-      await this.prisma.sucursal.findFirst({
-        where: {
-          id: sucursalId,
-          estado: true,
+    const sucursal = await this.prisma.sucursal.findFirst({
+      where: {
+        id: sucursalId,
+        estado: true,
 
-          ...(!this.esSuperadmin(usuarioActual)
-            ? {
-                restauranteId:
-                  usuarioActual.restauranteId!,
-              }
-            : {}),
-        },
-      });
+        ...(!this.esSuperadmin(usuarioActual)
+          ? {
+              restauranteId: usuarioActual.restauranteId,
+            }
+          : {}),
+      },
+    });
 
     if (!sucursal) {
-      throw new NotFoundException(
-        'Sucursal no encontrada',
-      );
+      throw new NotFoundException('Sucursal no encontrada');
     }
 
     return sucursal;
@@ -72,79 +55,57 @@ export class ArticulosService {
     id: number,
     usuarioActual: UsuarioAutenticado,
   ) {
-    const articulo =
-      await this.prisma.articulo.findFirst({
-        where: {
-          id,
+    const articulo = await this.prisma.articulo.findFirst({
+      where: {
+        id,
+        estado: true,
+
+        sucursal: {
           estado: true,
 
-          sucursal: {
-            estado: true,
+          ...(!this.esSuperadmin(usuarioActual)
+            ? {
+                restauranteId: usuarioActual.restauranteId,
+              }
+            : {}),
 
-            ...(!this.esSuperadmin(usuarioActual)
-              ? {
-                  restauranteId:
-                    usuarioActual.restauranteId!,
-                }
-              : {}),
-
-            ...(usuarioActual.sucursalId !== null
-              ? {
-                  id: usuarioActual.sucursalId,
-                }
-              : {}),
-          },
+          ...(usuarioActual.sucursalId !== null
+            ? {
+                id: usuarioActual.sucursalId,
+              }
+            : {}),
         },
-      });
+      },
+    });
 
     if (!articulo) {
-      throw new NotFoundException(
-        'Artículo no encontrado',
-      );
+      throw new NotFoundException('Artículo no encontrado');
     }
 
     return articulo;
   }
 
-  async create(
-    data: CreateArticuloDto,
-    usuarioActual: UsuarioAutenticado,
-  ) {
-    await this.validarSucursalDentroDelAlcance(
-      data.sucursalId,
-      usuarioActual,
-    );
+  async create(data: CreateArticuloDto, usuarioActual: UsuarioAutenticado) {
+    await this.validarSucursalDentroDelAlcance(data.sucursalId, usuarioActual);
 
     return this.prisma.$transaction(
       async (tx) => {
-        const articulo =
-          await tx.articulo.create({
-            data,
-          });
+        const articulo = await tx.articulo.create({
+          data,
+        });
 
-        if (
-          articulo.stock.gt(0)
-        ) {
+        if (articulo.stock.gt(0)) {
           await tx.movimientoInventario.create({
             data: {
-              tipo:
-                TipoMovimientoInventario.ENTRADA,
-              cantidad:
-                articulo.stock,
-              unidad:
-                articulo.unidad,
-              stockAnterior:
-                new Prisma.Decimal(0),
-              stockNuevo:
-                articulo.stock,
-              motivo:
-                'Stock inicial del artículo',
-              sucursalId:
-                articulo.sucursalId,
-              usuarioId:
-                usuarioActual.id,
-              articuloId:
-                articulo.id,
+              tipo: TipoMovimientoInventario.ENTRADA,
+              cantidad: articulo.stock,
+              unidad: articulo.unidad,
+              stockAnterior: new Prisma.Decimal(0),
+              stockNuevo: articulo.stock,
+              motivo: 'Stock inicial del artículo',
+              sucursalId: articulo.sucursalId,
+              usuarioId: usuarioActual.id,
+              articuloId: articulo.id,
             },
           });
         }
@@ -152,16 +113,12 @@ export class ArticulosService {
         return articulo;
       },
       {
-        isolationLevel:
-          Prisma.TransactionIsolationLevel
-            .Serializable,
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
   }
 
-  async findAll(
-    usuarioActual: UsuarioAutenticado,
-  ) {
+  async findAll(usuarioActual: UsuarioAutenticado) {
     return this.prisma.articulo.findMany({
       where: {
         estado: true,
@@ -171,8 +128,7 @@ export class ArticulosService {
 
           ...(!this.esSuperadmin(usuarioActual)
             ? {
-                restauranteId:
-                  usuarioActual.restauranteId!,
+                restauranteId: usuarioActual.restauranteId,
               }
             : {}),
 
@@ -190,14 +146,8 @@ export class ArticulosService {
     });
   }
 
-  async findOne(
-    id: number,
-    usuarioActual: UsuarioAutenticado,
-  ) {
-    return this.buscarDentroDelAlcance(
-      id,
-      usuarioActual,
-    );
+  async findOne(id: number, usuarioActual: UsuarioAutenticado) {
+    return this.buscarDentroDelAlcance(id, usuarioActual);
   }
 
   async update(
@@ -205,11 +155,7 @@ export class ArticulosService {
     data: UpdateArticuloDto,
     usuarioActual: UsuarioAutenticado,
   ) {
-    const articulo =
-      await this.buscarDentroDelAlcance(
-        id,
-        usuarioActual,
-      );
+    const articulo = await this.buscarDentroDelAlcance(id, usuarioActual);
 
     if (
       data.unidad !== undefined &&

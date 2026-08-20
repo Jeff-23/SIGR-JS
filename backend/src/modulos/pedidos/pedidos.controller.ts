@@ -10,137 +10,86 @@
   UseGuards,
 } from '@nestjs/common';
 
-import {
-  PedidosService,
-} from './pedidos.service';
+import { PedidosService } from './pedidos.service';
 
-import {
-  CreatePedidoDto,
-} from './dto/create-pedido.dto';
+import { CreatePedidoDto } from './dto/create-pedido.dto';
 
-import {
-  AgregarDetallesPedidoDto,
-} from './dto/agregar-detalles-pedido.dto';
+import { AgregarDetallesPedidoDto } from './dto/agregar-detalles-pedido.dto';
 
-import {
-  JwtAuthGuard,
-} from '../auth/jwt-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
-import {
-  PermissionsGuard,
-} from '../auth/permissions.guard';
+import { PermissionsGuard } from '../auth/permissions.guard';
 
-import {
-  Permisos,
-} from '../auth/permisos.decorator';
+import { Permisos } from '../auth/permisos.decorator';
 
-import {
-  UsuarioAutenticado,
-} from '../auth/types/usuario-autenticado.type';
+import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 type RequestAutenticada = {
   user: UsuarioAutenticado;
 };
 
 @Controller('pedidos')
-@UseGuards(
-  JwtAuthGuard,
-  PermissionsGuard,
-)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class PedidosController {
-  constructor(
-    private readonly pedidosService:
-      PedidosService,
-  ) {}
+  constructor(private readonly pedidosService: PedidosService) {}
 
   @Post()
   @Permisos('PEDIDOS_CREAR')
   create(
     @Body()
-    createPedidoDto:
-      CreatePedidoDto,
+    createPedidoDto: CreatePedidoDto,
 
     @Req()
-    request:
-      RequestAutenticada,
+    request: RequestAutenticada,
   ) {
-    return this.pedidosService.create(
-      createPedidoDto,
-      request.user,
-    );
+    return this.pedidosService.create(createPedidoDto, request.user);
   }
 
   @Post(':id/detalles')
   @Permisos('PEDIDOS_EDITAR')
   agregarDetalles(
-    @Param(
-      'id',
-      ParseIntPipe,
-    )
+    @Param('id', ParseIntPipe)
     id: number,
 
     @Body()
-    data:
-      AgregarDetallesPedidoDto,
+    data: AgregarDetallesPedidoDto,
 
     @Req()
-    request:
-      RequestAutenticada,
+    request: RequestAutenticada,
   ) {
-    return this.pedidosService.agregarDetalles(
-      id,
-      data,
-      request.user,
-    );
+    return this.pedidosService.agregarDetalles(id, data, request.user);
   }
 
   @Patch(':id/cancelar')
   @Permisos('PEDIDOS_CANCELAR')
   cancelar(
-    @Param(
-      'id',
-      ParseIntPipe,
-    )
+    @Param('id', ParseIntPipe)
     id: number,
 
     @Req()
-    request:
-      RequestAutenticada,
+    request: RequestAutenticada,
   ) {
-    return this.pedidosService.cancelar(
-      id,
-      request.user,
-    );
+    return this.pedidosService.cancelar(id, request.user);
   }
 
   @Get()
   @Permisos('PEDIDOS_VER')
   findAll(
     @Req()
-    request:
-      RequestAutenticada,
+    request: RequestAutenticada,
   ) {
-    return this.pedidosService.findAll(
-      request.user,
-    );
+    return this.pedidosService.findAll(request.user);
   }
 
   @Get(':id')
   @Permisos('PEDIDOS_VER')
   findOne(
-    @Param(
-      'id',
-      ParseIntPipe,
-    )
+    @Param('id', ParseIntPipe)
     id: number,
 
     @Req()
-    request:
-      RequestAutenticada,
+    request: RequestAutenticada,
   ) {
-    return this.pedidosService.findOne(
-      id,
-      request.user,
-    );
+    return this.pedidosService.findOne(id, request.user);
   }
 }

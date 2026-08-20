@@ -29,27 +29,15 @@ type RequestAutenticada = {
 };
 
 @Controller('clientes')
-@UseGuards(
-  JwtAuthGuard,
-  PermissionsGuard,
-  CapabilitiesGuard,
-)
+@UseGuards(JwtAuthGuard, PermissionsGuard, CapabilitiesGuard)
 @Capacidades('CLIENTES')
 export class ClientesController {
-  constructor(
-    private readonly clientesService: ClientesService,
-  ) {}
+  constructor(private readonly clientesService: ClientesService) {}
 
   @Post()
   @Permisos('CLIENTES_CREAR')
-  crear(
-    @Body() data: CrearClienteDto,
-    @Req() request: RequestAutenticada,
-  ) {
-    return this.clientesService.crear(
-      data,
-      request.user,
-    );
+  crear(@Body() data: CrearClienteDto, @Req() request: RequestAutenticada) {
+    return this.clientesService.crear(data, request.user);
   }
 
   @Get()
@@ -58,10 +46,7 @@ export class ClientesController {
     @Query() filtros: ListarClientesDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.clientesService.listar(
-      filtros,
-      request.user,
-    );
+    return this.clientesService.listar(filtros, request.user);
   }
 
   @Get(':id')
@@ -70,10 +55,7 @@ export class ClientesController {
     @Param('id', ParseIntPipe) id: number,
     @Req() request: RequestAutenticada,
   ) {
-    return this.clientesService.obtenerPorId(
-      id,
-      request.user,
-    );
+    return this.clientesService.obtenerPorId(id, request.user);
   }
 
   @Patch(':id')
@@ -83,11 +65,7 @@ export class ClientesController {
     @Body() data: ActualizarClienteDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.clientesService.actualizar(
-      id,
-      data,
-      request.user,
-    );
+    return this.clientesService.actualizar(id, data, request.user);
   }
 
   @Patch(':id/estado')
@@ -97,10 +75,6 @@ export class ClientesController {
     @Body() data: CambiarEstadoClienteDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.clientesService.cambiarEstado(
-      id,
-      data,
-      request.user,
-    );
+    return this.clientesService.cambiarEstado(id, data, request.user);
   }
 }

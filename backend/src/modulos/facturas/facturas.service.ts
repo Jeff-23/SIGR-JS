@@ -4,43 +4,23 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import {
-  EstadoVenta,
-  Prisma,
-} from '@prisma/client';
+import { EstadoVenta, Prisma } from '@prisma/client';
 
-import {
-  randomUUID,
-} from 'crypto';
+import { randomUUID } from 'crypto';
 
-import {
-  PrismaService,
-} from '../../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 
-import {
-  CreateFacturaDto,
-} from './dto/create-factura.dto';
+import { CreateFacturaDto } from './dto/create-factura.dto';
 
-import {
-  UsuarioAutenticado,
-} from '../auth/types/usuario-autenticado.type';
+import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 @Injectable()
 export class FacturasService {
-  constructor(
-    private readonly prisma:
-      PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  private esSuperadmin(
-    usuarioActual:
-      UsuarioAutenticado,
-  ) {
+  private esSuperadmin(usuarioActual: UsuarioAutenticado) {
     return (
-      usuarioActual.rol ===
-        'SUPERADMIN' &&
-      usuarioActual.restauranteId ===
-        null
+      usuarioActual.rol === 'SUPERADMIN' && usuarioActual.restauranteId === null
     );
   }
 
@@ -52,8 +32,7 @@ export class FacturasService {
    * Restaurante -> Sucursal.
    */
   private filtroSucursal(
-    usuarioActual:
-      UsuarioAutenticado,
+    usuarioActual: UsuarioAutenticado,
   ): Prisma.SucursalWhereInput {
     return {
       estado: true,
@@ -61,23 +40,16 @@ export class FacturasService {
       restaurante: {
         estado: true,
 
-        ...(!this.esSuperadmin(
-          usuarioActual,
-        )
+        ...(!this.esSuperadmin(usuarioActual)
           ? {
-              id:
-                usuarioActual
-                  .restauranteId!,
+              id: usuarioActual.restauranteId,
             }
           : {}),
       },
 
-      ...(usuarioActual.sucursalId !==
-      null
+      ...(usuarioActual.sucursalId !== null
         ? {
-            id:
-              usuarioActual
-                .sucursalId,
+            id: usuarioActual.sucursalId,
           }
         : {}),
     };
@@ -110,12 +82,12 @@ export class FacturasService {
    * pero ya no se generan nuevas operaciones legacy.
    */
   createLegacy(
-    _data:
-      CreateFacturaDto,
+    _data: CreateFacturaDto,
 
-    _usuarioActual:
-      UsuarioAutenticado,
+    _usuarioActual: UsuarioAutenticado,
   ): never {
+    void _data;
+    void _usuarioActual;
     throw new BadRequestException(
       'El flujo Pedido -> Factura -> Pago fue retirado. Primero debe generar la Venta del pedido, registrar sus pagos y emitir la Factura desde la Venta.',
     );
@@ -151,65 +123,51 @@ export class FacturasService {
    * NO cambia EstadoPedido.
    */
   async crearDesdeVenta(
-    ventaId:
-      number,
+    ventaId: number,
 
-    usuarioActual:
-      UsuarioAutenticado,
+    usuarioActual: UsuarioAutenticado,
   ) {
     return this.prisma.$transaction(
       async (tx) => {
-        const venta =
-          await tx.venta.findFirst({
-            where: {
-              id:
-                ventaId,
+        const venta = await tx.venta.findFirst({
+          where: {
+            id: ventaId,
 
-              sucursal:
-                this.filtroSucursal(
-                  usuarioActual,
-                ),
-            },
+            sucursal: this.filtroSucursal(usuarioActual),
+          },
 
-            include: {
-              factura: true,
+          include: {
+            factura: true,
 
-              pagos: {
-                include: {
-                  metodoPago: true,
-                },
-              },
-
-              detalles: true,
-
-              pedido: {
-                select: {
-                  id: true,
-                  estado: true,
-                  mesaId: true,
-                },
+            pagos: {
+              include: {
+                metodoPago: true,
               },
             },
-          });
+
+            detalles: true,
+
+            pedido: {
+              select: {
+                id: true,
+                estado: true,
+                mesaId: true,
+              },
+            },
+          },
+        });
 
         if (!venta) {
-          throw new NotFoundException(
-            'Venta no encontrada',
-          );
+          throw new NotFoundException('Venta no encontrada');
         }
 
-        if (
-          venta.estado ===
-          EstadoVenta.ANULADA
-        ) {
+        if (venta.estado === EstadoVenta.ANULADA) {
           throw new BadRequestException(
             'No se puede facturar una venta anulada',
           );
         }
 
-        if (
-          venta.factura
-        ) {
+        if (venta.factura) {
           throw new BadRequestException(
             'La venta ya tiene una factura asociada',
           );
@@ -228,19 +186,15 @@ export class FacturasService {
          * cambia el estado del pago o de la mesa.
          */
 
-        const numeroFactura =
-          `INT-${randomUUID()}`;
+        const numeroFactura = `INT-${randomUUID()}`;
 
         return tx.factura.create({
           data: {
-            numero:
-              numeroFactura,
+            numero: numeroFactura,
 
-            total:
-              venta.total,
+            total: venta.total,
 
-            ventaId:
-              venta.id,
+            ventaId: venta.id,
 
             /*
              * Si la Venta nació desde un Pedido,
@@ -253,8 +207,7 @@ export class FacturasService {
              *
              * pedidoId permanece null.
              */
-            pedidoId:
-              venta.pedidoId,
+            pedidoId: venta.pedidoId,
           },
 
           include: {
@@ -288,9 +241,7 @@ export class FacturasService {
       },
 
       {
-        isolationLevel:
-          Prisma.TransactionIsolationLevel
-            .Serializable,
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
   }

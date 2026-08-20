@@ -29,16 +29,10 @@ type RequestAutenticada = {
 };
 
 @Controller()
-@UseGuards(
-  JwtAuthGuard,
-  PermissionsGuard,
-  CapabilitiesGuard,
-)
+@UseGuards(JwtAuthGuard, PermissionsGuard, CapabilitiesGuard)
 @Capacidades('KDS')
 export class ComandasController {
-  constructor(
-    private readonly comandasService: ComandasService,
-  ) {}
+  constructor(private readonly comandasService: ComandasService) {}
 
   @Post('pedidos/:pedidoId/comandas')
   @Permisos('COMANDAS_ENVIAR')
@@ -52,11 +46,7 @@ export class ComandasController {
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.comandasService.crear(
-      pedidoId,
-      data,
-      request.user,
-    );
+    return this.comandasService.crear(pedidoId, data, request.user);
   }
 
   @Get('comandas')
@@ -65,9 +55,7 @@ export class ComandasController {
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.comandasService.listarKds(
-      request.user,
-    );
+    return this.comandasService.listarKds(request.user);
   }
 
   @Patch('comandas/:id/estado')
@@ -82,10 +70,6 @@ export class ComandasController {
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.comandasService.actualizarEstado(
-      id,
-      data.estado,
-      request.user,
-    );
+    return this.comandasService.actualizarEstado(id, data.estado, request.user);
   }
 }

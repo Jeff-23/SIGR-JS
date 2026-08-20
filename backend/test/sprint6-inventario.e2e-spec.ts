@@ -332,6 +332,13 @@ describe('SPRINT 6 | Inventario operativo (e2e)', () => {
       }
 
       if (usuarioAId || usuarioBId) {
+        await prisma.eventoAuditoria.deleteMany({
+          where: {
+            actorId: {
+              in: [usuarioAId, usuarioBId].filter(Boolean),
+            },
+          },
+        });
         await prisma.usuario.deleteMany({
           where: {
             id: {
@@ -459,8 +466,7 @@ describe('SPRINT 6 | Inventario operativo (e2e)', () => {
     expect(
       reversos.every(
         (m) =>
-          m.movimientoOrigenId !== null &&
-          origenes.has(m.movimientoOrigenId),
+          m.movimientoOrigenId !== null && origenes.has(m.movimientoOrigenId),
       ),
     ).toBe(true);
 

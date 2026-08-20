@@ -435,6 +435,33 @@ const PERMISOS = [
     nombre: 'Ver reportes',
     modulo: 'REPORTES',
   },
+  // Configuración
+  {
+    codigo: 'CONFIGURACION_VER',
+    nombre: 'Ver configuración operativa',
+    modulo: 'CONFIGURACION',
+  },
+  {
+    codigo: 'CONFIGURACION_GESTIONAR',
+    nombre: 'Gestionar configuración operativa',
+    modulo: 'CONFIGURACION',
+  },
+  // Autorización administrable
+  {
+    codigo: 'AUTORIZACION_VER',
+    nombre: 'Ver planes, capacidades, roles y permisos',
+    modulo: 'AUTORIZACION',
+  },
+  {
+    codigo: 'AUTORIZACION_GESTIONAR',
+    nombre: 'Gestionar planes, capacidades, roles y permisos',
+    modulo: 'AUTORIZACION',
+  },
+  {
+    codigo: 'AUDITORIA_VER',
+    nombre: 'Consultar auditoría',
+    modulo: 'AUDITORIA',
+  },
 ] as const;
 
 async function bootstrap() {

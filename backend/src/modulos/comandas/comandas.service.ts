@@ -4,7 +4,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import { EstadoComanda, EstadoPedido, Prisma } from '@prisma/client';
+import {
+  EstadoComanda,
+  EstadoMesa,
+  EstadoPedido,
+  EstadoVenta,
+  Prisma,
+  TipoPedido,
+} from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -243,6 +250,7 @@ export class ComandasService {
       orderBy: {
         fechaEnvio: 'asc',
       },
+      take: 500,
     });
   }
 
@@ -424,7 +432,10 @@ export class ComandasService {
     );
 
     if (todoEnviado && todasEntregadas) {
-      nuevoEstado = EstadoPedido.ENTREGADO;
+      nuevoEstado =
+        pedido.tipo === TipoPedido.DOMICILIO
+          ? EstadoPedido.LISTO
+          : EstadoPedido.ENTREGADO;
     } else if (todoEnviado && todasTerminadas) {
       nuevoEstado = EstadoPedido.LISTO;
     } else if (algunaAvanzo) {
@@ -439,6 +450,29 @@ export class ComandasService {
 
         data: {
           estado: nuevoEstado,
+        },
+      });
+    }
+
+    if (nuevoEstado === EstadoPedido.ENTREGADO && pedido.mesaId !== null) {
+      const venta = await tx.venta.findUnique({
+        where: { pedidoId: pedido.id },
+        select: { estado: true },
+      });
+      await tx.mesa.updateMany({
+        where: {
+          id: pedido.mesaId,
+          estado: true,
+          situacion: { in: [EstadoMesa.OCUPADA, EstadoMesa.PENDIENTE_PAGO] },
+        },
+        data: {
+          situacion:
+            venta?.estado === EstadoVenta.PAGADA
+              ? EstadoMesa.LIBRE
+              : EstadoMesa.PENDIENTE_PAGO,
+          ocupacionManual: false,
+          ocupadaManualEn: null,
+          ocupadaManualPorId: null,
         },
       });
     }

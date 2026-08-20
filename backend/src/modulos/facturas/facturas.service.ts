@@ -6,8 +6,6 @@ import {
 
 import { EstadoVenta, Prisma } from '@prisma/client';
 
-import { randomUUID } from 'crypto';
-
 import { PrismaService } from '../../prisma/prisma.service';
 
 import { CreateFacturaDto } from './dto/create-factura.dto';
@@ -173,7 +171,29 @@ export class FacturasService {
        * cambia el estado del pago o de la mesa.
        */
 
-      const numeroFactura = `INT-${randomUUID()}`;
+      const sucursal = await tx.sucursal.findUniqueOrThrow({
+        where: { id: venta.sucursalId },
+        select: { restauranteId: true },
+      });
+      const configSucursal = await tx.configuracionSucursal.findUnique({
+        where: {
+          sucursalId_clave: {
+            sucursalId: venta.sucursalId,
+            clave: 'PREFIJO_FACTURA',
+          },
+        },
+      });
+      const configRestaurante = await tx.configuracionRestaurante.findUnique({
+        where: {
+          restauranteId_clave: {
+            restauranteId: sucursal.restauranteId,
+            clave: 'PREFIJO_FACTURA',
+          },
+        },
+      });
+      const valorPrefijo = configSucursal?.valor ?? configRestaurante?.valor;
+      const prefijo = typeof valorPrefijo === 'string' ? valorPrefijo : 'FAC';
+      const numeroFactura = `${prefijo}-${venta.sucursalId}-${venta.id}`;
 
       const factura = await tx.factura.create({
         data: {
@@ -214,5 +234,123 @@ export class FacturasService {
         },
       },
     });
+  }
+
+  listar(usuarioActual: UsuarioAutenticado) {
+    return this.prisma.factura.findMany({
+      where: { venta: { sucursal: this.filtroSucursal(usuarioActual) } },
+      include: {
+        venta: {
+          select: { estado: true, fechaOperacion: true, cliente: true },
+        },
+        documentoElectronico: {
+          select: { estado: true, numeroCompleto: true },
+        },
+      },
+      orderBy: { creadoEn: 'desc' },
+      take: 100,
+    });
+  }
+
+  async obtener(id: number, usuarioActual: UsuarioAutenticado) {
+    const factura = await this.prisma.factura.findFirst({
+      where: { id, venta: { sucursal: this.filtroSucursal(usuarioActual) } },
+      include: {
+        venta: {
+          include: {
+            sucursal: { include: { restaurante: true } },
+            cliente: true,
+            detalles: { include: { producto: true } },
+            pagos: { include: { metodoPago: true } },
+          },
+        },
+        documentoElectronico: true,
+      },
+    });
+    if (!factura) throw new NotFoundException('Factura no encontrada');
+    return factura;
+  }
+
+  async representacionImpresa(id: number, usuarioActual: UsuarioAutenticado) {
+    const factura = await this.obtener(id, usuarioActual);
+    if (!factura.venta) {
+      throw new BadRequestException('Factura histórica no representable');
+    }
+    const venta = factura.venta;
+    const [
+      configMonedaSucursal,
+      configMonedaRestaurante,
+      configZonaSucursal,
+      configZonaRestaurante,
+    ] = await Promise.all([
+      this.prisma.configuracionSucursal.findUnique({
+        where: {
+          sucursalId_clave: {
+            sucursalId: venta.sucursalId,
+            clave: 'MONEDA',
+          },
+        },
+      }),
+      this.prisma.configuracionRestaurante.findUnique({
+        where: {
+          restauranteId_clave: {
+            restauranteId: venta.sucursal.restauranteId,
+            clave: 'MONEDA',
+          },
+        },
+      }),
+      this.prisma.configuracionSucursal.findUnique({
+        where: {
+          sucursalId_clave: {
+            sucursalId: venta.sucursalId,
+            clave: 'ZONA_HORARIA',
+          },
+        },
+      }),
+      this.prisma.configuracionRestaurante.findUnique({
+        where: {
+          restauranteId_clave: {
+            restauranteId: venta.sucursal.restauranteId,
+            clave: 'ZONA_HORARIA',
+          },
+        },
+      }),
+    ]);
+    const valorMoneda =
+      configMonedaSucursal?.valor ?? configMonedaRestaurante?.valor ?? 'COP';
+    const moneda = typeof valorMoneda === 'string' ? valorMoneda : 'COP';
+    const valorZona =
+      configZonaSucursal?.valor ??
+      configZonaRestaurante?.valor ??
+      'America/Bogota';
+    const zonaHoraria =
+      typeof valorZona === 'string' ? valorZona : 'America/Bogota';
+    const fechaLocal = new Intl.DateTimeFormat('es-CO', {
+      timeZone: zonaHoraria,
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(venta.fechaOperacion);
+    const esc = (valor: string | number | null | undefined) =>
+      String(valor ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    const filas = venta.detalles
+      .map(
+        (d) =>
+          `<tr><td>${esc(d.producto.nombre)}</td><td>${d.cantidad}</td><td>${d.precioUnitario.toFixed(2)}</td><td>${d.subtotal.toFixed(2)}</td></tr>`,
+      )
+      .join('');
+    const electronico = factura.documentoElectronico;
+    const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${esc(factura.numero)}</title><style>body{font-family:monospace;max-width:80mm;margin:auto}table{width:100%;border-collapse:collapse}td,th{text-align:right;padding:2px}td:first-child,th:first-child{text-align:left}</style></head><body><h1>${esc(venta.sucursal.restaurante.nombre)}</h1><p>NIT ${esc(venta.sucursal.restaurante.nit)}<br>${esc(venta.sucursal.nombre)}<br>Factura ${esc(factura.numero)}<br>${esc(fechaLocal)} (${esc(zonaHoraria)})</p><table><thead><tr><th>Producto</th><th>Cant.</th><th>Precio</th><th>Total</th></tr></thead><tbody>${filas}</tbody></table><p>Subtotal: ${venta.subtotal.toFixed(2)}<br>Impuestos: ${venta.impuestos.toFixed(2)}<br>Impoconsumo: ${venta.impoconsumo.toFixed(2)}<br>Domicilio: ${venta.domicilioCosto.toFixed(2)}<br>Propina: ${venta.propina.toFixed(2)}<br><strong>Total: ${venta.total.toFixed(2)} ${esc(moneda)}</strong></p>${electronico?.estado === 'ACEPTADO' ? `<p>Documento electrónico ${esc(electronico.numeroCompleto)}<br>CUFE ${esc(electronico.cufe)}<br>QR ${esc(electronico.qrCode)}</p>` : '<p>Representación interna; no equivale a aceptación DIAN.</p>'}</body></html>`;
+    return {
+      facturaId: factura.id,
+      numero: factura.numero,
+      mediaType: 'text/html; charset=utf-8',
+      contenido: html,
+      electronicaAceptada: electronico?.estado === 'ACEPTADO',
+    };
   }
 }

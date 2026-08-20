@@ -7,6 +7,9 @@ import {
   IsOptional,
   Min,
   ValidateNested,
+  IsString,
+  MaxLength,
+  Matches,
 } from 'class-validator';
 
 import { Type } from 'class-transformer';
@@ -46,6 +49,11 @@ export class DetalleVentaDto {
   @IsInt()
   @Min(1)
   cantidad: number;
+
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @IsOptional()
+  precioUnitario?: number;
 }
 
 export class CrearVentaPedidoDto extends AjustesVentaDto {
@@ -69,4 +77,18 @@ export class CrearVentaDirectaDto extends AjustesVentaDto {
 export class CrearVentaManualDto extends CrearVentaDirectaDto {
   @IsISO8601()
   fechaOperacion: string;
+
+  @IsString()
+  @MaxLength(80)
+  numeroComandaPapel: string;
+
+  @IsString()
+  @MaxLength(80)
+  numeroSoporte: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  @Matches(/^(storage|https?):\/\/\S+$/)
+  soporteArchivoRef?: string;
 }

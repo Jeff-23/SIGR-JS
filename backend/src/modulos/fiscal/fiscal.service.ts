@@ -34,7 +34,8 @@ export class FiscalService {
       (r) =>
         r.vigenteDesde <= hoy &&
         r.vigenteHasta >= hoy &&
-        r.siguienteNumero <= r.rangoHasta,
+        r.siguienteNumero <= r.rangoHasta &&
+        Boolean(r.claveTecnicaRef?.startsWith('secret://')),
     );
     const adapter = this.proveedores.obtener(perfil?.proveedorCodigo);
     const referenciasSeguras = perfil
@@ -199,16 +200,40 @@ export class FiscalService {
       if (!sucursal) throw new NotFoundException('Sucursal no encontrada');
     }
     try {
-      return await this.prisma.resolucionNumeracionDian.create({
-        data: {
-          ...data,
-          rangoDesde: desde,
-          rangoHasta: hasta,
-          siguienteNumero: siguiente,
-          vigenteDesde,
-          vigenteHasta,
-          restauranteId,
-        },
+      return await this.prisma.transaccionSerializable(async (tx) => {
+        await tx.$queryRaw(
+          Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${`${restauranteId}:${data.prefijo}`})) IS NULL AS "bloqueada"`,
+        );
+        const solapada = await tx.resolucionNumeracionDian.findFirst({
+          where: {
+            restauranteId,
+            prefijo: data.prefijo,
+            activa: true,
+            vigenteDesde: { lte: vigenteHasta },
+            vigenteHasta: { gte: vigenteDesde },
+            rangoDesde: { lte: hasta },
+            rangoHasta: { gte: desde },
+            ...(data.sucursalId
+              ? { OR: [{ sucursalId: null }, { sucursalId: data.sucursalId }] }
+              : {}),
+          },
+        });
+        if (solapada) {
+          throw new BadRequestException(
+            'Existe una resolución activa con prefijo, vigencia, alcance y rango solapados',
+          );
+        }
+        return tx.resolucionNumeracionDian.create({
+          data: {
+            ...data,
+            rangoDesde: desde,
+            rangoHasta: hasta,
+            siguienteNumero: siguiente,
+            vigenteDesde,
+            vigenteHasta,
+            restauranteId,
+          },
+        });
       });
     } catch (error) {
       if (

@@ -51,6 +51,15 @@ enum EstadoComanda {
   CANCELADA
 }
 
+enum EstadoDomicilio {
+  PENDIENTE_ASIGNACION
+  ASIGNADO
+  EN_RUTA
+  ENTREGADO
+  NO_ENTREGADO
+  CANCELADO
+}
+
 enum AmbitoRol {
   SISTEMA
   RESTAURANTE
@@ -293,6 +302,8 @@ model Usuario {
   pagosRegistrados      Pago[]
   movimientosInventario MovimientoInventario[]
   auditorias            EventoAuditoria[]      @relation("AuditoriaActor")
+  mesasOcupadasManual   Mesa[]                 @relation("MesaOcupadaManualPor")
+  domiciliosAsignados   Domicilio[]            @relation("DomicilioRepartidor")
 
   @@index([restauranteId])
   @@index([sucursalId])
@@ -311,15 +322,19 @@ model Zona {
 }
 
 model Mesa {
-  id        Int        @id @default(autoincrement())
-  numero    String     @db.VarChar(10)
-  capacidad Int        @default(4)
-  situacion EstadoMesa @default(LIBRE)
-  estado    Boolean    @default(true)
-  creadoEn  DateTime   @default(now())
+  id                 Int        @id @default(autoincrement())
+  numero             String     @db.VarChar(10)
+  capacidad          Int        @default(4)
+  situacion          EstadoMesa @default(LIBRE)
+  estado             Boolean    @default(true)
+  creadoEn           DateTime   @default(now())
+  ocupacionManual    Boolean    @default(false)
+  ocupadaManualEn    DateTime?
+  ocupadaManualPorId Int?
 
-  zonaId Int
-  zona   Zona @relation(fields: [zonaId], references: [id])
+  zonaId           Int
+  zona             Zona     @relation(fields: [zonaId], references: [id])
+  ocupadaManualPor Usuario? @relation("MesaOcupadaManualPor", fields: [ocupadaManualPorId], references: [id], onDelete: SetNull)
 
   pedidos Pedido[]
 }
@@ -373,10 +388,35 @@ model Pedido {
   mesa     Mesa?    @relation(fields: [mesaId], references: [id])
   usuario  Usuario  @relation(fields: [usuarioId], references: [id])
 
-  detalles DetallePedido[]
-  comandas Comanda[]
-  factura  Factura?
-  venta    Venta?
+  detalles  DetallePedido[]
+  comandas  Comanda[]
+  factura   Factura?
+  venta     Venta?
+  domicilio Domicilio?
+}
+
+model Domicilio {
+  id            Int             @id @default(autoincrement())
+  estado        EstadoDomicilio @default(PENDIENTE_ASIGNACION)
+  destinatario  String          @db.VarChar(160)
+  telefono      String          @db.VarChar(30)
+  direccion     String          @db.VarChar(250)
+  referencias   String?         @db.VarChar(300)
+  costo         Decimal         @default(0) @db.Decimal(12, 2)
+  asignadoEn    DateTime?
+  enRutaEn      DateTime?
+  entregadoEn   DateTime?
+  observacion   String?         @db.VarChar(300)
+  creadoEn      DateTime        @default(now())
+  actualizadoEn DateTime        @updatedAt
+
+  pedidoId     Int      @unique
+  repartidorId Int?
+  pedido       Pedido   @relation(fields: [pedidoId], references: [id], onDelete: Restrict)
+  repartidor   Usuario? @relation("DomicilioRepartidor", fields: [repartidorId], references: [id], onDelete: SetNull)
+
+  @@index([estado, creadoEn])
+  @@index([repartidorId])
 }
 
 model DetallePedido {
@@ -439,15 +479,19 @@ model Venta {
   origen OrigenVenta @default(PEDIDO)
   estado EstadoVenta @default(PENDIENTE_PAGO)
 
-  subtotal    Decimal @db.Decimal(12, 2)
-  descuentos  Decimal @default(0) @db.Decimal(12, 2)
-  impuestos   Decimal @default(0) @db.Decimal(12, 2)
-  impoconsumo Decimal @default(0) @db.Decimal(12, 2)
-  propina     Decimal @default(0) @db.Decimal(12, 2)
-  total       Decimal @db.Decimal(12, 2)
+  subtotal       Decimal @db.Decimal(12, 2)
+  descuentos     Decimal @default(0) @db.Decimal(12, 2)
+  impuestos      Decimal @default(0) @db.Decimal(12, 2)
+  impoconsumo    Decimal @default(0) @db.Decimal(12, 2)
+  propina        Decimal @default(0) @db.Decimal(12, 2)
+  domicilioCosto Decimal @default(0) @db.Decimal(12, 2)
+  total          Decimal @db.Decimal(12, 2)
 
   // Momento real en que ocurrió la venta.
-  fechaOperacion DateTime
+  fechaOperacion     DateTime
+  numeroComandaPapel String?  @db.VarChar(80)
+  numeroSoporte      String?  @db.VarChar(80)
+  soporteArchivoRef  String?  @db.VarChar(500)
 
   idempotenciaClave String? @db.VarChar(100)
   idempotenciaHash  String? @db.VarChar(64)
@@ -472,6 +516,8 @@ model Venta {
   movimientosInventario MovimientoInventario[]
 
   @@unique([sucursalId, idempotenciaClave])
+  @@unique([sucursalId, numeroComandaPapel])
+  @@unique([sucursalId, numeroSoporte])
   @@index([sucursalId])
   @@index([usuarioId])
   @@index([clienteId])

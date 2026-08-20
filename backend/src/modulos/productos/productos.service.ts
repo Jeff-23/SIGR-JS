@@ -171,6 +171,7 @@ export class ProductosService {
       orderBy: {
         id: 'asc',
       },
+      take: 500,
     });
   }
 

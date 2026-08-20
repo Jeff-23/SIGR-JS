@@ -109,3 +109,13 @@ Antes de operar un cliente debe consultarse `GET /fiscal/restaurantes/:id/diagno
 Las fechas de ventas manuales deben incluir `Z` o desplazamiento `±HH:mm`. PostgreSQL conserva el instante normalizado y `TIME_ZONE` identifica la zona operativa configurada. Los montos comerciales usan `Prisma.Decimal`, máximo dos decimales y la capacidad común `Decimal(12,2)`.
 
 Los reversos de inventario son movimientos compensatorios: no borran salidas originales y `movimientoOrigenId` es único. Las ventas con pagos o factura siguen bloqueadas para anulación directa porque requieren flujos explícitos de devolución o reversión documental.
+
+## Flujo operativo integral
+
+Una mesa pagada no se libera antes de que el Pedido esté `ENTREGADO`. La ocupación sin pedido usa `PATCH /mesas/:id/ocupar-sin-pedido` y sólo puede terminar mediante `liberar-sin-consumo` si nunca se vinculó un pedido activo. El cierre verificable está disponible en `PATCH /pedidos/:id/finalizar-servicio`.
+
+Los domicilios se crean dentro de un Pedido `DOMICILIO`; cocina lo deja `LISTO`, luego distribución gestiona asignación, salida y entrega mediante `/pedidos/domicilios/:id/estado`. Pago y entrega permanecen independientes.
+
+Las ventas manuales requieren soporte, comanda, precios e impuestos originales. `soporteArchivoRef` apunta a almacenamiento externo administrado. La API no recibe rutas locales del servidor ni guarda binarios en la base.
+
+`GET /facturas/:id/representacion-impresa` genera HTML seguro para tirilla de 80 mm. Que exista una representación interna no implica que sea una factura electrónica aceptada. Sólo se muestran CUFE/QR como electrónicos cuando el Documento asociado está realmente `ACEPTADO`.

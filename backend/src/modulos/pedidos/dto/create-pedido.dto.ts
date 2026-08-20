@@ -6,6 +6,9 @@ import {
   IsOptional,
   Min,
   ValidateNested,
+  IsNumber,
+  IsString,
+  MaxLength,
 } from 'class-validator';
 
 import { Type } from 'class-transformer';
@@ -20,6 +23,29 @@ export class DetallePedidoDto {
   @IsInt()
   @Min(1)
   cantidad: number;
+}
+
+export class DomicilioPedidoDto {
+  @IsString()
+  @MaxLength(160)
+  destinatario: string;
+
+  @IsString()
+  @MaxLength(30)
+  telefono: string;
+
+  @IsString()
+  @MaxLength(250)
+  direccion: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  referencias?: string;
+
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  costo: number;
 }
 
 export class CreatePedidoDto {
@@ -58,4 +84,9 @@ export class CreatePedidoDto {
   })
   @Type(() => DetallePedidoDto)
   detalles: DetallePedidoDto[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DomicilioPedidoDto)
+  domicilio?: DomicilioPedidoDto;
 }

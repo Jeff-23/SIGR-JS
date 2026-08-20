@@ -16,6 +16,9 @@ describe('validarEntorno', () => {
       throttleLimite: 1000,
       jwtExpiraEn: '12h',
       zonaHoraria: 'America/Bogota',
+      swaggerHabilitado: true,
+      metricasHabilitadas: true,
+      confianzaProxy: false,
     });
   });
 
@@ -57,6 +60,20 @@ describe('validarEntorno', () => {
     );
     expect(() => validarEntorno({ ...BASE, PORT: '70000' })).toThrow(
       'PORT debe estar entre 1 y 65535',
+    );
+  });
+
+  it('deshabilita Swagger por defecto en producción y valida booleanos', () => {
+    expect(
+      validarEntorno({
+        ...BASE,
+        NODE_ENV: 'production',
+        JWT_SECRET: 'un-secreto-productivo-de-mas-de-32-caracteres',
+        CORS_ORIGINS: 'https://sigr.example.com',
+      }).swaggerHabilitado,
+    ).toBe(false);
+    expect(() => validarEntorno({ ...BASE, TRUST_PROXY: 'si' })).toThrow(
+      'TRUST_PROXY debe ser true o false',
     );
   });
 });

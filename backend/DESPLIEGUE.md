@@ -41,6 +41,10 @@ El servicio `migrate` del compose aplica migraciones antes de iniciar el backend
 
 La restauración debe ensayarse primero en una base aislada y validarse con `npx prisma migrate status` y la suite E2E.
 
+## Piloto por restaurante
+
+Antes de habilitar tráfico de un nuevo cliente se debe completar `PILOTO_BACKEND.md`. La automatización certifica una base vacía, el contenedor y una carga básica; las firmas de usuarios, dispositivos, infraestructura externa y DIAN pertenecen al ambiente real del restaurante y no pueden inferirse de CI.
+
 ## Backlog fuera de Backend V1
 
 - Frontend V2 alineado al contrato vigente.

@@ -34,6 +34,13 @@ El Sprint 13 incorporó `npm run audit:check`: bloquea vulnerabilidades altas o 
 - CI reproducible con PostgreSQL, migraciones, puerta completa, auditoría y validación de Compose.
 - Respaldos con checksum SHA256 obligatorio antes de restaurar.
 
+## Extensión Sprint 17
+
+- GitHub Actions construye Compose sobre una base PostgreSQL vacía, aplica migraciones y espera readiness real.
+- Health y readiness se verifican desde fuera del contenedor.
+- Una carga GET controlada exige cero errores y un p95 máximo configurable.
+- El protocolo `PILOTO_BACKEND.md` separa evidencia automatizable, aceptación del restaurante y habilitación fiscal externa.
+
 ## Rollback certificado
 
 La aplicación puede volver a la imagen/tag anterior porque las migraciones son acumulativas. Los datos no se revierten borrando migraciones: se restaura un respaldo probado en una base nueva, se valida `prisma migrate status` y luego se conmuta el tráfico. Para cambios incompatibles futuros se exige expand/contract.

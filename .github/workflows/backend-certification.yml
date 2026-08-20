@@ -72,3 +72,38 @@ jobs:
           POSTGRES_DB: sigr
           JWT_SECRET: compose-validation-secret-32-characters
           CORS_ORIGINS: https://example.invalid
+      - name: Certify container from blank database
+        working-directory: .
+        env:
+          COMPOSE_PROJECT_NAME: sigr_certification
+          POSTGRES_USER: sigr
+          POSTGRES_PASSWORD: sigr_certification_password
+          POSTGRES_DB: sigr_certification
+          POSTGRES_PORT: "55437"
+          BACKEND_PORT: "3017"
+          JWT_SECRET: certification-secret-with-more-than-32-characters
+          SEED_ADMIN_PASSWORD: certification-seed-password
+          CORS_ORIGINS: https://example.invalid
+          TRUST_PROXY: "false"
+          THROTTLE_LIMIT: "1000"
+        run: |
+          docker compose up --build --detach --wait backend
+          curl --fail --silent --show-error http://127.0.0.1:3017/health/live
+          curl --fail --silent --show-error http://127.0.0.1:3017/health/ready
+          node backend/scripts/pilot-load.mjs --url http://127.0.0.1:3017/health/ready --requests 100 --concurrency 10 --p95-ms 1000
+      - name: Stop certification containers
+        if: always()
+        working-directory: .
+        env:
+          COMPOSE_PROJECT_NAME: sigr_certification
+          POSTGRES_USER: sigr
+          POSTGRES_PASSWORD: sigr_certification_password
+          POSTGRES_DB: sigr_certification
+          POSTGRES_PORT: "55437"
+          BACKEND_PORT: "3017"
+          JWT_SECRET: certification-secret-with-more-than-32-characters
+          SEED_ADMIN_PASSWORD: certification-seed-password
+          CORS_ORIGINS: https://example.invalid
+          TRUST_PROXY: "false"
+          THROTTLE_LIMIT: "1000"
+        run: docker compose down --volumes --remove-orphans

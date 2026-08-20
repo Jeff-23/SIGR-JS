@@ -25,6 +25,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "db:seed": "prisma db seed",
+    "pilot:load": "node scripts/pilot-load.mjs",
     "audit:check": "node scripts/audit-dependencies.mjs",
     "certify": "npm run lint:check && npm run build && npm test -- --runInBand && npm run test:e2e -- --runInBand && prisma migrate status",
     "certify:ci": "npm run certify && npm run audit:check"

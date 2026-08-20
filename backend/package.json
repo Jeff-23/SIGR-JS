@@ -19,7 +19,10 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "certify": "npm run lint:check && npm run build && npm test -- --runInBand && npm run test:e2e -- --runInBand && prisma migrate status"
+    "db:seed": "prisma db seed",
+    "audit:check": "node scripts/audit-dependencies.mjs",
+    "certify": "npm run lint:check && npm run build && npm test -- --runInBand && npm run test:e2e -- --runInBand && prisma migrate status",
+    "certify:ci": "npm run certify && npm run audit:check"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -88,8 +91,5 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
-  },
-  "prisma": {
-    "seed": "ts-node src/seed.ts"
   }
 }

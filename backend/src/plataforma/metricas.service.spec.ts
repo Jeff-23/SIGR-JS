@@ -1,15 +1,15 @@
 import { MetricasService } from './metricas.service';
 
 describe('MetricasService', () => {
-  it('exporta contadores sin etiquetas de tenant ni datos sensibles', () => {
+  it('exporta contadores e histograma sin etiquetas de tenant', () => {
     const servicio = new MetricasService();
-    servicio.registrar('GET', 200, 12);
-    servicio.registrar('POST', 500, 8);
+    servicio.registrar('GET', '/ventas/123?interno=secreto', 200, 12);
+    servicio.registrar('POST', '/ventas/456', 500, 80);
     const salida = servicio.exportar();
-    expect(salida).toContain('sigr_http_requests_total 2');
-    expect(salida).toContain('sigr_http_errors_total 1');
-    expect(salida).toContain(
-      'sigr_http_request_duration_milliseconds_total 20',
-    );
+    expect(salida).toContain('method="GET",route="/ventas/:id",status="200"');
+    expect(salida).toContain('sigr_http_request_duration_seconds_bucket');
+    expect(salida).toContain('sigr_process_uptime_seconds');
+    expect(salida).not.toContain('123');
+    expect(salida).not.toContain('secreto');
   });
 });

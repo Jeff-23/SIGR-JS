@@ -1,0 +1,72 @@
+name: Backend certification
+
+on:
+  pull_request:
+    paths:
+      [
+        "backend/**",
+        "docker-compose.yml",
+        ".github/workflows/backend-certification.yml",
+      ]
+  push:
+    branches: [main]
+    paths:
+      [
+        "backend/**",
+        "docker-compose.yml",
+        ".github/workflows/backend-certification.yml",
+      ]
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: sigr
+          POSTGRES_PASSWORD: sigr_ci_password
+          POSTGRES_DB: sigr_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sigr -d sigr_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://sigr:sigr_ci_password@localhost:5432/sigr_ci
+      JWT_SECRET: ci-secret-only-not-for-production
+      SEED_ADMIN_PASSWORD: ci-seed-password-only
+      CORS_ORIGINS: http://localhost:5173
+      SWAGGER_ENABLED: "true"
+      METRICS_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma migrate deploy
+      - run: npm run db:seed
+      - run: npm run db:seed
+      - run: npm run certify:ci
+      - name: Validate Compose
+        working-directory: .
+        run: docker compose config --quiet
+        env:
+          POSTGRES_USER: sigr
+          POSTGRES_PASSWORD: compose_validation_only
+          POSTGRES_DB: sigr
+          JWT_SECRET: compose-validation-secret-32-characters
+          CORS_ORIGINS: https://example.invalid

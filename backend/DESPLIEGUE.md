@@ -11,6 +11,8 @@
 
 La certificación acumulada se ejecuta con `npm run certify`. `POSTGRES_PORT` y `BACKEND_PORT` permiten levantar entornos aislados sin colisionar con desarrollo.
 
+`backup.ps1` rechaza sobrescrituras y genera un archivo `.sha256`. `restore.ps1` exige ese checksum y aborta antes de tocar la base si la integridad no coincide. El cifrado, la retención y la copia fuera del servidor deben aplicarse en el almacenamiento administrado del entorno.
+
 El servicio `migrate` del compose aplica migraciones antes de iniciar el backend. Una migración destructiva requiere estrategia expand/contract y respaldo probado. El rollback de aplicación consiste en desplegar la imagen anterior; el rollback de datos se realiza exclusivamente desde un respaldo verificado, nunca borrando migraciones ya aplicadas.
 
 ## Checklist
@@ -22,6 +24,7 @@ El servicio `migrate` del compose aplica migraciones antes de iniciar el backend
 - [ ] Migraciones, seed controlado, lint, build y E2E aprobados.
 - [ ] Backup cifrado, retención definida y restauración ensayada.
 - [ ] Logs JSON centralizados por `correlacionId`, sin cuerpos ni secretos.
+- [ ] Scraping de `/health/metrics` configurado y alertas externas sobre tasa 5xx y latencia.
 - [ ] Separación Pedido/Venta/Pago/Factura/Documento Electrónico verificada.
 
 ## Respaldo y restauración

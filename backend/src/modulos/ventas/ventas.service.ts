@@ -35,15 +35,9 @@ export class VentasService {
     private readonly inventarioService: InventarioService,
   ) {}
 
-  private esSuperadmin(
-    usuarioActual:
-      UsuarioAutenticado,
-  ) {
+  private esSuperadmin(usuarioActual: UsuarioAutenticado) {
     return (
-      usuarioActual.rol ===
-        'SUPERADMIN' &&
-      usuarioActual.restauranteId ===
-        null
+      usuarioActual.rol === 'SUPERADMIN' && usuarioActual.restauranteId === null
     );
   }
 
@@ -80,25 +74,24 @@ export class VentasService {
       return null;
     }
 
-    const cliente =
-      await tx.cliente.findFirst({
-        where: {
-          id: clienteId,
-          estado: true,
+    const cliente = await tx.cliente.findFirst({
+      where: {
+        id: clienteId,
+        estado: true,
 
-          restaurante: {
-            sucursales: {
-              some: {
-                id: sucursalId,
-              },
+        restaurante: {
+          sucursales: {
+            some: {
+              id: sucursalId,
             },
           },
         },
+      },
 
-        select: {
-          id: true,
-        },
-      });
+      select: {
+        id: true,
+      },
+    });
 
     if (!cliente) {
       throw new NotFoundException(
@@ -114,28 +107,20 @@ export class VentasService {
     data: AjustesVentaDto,
     usuarioActual: UsuarioAutenticado,
   ) {
-    const descuentos =
-      new Prisma.Decimal(data.descuentos ?? 0);
+    const descuentos = new Prisma.Decimal(data.descuentos ?? 0);
 
-    const impuestos =
-      new Prisma.Decimal(data.impuestos ?? 0);
+    const impuestos = new Prisma.Decimal(data.impuestos ?? 0);
 
-    const impoconsumo =
-      new Prisma.Decimal(data.impoconsumo ?? 0);
+    const impoconsumo = new Prisma.Decimal(data.impoconsumo ?? 0);
 
-    const propina =
-      new Prisma.Decimal(data.propina ?? 0);
+    const propina = new Prisma.Decimal(data.propina ?? 0);
 
     if (
       descuentos.gt(0) &&
       !this.esSuperadmin(usuarioActual) &&
-      !usuarioActual.permisos.includes(
-        'DESCUENTOS_APLICAR',
-      )
+      !usuarioActual.permisos.includes('DESCUENTOS_APLICAR')
     ) {
-      throw new ForbiddenException(
-        'No tienes permiso para aplicar descuentos',
-      );
+      throw new ForbiddenException('No tienes permiso para aplicar descuentos');
     }
 
     if (descuentos.gt(subtotal)) {
@@ -144,12 +129,11 @@ export class VentasService {
       );
     }
 
-    const total =
-      subtotal
-        .minus(descuentos)
-        .plus(impuestos)
-        .plus(impoconsumo)
-        .plus(propina);
+    const total = subtotal
+      .minus(descuentos)
+      .plus(impuestos)
+      .plus(impoconsumo)
+      .plus(propina);
 
     if (total.lt(0)) {
       throw new BadRequestException(
@@ -170,30 +154,24 @@ export class VentasService {
     data: CrearVentaPedidoDto,
     usuarioActual: UsuarioAutenticado,
   ) {
-    return this.prisma.$transaction(
+    const ventaId = await this.prisma.$transaction(
       async (tx) => {
-        const pedido =
-          await tx.pedido.findFirst({
-            where: {
-              id: data.pedidoId,
+        const pedido = await tx.pedido.findFirst({
+          where: {
+            id: data.pedidoId,
 
-              sucursal:
-                this.filtroSucursal(
-                  usuarioActual,
-                ),
-            },
+            sucursal: this.filtroSucursal(usuarioActual),
+          },
 
-            include: {
-              detalles: true,
-              venta: true,
-              factura: true,
-            },
-          });
+          include: {
+            detalles: true,
+            venta: true,
+            factura: true,
+          },
+        });
 
         if (!pedido) {
-          throw new NotFoundException(
-            'Pedido no encontrado',
-          );
+          throw new NotFoundException('Pedido no encontrado');
         }
 
         if (pedido.venta) {
@@ -202,136 +180,87 @@ export class VentasService {
           );
         }
 
-        if (
-          pedido.factura ||
-          pedido.estado ===
-            EstadoPedido.FACTURADO
-        ) {
+        if (pedido.factura || pedido.estado === EstadoPedido.FACTURADO) {
           throw new BadRequestException(
             'Este pedido ya fue procesado mediante el flujo anterior de facturación',
           );
         }
 
-        if (
-          pedido.estado ===
-          EstadoPedido.CANCELADO
-        ) {
+        if (pedido.estado === EstadoPedido.CANCELADO) {
           throw new BadRequestException(
             'No se puede vender un pedido cancelado',
           );
         }
 
-        const clienteId =
-          await this.resolverClienteId(
-            tx,
-            data.clienteId,
-            pedido.sucursalId,
-          );
-
-        const subtotal =
-          pedido.detalles.reduce(
-            (total, detalle) =>
-              total.plus(detalle.subtotal),
-
-            new Prisma.Decimal(0),
-          );
-
-        const ajustes =
-          this.validarYCalcularTotales(
-            subtotal,
-            data,
-            usuarioActual,
-          );
-
-        const venta =
-          await tx.venta.create({
-            data: {
-              origen:
-                OrigenVenta.PEDIDO,
-
-              estado:
-                ajustes.total.eq(0)
-                  ? EstadoVenta.PAGADA
-                  : EstadoVenta.PENDIENTE_PAGO,
-
-              subtotal,
-
-              descuentos:
-                ajustes.descuentos,
-
-              impuestos:
-                ajustes.impuestos,
-
-              impoconsumo:
-                ajustes.impoconsumo,
-
-              propina:
-                ajustes.propina,
-
-              total:
-                ajustes.total,
-
-              fechaOperacion:
-                new Date(),
-
-              sucursalId:
-                pedido.sucursalId,
-
-              usuarioId:
-                usuarioActual.id,
-
-              pedidoId:
-                pedido.id,
-
-              clienteId,
-
-              detalles: {
-                create:
-                  pedido.detalles.map(
-                    (detalle) => ({
-                      productoId:
-                        detalle.productoId,
-
-                      cantidad:
-                        detalle.cantidad,
-
-                      precioUnitario:
-                        detalle.precioUnitario,
-
-                      subtotal:
-                        detalle.subtotal,
-                    }),
-                  ),
-              },
-            },
-
-            include: {
-              detalles: true,
-              pagos: true,
-              factura: true,
-              cliente: true,
-            },
-          });
-
-        await this.inventarioService.descontarPorVenta(
+        const clienteId = await this.resolverClienteId(
           tx,
-          {
-            ventaId:
-              venta.id,
-            sucursalId:
-              pedido.sucursalId,
-            usuarioActual,
-            detalles:
-              pedido.detalles.map(
-                (detalle) => ({
-                  productoId:
-                    detalle.productoId,
-                  cantidad:
-                    detalle.cantidad,
-                }),
-              ),
-          },
+          data.clienteId,
+          pedido.sucursalId,
         );
+
+        const subtotal = pedido.detalles.reduce(
+          (total, detalle) => total.plus(detalle.subtotal),
+
+          new Prisma.Decimal(0),
+        );
+
+        const ajustes = this.validarYCalcularTotales(
+          subtotal,
+          data,
+          usuarioActual,
+        );
+
+        const ventaBase = await tx.venta.create({
+          data: {
+            origen: OrigenVenta.PEDIDO,
+
+            estado: ajustes.total.eq(0)
+              ? EstadoVenta.PAGADA
+              : EstadoVenta.PENDIENTE_PAGO,
+
+            subtotal,
+
+            descuentos: ajustes.descuentos,
+
+            impuestos: ajustes.impuestos,
+
+            impoconsumo: ajustes.impoconsumo,
+
+            propina: ajustes.propina,
+
+            total: ajustes.total,
+
+            fechaOperacion: new Date(),
+
+            sucursalId: pedido.sucursalId,
+
+            usuarioId: usuarioActual.id,
+
+            pedidoId: pedido.id,
+
+            clienteId,
+          },
+        });
+
+        await tx.detalleVenta.createMany({
+          data: pedido.detalles.map((detalle) => ({
+            ventaId: ventaBase.id,
+            productoId: detalle.productoId,
+            cantidad: detalle.cantidad,
+            precioUnitario: detalle.precioUnitario,
+            subtotal: detalle.subtotal,
+          })),
+        });
+
+        await this.inventarioService.descontarPorVenta(tx, {
+          ventaId: ventaBase.id,
+          sucursalId: pedido.sucursalId,
+          usuarioActual,
+          detalles: pedido.detalles.map((detalle) => ({
+            productoId: detalle.productoId,
+            cantidad: detalle.cantidad,
+          })),
+        });
 
         /*
          * =================================================
@@ -350,37 +279,40 @@ export class VentasService {
         if (pedido.mesaId !== null) {
           await tx.mesa.updateMany({
             where: {
-              id:
-                pedido.mesaId,
+              id: pedido.mesaId,
 
               estado: true,
 
               situacion: {
-                in: [
-                  EstadoMesa.OCUPADA,
-                  EstadoMesa.PENDIENTE_PAGO,
-                ],
+                in: [EstadoMesa.OCUPADA, EstadoMesa.PENDIENTE_PAGO],
               },
             },
 
             data: {
               situacion:
-                venta.estado ===
-                EstadoVenta.PAGADA
+                ventaBase.estado === EstadoVenta.PAGADA
                   ? EstadoMesa.LIBRE
                   : EstadoMesa.PENDIENTE_PAGO,
             },
           });
         }
 
-        return venta;
+        return ventaBase.id;
       },
       {
-        isolationLevel:
-          Prisma.TransactionIsolationLevel
-            .Serializable,
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
+
+    return this.prisma.venta.findUniqueOrThrow({
+      where: { id: ventaId },
+      include: {
+        detalles: true,
+        pagos: true,
+        factura: true,
+        cliente: true,
+      },
+    });
   }
 
   /*
@@ -404,34 +336,14 @@ export class VentasService {
   ) {
     const hoy = new Date();
 
-    hoy.setHours(
-      0,
-      0,
-      0,
-      0,
-    );
+    hoy.setHours(0, 0, 0, 0);
 
-    const inicio =
-      fechaInicio
-        ? new Date(fechaInicio)
-        : hoy;
+    const inicio = fechaInicio ? new Date(fechaInicio) : hoy;
 
-    const fin =
-      fechaFin
-        ? new Date(fechaFin)
-        : new Date();
+    const fin = fechaFin ? new Date(fechaFin) : new Date();
 
-    if (
-      Number.isNaN(
-        inicio.getTime(),
-      ) ||
-      Number.isNaN(
-        fin.getTime(),
-      )
-    ) {
-      throw new BadRequestException(
-        'Las fechas indicadas no son válidas',
-      );
+    if (Number.isNaN(inicio.getTime()) || Number.isNaN(fin.getTime())) {
+      throw new BadRequestException('Las fechas indicadas no son válidas');
     }
 
     if (inicio > fin) {
@@ -440,191 +352,101 @@ export class VentasService {
       );
     }
 
-    const ventas =
-      await this.prisma.venta.findMany({
-        where: {
-          fechaOperacion: {
-            gte: inicio,
-            lte: fin,
-          },
-
-          estado: {
-            not:
-              EstadoVenta.ANULADA,
-          },
-
-          sucursal:
-            this.filtroSucursal(
-              usuarioActual,
-            ),
+    const ventas = await this.prisma.venta.findMany({
+      where: {
+        fechaOperacion: {
+          gte: inicio,
+          lte: fin,
         },
 
-        include: {
-          pagos: {
-            include: {
-              metodoPago: true,
-            },
+        estado: {
+          not: EstadoVenta.ANULADA,
+        },
+
+        sucursal: this.filtroSucursal(usuarioActual),
+      },
+
+      include: {
+        pagos: {
+          include: {
+            metodoPago: true,
           },
         },
+      },
 
-        orderBy: {
-          fechaOperacion: 'asc',
-        },
-      });
+      orderBy: {
+        fechaOperacion: 'asc',
+      },
+    });
 
-    let totalVentas =
-      new Prisma.Decimal(0);
+    let totalVentas = new Prisma.Decimal(0);
 
-    let totalPagado =
-      new Prisma.Decimal(0);
+    let totalPagado = new Prisma.Decimal(0);
 
-    const desglosePagosDecimal:
-      Record<
-        string,
-        Prisma.Decimal
-      > = {};
+    const desglosePagosDecimal: Record<string, Prisma.Decimal> = {};
 
-    const desgloseOrigenDecimal:
-      Record<
-        string,
-        Prisma.Decimal
-      > = {};
+    const desgloseOrigenDecimal: Record<string, Prisma.Decimal> = {};
 
-    const ventasPorEstado:
-      Record<string, number> = {};
+    const ventasPorEstado: Record<string, number> = {};
 
-    for (
-      const venta of ventas
-    ) {
-      totalVentas =
-        totalVentas.add(
-          venta.total,
-        );
+    for (const venta of ventas) {
+      totalVentas = totalVentas.add(venta.total);
 
-      if (
-        !desgloseOrigenDecimal[
-          venta.origen
-        ]
-      ) {
-        desgloseOrigenDecimal[
-          venta.origen
-        ] =
-          new Prisma.Decimal(0);
+      if (!desgloseOrigenDecimal[venta.origen]) {
+        desgloseOrigenDecimal[venta.origen] = new Prisma.Decimal(0);
       }
 
-      desgloseOrigenDecimal[
+      desgloseOrigenDecimal[venta.origen] = desgloseOrigenDecimal[
         venta.origen
-      ] =
-        desgloseOrigenDecimal[
-          venta.origen
-        ].add(
-          venta.total,
-        );
+      ].add(venta.total);
 
-      if (
-        !ventasPorEstado[
-          venta.estado
-        ]
-      ) {
-        ventasPorEstado[
-          venta.estado
-        ] = 0;
+      if (!ventasPorEstado[venta.estado]) {
+        ventasPorEstado[venta.estado] = 0;
       }
 
-      ventasPorEstado[
-        venta.estado
-      ] += 1;
+      ventasPorEstado[venta.estado] += 1;
 
-      for (
-        const pago of venta.pagos
-      ) {
-        totalPagado =
-          totalPagado.add(
-            pago.monto,
-          );
+      for (const pago of venta.pagos) {
+        totalPagado = totalPagado.add(pago.monto);
 
-        const metodo =
-          pago.metodoPago.nombre;
+        const metodo = pago.metodoPago.nombre;
 
-        if (
-          !desglosePagosDecimal[
-            metodo
-          ]
-        ) {
-          desglosePagosDecimal[
-            metodo
-          ] =
-            new Prisma.Decimal(0);
+        if (!desglosePagosDecimal[metodo]) {
+          desglosePagosDecimal[metodo] = new Prisma.Decimal(0);
         }
 
-        desglosePagosDecimal[
-          metodo
-        ] =
-          desglosePagosDecimal[
-            metodo
-          ].add(
-            pago.monto,
-          );
+        desglosePagosDecimal[metodo] = desglosePagosDecimal[metodo].add(
+          pago.monto,
+        );
       }
     }
 
-    const totalPendiente =
-      totalVentas.sub(
-        totalPagado,
-      );
+    const totalPendiente = totalVentas.sub(totalPagado);
 
-    const desglosePagos:
-      Record<string, number> = {};
+    const desglosePagos: Record<string, number> = {};
 
-    for (
-      const [
-        metodo,
-        monto,
-      ] of Object.entries(
-        desglosePagosDecimal,
-      )
-    ) {
-      desglosePagos[
-        metodo
-      ] =
-        monto.toNumber();
+    for (const [metodo, monto] of Object.entries(desglosePagosDecimal)) {
+      desglosePagos[metodo] = monto.toNumber();
     }
 
-    const desgloseOrigen:
-      Record<string, number> = {};
+    const desgloseOrigen: Record<string, number> = {};
 
-    for (
-      const [
-        origen,
-        monto,
-      ] of Object.entries(
-        desgloseOrigenDecimal,
-      )
-    ) {
-      desgloseOrigen[
-        origen
-      ] =
-        monto.toNumber();
+    for (const [origen, monto] of Object.entries(desgloseOrigenDecimal)) {
+      desgloseOrigen[origen] = monto.toNumber();
     }
 
     return {
-      fechaInicio:
-        inicio,
+      fechaInicio: inicio,
 
-      fechaFin:
-        fin,
+      fechaFin: fin,
 
-      cantidadVentas:
-        ventas.length,
+      cantidadVentas: ventas.length,
 
-      totalVentas:
-        totalVentas.toNumber(),
+      totalVentas: totalVentas.toNumber(),
 
-      totalPagado:
-        totalPagado.toNumber(),
+      totalPagado: totalPagado.toNumber(),
 
-      totalPendiente:
-        totalPendiente.toNumber(),
+      totalPendiente: totalPendiente.toNumber(),
 
       desglosePagos,
 
@@ -635,139 +457,93 @@ export class VentasService {
   }
 
   private async crearSinPedido(
-    data:
-      | CrearVentaDirectaDto
-      | CrearVentaManualDto,
+    data: CrearVentaDirectaDto | CrearVentaManualDto,
 
     origen: OrigenVenta,
 
     usuarioActual: UsuarioAutenticado,
   ) {
-    return this.prisma.$transaction(
+    const ventaId = await this.prisma.$transaction(
       async (tx) => {
-        const sucursal =
-          await tx.sucursal.findFirst({
-            where: {
-              AND: [
-                {
-                  id:
-                    data.sucursalId,
-                },
+        const sucursal = await tx.sucursal.findFirst({
+          where: {
+            AND: [
+              {
+                id: data.sucursalId,
+              },
 
-                this.filtroSucursal(
-                  usuarioActual,
-                ),
-              ],
-            },
-          });
+              this.filtroSucursal(usuarioActual),
+            ],
+          },
+        });
 
         if (!sucursal) {
-          throw new NotFoundException(
-            'Sucursal no encontrada',
-          );
+          throw new NotFoundException('Sucursal no encontrada');
         }
 
-        const clienteId =
-          await this.resolverClienteId(
-            tx,
-            data.clienteId,
-            sucursal.id,
+        const clienteId = await this.resolverClienteId(
+          tx,
+          data.clienteId,
+          sucursal.id,
+        );
+
+        let fechaOperacion = new Date();
+
+        if (origen === OrigenVenta.MANUAL_CIERRE) {
+          fechaOperacion = new Date(
+            (data as CrearVentaManualDto).fechaOperacion,
           );
 
-        let fechaOperacion =
-          new Date();
-
-        if (
-          origen ===
-          OrigenVenta.MANUAL_CIERRE
-        ) {
-          fechaOperacion =
-            new Date(
-              (
-                data as CrearVentaManualDto
-              ).fechaOperacion,
-            );
-
-          if (
-            Number.isNaN(
-              fechaOperacion.getTime(),
-            )
-          ) {
-            throw new BadRequestException(
-              'La fecha de operación no es válida',
-            );
+          if (Number.isNaN(fechaOperacion.getTime())) {
+            throw new BadRequestException('La fecha de operación no es válida');
           }
 
-          if (
-            fechaOperacion.getTime() >
-            Date.now()
-          ) {
+          if (fechaOperacion.getTime() > Date.now()) {
             throw new BadRequestException(
               'La fecha de operación no puede estar en el futuro',
             );
           }
         }
 
-        const cantidades =
-          new Map<number, number>();
+        const cantidades = new Map<number, number>();
 
-        for (
-          const detalle of data.detalles
-        ) {
+        for (const detalle of data.detalles) {
           cantidades.set(
             detalle.productoId,
 
-            (cantidades.get(
-              detalle.productoId,
-            ) ?? 0) +
-              detalle.cantidad,
+            (cantidades.get(detalle.productoId) ?? 0) + detalle.cantidad,
           );
         }
 
-        const idsProductos = [
-          ...cantidades.keys(),
-        ];
+        const idsProductos = [...cantidades.keys()];
 
-        const productos =
-          await tx.producto.findMany({
-            where: {
-              id: {
-                in:
-                  idsProductos,
-              },
+        const productos = await tx.producto.findMany({
+          where: {
+            id: {
+              in: idsProductos,
+            },
 
+            estado: true,
+
+            categoria: {
               estado: true,
 
-              categoria: {
-                estado: true,
-
-                sucursalId:
-                  sucursal.id,
-              },
+              sucursalId: sucursal.id,
             },
-          });
+          },
+        });
 
-        if (
-          productos.length !==
-          idsProductos.length
-        ) {
+        if (productos.length !== idsProductos.length) {
           throw new NotFoundException(
             'Uno o más productos no existen o no pertenecen a la sucursal',
           );
         }
 
-        const productosPorId =
-          new Map(
-            productos.map(
-              (producto) => [
-                producto.id,
-                producto,
-              ],
-            ),
-          );
+        const productosPorId = new Map(
+          productos.map((producto) => [producto.id, producto]),
+        );
 
-        let subtotal =
-          new Prisma.Decimal(0);
+        let subtotal = new Prisma.Decimal(0);
 
         const detallesPreparados: {
           productoId: number;
@@ -776,158 +552,109 @@ export class VentasService {
           subtotal: Prisma.Decimal;
         }[] = [];
 
-        for (
-          const [
-            productoId,
-            cantidad,
-          ] of cantidades
-        ) {
-          const producto =
-            productosPorId.get(
-              productoId,
-            )!;
+        for (const [productoId, cantidad] of cantidades) {
+          const producto = productosPorId.get(productoId)!;
 
-          const subtotalDetalle =
-            producto.precio.mul(
-              cantidad,
-            );
+          const subtotalDetalle = producto.precio.mul(cantidad);
 
-          subtotal =
-            subtotal.plus(
-              subtotalDetalle,
-            );
+          subtotal = subtotal.plus(subtotalDetalle);
 
           detallesPreparados.push({
             productoId,
             cantidad,
 
-            precioUnitario:
-              producto.precio,
+            precioUnitario: producto.precio,
 
-            subtotal:
-              subtotalDetalle,
+            subtotal: subtotalDetalle,
           });
         }
 
-        const ajustes =
-          this.validarYCalcularTotales(
-            subtotal,
-            data,
-            usuarioActual,
-          );
+        const ajustes = this.validarYCalcularTotales(
+          subtotal,
+          data,
+          usuarioActual,
+        );
 
-        const venta =
-          await tx.venta.create({
+        const ventaBase = await tx.venta.create({
           data: {
             origen,
 
-            estado:
-              ajustes.total.eq(0)
-                ? EstadoVenta.PAGADA
-                : EstadoVenta.PENDIENTE_PAGO,
+            estado: ajustes.total.eq(0)
+              ? EstadoVenta.PAGADA
+              : EstadoVenta.PENDIENTE_PAGO,
 
             subtotal,
 
-            descuentos:
-              ajustes.descuentos,
+            descuentos: ajustes.descuentos,
 
-            impuestos:
-              ajustes.impuestos,
+            impuestos: ajustes.impuestos,
 
-            impoconsumo:
-              ajustes.impoconsumo,
+            impoconsumo: ajustes.impoconsumo,
 
-            propina:
-              ajustes.propina,
+            propina: ajustes.propina,
 
-            total:
-              ajustes.total,
+            total: ajustes.total,
 
             fechaOperacion,
 
-            sucursalId:
-              sucursal.id,
+            sucursalId: sucursal.id,
 
-            usuarioId:
-              usuarioActual.id,
+            usuarioId: usuarioActual.id,
 
             clienteId,
-
-            detalles: {
-              create:
-                detallesPreparados,
-            },
-          },
-
-          include: {
-            detalles: true,
-            pagos: true,
-            factura: true,
-            cliente: true,
           },
         });
 
-        await this.inventarioService.descontarPorVenta(
-          tx,
-          {
-            ventaId:
-              venta.id,
-            sucursalId:
-              sucursal.id,
-            usuarioActual,
-            detalles:
-              detallesPreparados.map(
-                (detalle) => ({
-                  productoId:
-                    detalle.productoId,
-                  cantidad:
-                    detalle.cantidad,
-                }),
-              ),
-          },
-        );
+        await tx.detalleVenta.createMany({
+          data: detallesPreparados.map((detalle) => ({
+            ventaId: ventaBase.id,
+            productoId: detalle.productoId,
+            cantidad: detalle.cantidad,
+            precioUnitario: detalle.precioUnitario,
+            subtotal: detalle.subtotal,
+          })),
+        });
 
-        return venta;
+        await this.inventarioService.descontarPorVenta(tx, {
+          ventaId: ventaBase.id,
+          sucursalId: sucursal.id,
+          usuarioActual,
+          detalles: detallesPreparados.map((detalle) => ({
+            productoId: detalle.productoId,
+            cantidad: detalle.cantidad,
+          })),
+        });
+
+        return ventaBase.id;
       },
       {
-        isolationLevel:
-          Prisma.TransactionIsolationLevel
-            .Serializable,
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
+
+    return this.prisma.venta.findUniqueOrThrow({
+      where: { id: ventaId },
+      include: {
+        detalles: true,
+        pagos: true,
+        factura: true,
+        cliente: true,
+      },
+    });
   }
 
-  crearDirecta(
-    data: CrearVentaDirectaDto,
-    usuarioActual: UsuarioAutenticado,
-  ) {
-    return this.crearSinPedido(
-      data,
-      OrigenVenta.DIRECTA,
-      usuarioActual,
-    );
+  crearDirecta(data: CrearVentaDirectaDto, usuarioActual: UsuarioAutenticado) {
+    return this.crearSinPedido(data, OrigenVenta.DIRECTA, usuarioActual);
   }
 
-  crearManual(
-    data: CrearVentaManualDto,
-    usuarioActual: UsuarioAutenticado,
-  ) {
-    return this.crearSinPedido(
-      data,
-      OrigenVenta.MANUAL_CIERRE,
-      usuarioActual,
-    );
+  crearManual(data: CrearVentaManualDto, usuarioActual: UsuarioAutenticado) {
+    return this.crearSinPedido(data, OrigenVenta.MANUAL_CIERRE, usuarioActual);
   }
 
-  findAll(
-    usuarioActual: UsuarioAutenticado,
-  ) {
+  findAll(usuarioActual: UsuarioAutenticado) {
     return this.prisma.venta.findMany({
       where: {
-        sucursal:
-          this.filtroSucursal(
-            usuarioActual,
-          ),
+        sucursal: this.filtroSucursal(usuarioActual),
       },
 
       include: {
@@ -953,44 +680,35 @@ export class VentasService {
     });
   }
 
-  async findOne(
-    id: number,
-    usuarioActual: UsuarioAutenticado,
-  ) {
-    const venta =
-      await this.prisma.venta.findFirst({
-        where: {
-          id,
+  async findOne(id: number, usuarioActual: UsuarioAutenticado) {
+    const venta = await this.prisma.venta.findFirst({
+      where: {
+        id,
 
-          sucursal:
-            this.filtroSucursal(
-              usuarioActual,
-            ),
+        sucursal: this.filtroSucursal(usuarioActual),
+      },
+
+      include: {
+        detalles: {
+          include: {
+            producto: true,
+          },
         },
 
-        include: {
-          detalles: {
-            include: {
-              producto: true,
-            },
+        pagos: {
+          include: {
+            metodoPago: true,
           },
-
-          pagos: {
-            include: {
-              metodoPago: true,
-            },
-          },
-
-          factura: true,
-          pedido: true,
-          cliente: true,
         },
-      });
+
+        factura: true,
+        pedido: true,
+        cliente: true,
+      },
+    });
 
     if (!venta) {
-      throw new NotFoundException(
-        'Venta no encontrada',
-      );
+      throw new NotFoundException('Venta no encontrada');
     }
 
     return venta;
@@ -1003,60 +721,47 @@ export class VentasService {
   ) {
     return this.prisma.$transaction(
       async (tx) => {
-        const venta =
-          await tx.venta.findFirst({
-            where: {
-              id: ventaId,
+        const venta = await tx.venta.findFirst({
+          where: {
+            id: ventaId,
 
-              sucursal:
-                this.filtroSucursal(
-                  usuarioActual,
-                ),
-            },
+            sucursal: this.filtroSucursal(usuarioActual),
+          },
 
-            include: {
-              pagos: true,
+          include: {
+            pagos: true,
 
-              pedido: {
-                select: {
-                  id: true,
-                  mesaId: true,
-                },
+            pedido: {
+              select: {
+                id: true,
+                mesaId: true,
               },
             },
-          });
+          },
+        });
 
         if (!venta) {
-          throw new NotFoundException(
-            'Venta no encontrada',
-          );
+          throw new NotFoundException('Venta no encontrada');
         }
 
-        if (
-          venta.estado ===
-          EstadoVenta.ANULADA
-        ) {
+        if (venta.estado === EstadoVenta.ANULADA) {
           throw new BadRequestException(
             'No se pueden registrar pagos sobre una venta anulada',
           );
         }
 
-        if (
-          venta.estado ===
-          EstadoVenta.PAGADA
-        ) {
+        if (venta.estado === EstadoVenta.PAGADA) {
           throw new BadRequestException(
             'La venta ya está pagada completamente',
           );
         }
 
-        const metodoPago =
-          await tx.metodoPago.findFirst({
-            where: {
-              id: data.metodoPagoId,
-              activo: true,
-            },
-          });
+        const metodoPago = await tx.metodoPago.findFirst({
+          where: {
+            id: data.metodoPagoId,
+            activo: true,
+          },
+        });
 
         if (!metodoPago) {
           throw new BadRequestException(
@@ -1080,26 +785,21 @@ export class VentasService {
          * Esto evita mezclar recaudos cuando MULTICAJA
          * está habilitado.
          */
-        const cajasAbiertas =
-          await tx.caja.findMany({
-            where: {
-              sucursalId:
-                venta.sucursalId,
-              estado:
-                EstadoCaja.ABIERTA,
-            },
-            select: {
-              id: true,
-              nombre: true,
-            },
-            orderBy: {
-              id: 'asc',
-            },
-          });
+        const cajasAbiertas = await tx.caja.findMany({
+          where: {
+            sucursalId: venta.sucursalId,
+            estado: EstadoCaja.ABIERTA,
+          },
+          select: {
+            id: true,
+            nombre: true,
+          },
+          orderBy: {
+            id: 'asc',
+          },
+        });
 
-        if (
-          cajasAbiertas.length === 0
-        ) {
+        if (cajasAbiertas.length === 0) {
           throw new BadRequestException(
             'Debe existir una caja abierta en la sucursal para registrar el pago',
           );
@@ -1108,12 +808,9 @@ export class VentasService {
         let cajaId: number;
 
         if (data.cajaId !== undefined) {
-          const cajaSolicitada =
-            cajasAbiertas.find(
-              (caja) =>
-                caja.id ===
-                data.cajaId,
-            );
+          const cajaSolicitada = cajasAbiertas.find(
+            (caja) => caja.id === data.cajaId,
+          );
 
           if (!cajaSolicitada) {
             throw new BadRequestException(
@@ -1122,9 +819,7 @@ export class VentasService {
           }
 
           cajaId = cajaSolicitada.id;
-        } else if (
-          cajasAbiertas.length === 1
-        ) {
+        } else if (cajasAbiertas.length === 1) {
           cajaId = cajasAbiertas[0].id;
         } else {
           throw new BadRequestException(
@@ -1146,16 +841,13 @@ export class VentasService {
           `,
         );
 
-        const caja =
-          await tx.caja.findFirst({
-            where: {
-              id: cajaId,
-              sucursalId:
-                venta.sucursalId,
-              estado:
-                EstadoCaja.ABIERTA,
-            },
-          });
+        const caja = await tx.caja.findFirst({
+          where: {
+            id: cajaId,
+            sucursalId: venta.sucursalId,
+            estado: EstadoCaja.ABIERTA,
+          },
+        });
 
         if (!caja) {
           throw new BadRequestException(
@@ -1163,31 +855,17 @@ export class VentasService {
           );
         }
 
-        const pagadoActual =
-          venta.pagos.reduce(
-            (total, pago) =>
-              total.plus(
-                pago.monto,
-              ),
+        const pagadoActual = venta.pagos.reduce(
+          (total, pago) => total.plus(pago.monto),
 
-            new Prisma.Decimal(0),
-          );
+          new Prisma.Decimal(0),
+        );
 
-        const nuevoPago =
-          new Prisma.Decimal(
-            data.monto,
-          );
+        const nuevoPago = new Prisma.Decimal(data.monto);
 
-        const nuevoTotalPagado =
-          pagadoActual.plus(
-            nuevoPago,
-          );
+        const nuevoTotalPagado = pagadoActual.plus(nuevoPago);
 
-        if (
-          nuevoTotalPagado.gt(
-            venta.total,
-          )
-        ) {
+        if (nuevoTotalPagado.gt(venta.total)) {
           throw new BadRequestException(
             'El pago supera el saldo pendiente de la venta',
           );
@@ -1195,41 +873,28 @@ export class VentasService {
 
         await tx.pago.create({
           data: {
-            ventaId:
-              venta.id,
+            ventaId: venta.id,
 
-            metodoPagoId:
-              data.metodoPagoId,
+            metodoPagoId: data.metodoPagoId,
 
-            monto:
-              nuevoPago,
+            monto: nuevoPago,
 
-            referencia:
-              data.referencia
-                ?.trim() || null,
+            referencia: data.referencia?.trim() || null,
 
-            cajaId:
-              caja.id,
+            cajaId: caja.id,
 
-            usuarioId:
-              usuarioActual.id,
+            usuarioId: usuarioActual.id,
           },
         });
 
-        if (
-          nuevoTotalPagado.eq(
-            venta.total,
-          )
-        ) {
+        if (nuevoTotalPagado.eq(venta.total)) {
           await tx.venta.update({
             where: {
-              id:
-                venta.id,
+              id: venta.id,
             },
 
             data: {
-              estado:
-                EstadoVenta.PAGADA,
+              estado: EstadoVenta.PAGADA,
             },
           });
 
@@ -1239,25 +904,20 @@ export class VentasService {
            * el pago libera la mesa.
            */
           if (
-            venta.pedido?.mesaId !==
-              null &&
-            venta.pedido?.mesaId !==
-              undefined
+            venta.pedido?.mesaId !== null &&
+            venta.pedido?.mesaId !== undefined
           ) {
             await tx.mesa.updateMany({
               where: {
-                id:
-                  venta.pedido.mesaId,
+                id: venta.pedido.mesaId,
 
                 estado: true,
 
-                situacion:
-                  EstadoMesa.PENDIENTE_PAGO,
+                situacion: EstadoMesa.PENDIENTE_PAGO,
               },
 
               data: {
-                situacion:
-                  EstadoMesa.LIBRE,
+                situacion: EstadoMesa.LIBRE,
               },
             });
           }
@@ -1265,8 +925,7 @@ export class VentasService {
 
         return tx.venta.findUnique({
           where: {
-            id:
-              venta.id,
+            id: venta.id,
           },
 
           include: {
@@ -1293,56 +952,28 @@ export class VentasService {
       },
 
       {
-        isolationLevel:
-          Prisma.TransactionIsolationLevel
-            .Serializable,
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
   }
 
-  async anular(
-    id: number,
-    usuarioActual: UsuarioAutenticado,
-  ) {
-    return this.prisma.$transaction(
+  async anular(id: number, usuarioActual: UsuarioAutenticado) {
+    const ventaId = await this.prisma.$transaction(
       async (tx) => {
-        const venta =
-          await tx.venta.findFirst({
-            where: {
-              id,
+        const venta = await tx.venta.findFirst({
+          where: {
+            id,
 
-              sucursal:
-                this.filtroSucursal(
-                  usuarioActual,
-                ),
-            },
-
-            include: {
-              pagos: true,
-              factura: true,
-              pedido: {
-                select: {
-                  id: true,
-                  estado: true,
-                  mesaId: true,
-                },
-              },
-            },
-          });
+            sucursal: this.filtroSucursal(usuarioActual),
+          },
+        });
 
         if (!venta) {
-          throw new NotFoundException(
-            'Venta no encontrada',
-          );
+          throw new NotFoundException('Venta no encontrada');
         }
 
-        if (
-          venta.estado ===
-          EstadoVenta.ANULADA
-        ) {
-          throw new BadRequestException(
-            'La venta ya esta anulada',
-          );
+        if (venta.estado === EstadoVenta.ANULADA) {
+          throw new BadRequestException('La venta ya esta anulada');
         }
 
         /*
@@ -1353,7 +984,12 @@ export class VentasService {
          * a ANULADA porque eso requiere un flujo
          * formal de reversión de facturación.
          */
-        if (venta.factura) {
+        const factura = await tx.factura.findUnique({
+          where: { ventaId: venta.id },
+          select: { id: true },
+        });
+
+        if (factura) {
           throw new BadRequestException(
             'Una venta facturada requiere un flujo de reversión de facturación',
           );
@@ -1367,9 +1003,11 @@ export class VentasService {
          * devolución/reversión cuando dicho flujo
          * sea implementado.
          */
-        if (
-          venta.pagos.length > 0
-        ) {
+        const cantidadPagos = await tx.pago.count({
+          where: { ventaId: venta.id },
+        });
+
+        if (cantidadPagos > 0) {
           throw new BadRequestException(
             'Una venta con pagos registrados requiere un flujo de devolución',
           );
@@ -1383,10 +1021,7 @@ export class VentasService {
          * PAGADA es un estado comercial cerrado
          * y no debe pasar directamente a ANULADA.
          */
-        if (
-          venta.estado ===
-          EstadoVenta.PAGADA
-        ) {
+        if (venta.estado === EstadoVenta.PAGADA) {
           throw new BadRequestException(
             'Una venta pagada requiere un flujo de reversión comercial',
           );
@@ -1408,10 +1043,7 @@ export class VentasService {
          * No se modifica Pedido.
          * No se modifica Mesa.
          */
-        if (
-          venta.origen ===
-          OrigenVenta.PEDIDO
-        ) {
+        if (venta.origen === OrigenVenta.PEDIDO) {
           throw new BadRequestException(
             'Una venta originada en un pedido requiere el flujo de reapertura o reversión del cobro',
           );
@@ -1433,41 +1065,37 @@ export class VentasService {
          * transacción Serializable. Si falla una sola
          * restitución, la Venta permanece sin anular.
          */
-        await this.inventarioService.revertirPorAnulacionVenta(
-          tx,
-          {
-            ventaId:
-              venta.id,
-            sucursalId:
-              venta.sucursalId,
-            usuarioActual,
-          },
-        );
+        await this.inventarioService.revertirPorAnulacionVenta(tx, {
+          ventaId: venta.id,
+          sucursalId: venta.sucursalId,
+          usuarioActual,
+        });
 
-        return tx.venta.update({
+        const anulada = await tx.venta.update({
           where: {
-            id:
-              venta.id,
+            id: venta.id,
           },
 
           data: {
-            estado:
-              EstadoVenta.ANULADA,
-          },
-
-          include: {
-            detalles: true,
-            pagos: true,
-            factura: true,
+            estado: EstadoVenta.ANULADA,
           },
         });
+
+        return anulada.id;
       },
 
       {
-        isolationLevel:
-          Prisma.TransactionIsolationLevel
-            .Serializable,
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
     );
+
+    return this.prisma.venta.findUniqueOrThrow({
+      where: { id: ventaId },
+      include: {
+        detalles: true,
+        pagos: true,
+        factura: true,
+      },
+    });
   }
 }

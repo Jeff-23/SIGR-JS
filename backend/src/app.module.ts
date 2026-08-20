@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 import { AppController } from './app.controller';
@@ -26,6 +26,10 @@ import { SucursalesModule } from './modulos/sucursales/sucursales.module';
 import { UsuariosModule } from './modulos/usuarios/usuarios.module';
 import { VentasModule } from './modulos/ventas/ventas.module';
 import { ZonasModule } from './modulos/zonas/zonas.module';
+import { ConfiguracionModule } from './modulos/configuracion/configuracion.module';
+import { AutorizacionModule } from './modulos/autorizacion/autorizacion.module';
+import { AuditoriaModule } from './modulos/auditoria/auditoria.module';
+import { AuditoriaInterceptor } from './modulos/auditoria/auditoria.interceptor';
 
 @Module({
   imports: [
@@ -57,6 +61,9 @@ import { ZonasModule } from './modulos/zonas/zonas.module';
     ClientesModule,
     ReportesModule,
     DashboardModule,
+    ConfiguracionModule,
+    AutorizacionModule,
+    AuditoriaModule,
   ],
   controllers: [AppController],
   providers: [
@@ -64,6 +71,10 @@ import { ZonasModule } from './modulos/zonas/zonas.module';
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: AuditoriaInterceptor,
     },
   ],
 })

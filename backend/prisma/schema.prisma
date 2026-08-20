@@ -127,6 +127,8 @@ model Restaurante {
   usuarios   Usuario[]
   roles      Rol[]
   clientes   Cliente[]
+  configuraciones ConfiguracionRestaurante[]
+  auditorias EventoAuditoria[]
 
   @@index([planId])
 }
@@ -181,6 +183,40 @@ model Sucursal {
   ventas                Venta[]
   cajas                 Caja[]
   movimientosInventario MovimientoInventario[]
+  configuraciones        ConfiguracionSucursal[]
+  auditorias              EventoAuditoria[]
+}
+
+// ==========================================
+// SPRINT 8: CONFIGURACION OPERATIVA
+// ==========================================
+
+model ConfiguracionRestaurante {
+  id            Int      @id @default(autoincrement())
+  clave         String   @db.VarChar(60)
+  valor         Json
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  restauranteId Int
+  restaurante   Restaurante @relation(fields: [restauranteId], references: [id], onDelete: Cascade)
+
+  @@unique([restauranteId, clave])
+  @@index([restauranteId])
+}
+
+model ConfiguracionSucursal {
+  id            Int      @id @default(autoincrement())
+  clave         String   @db.VarChar(60)
+  valor         Json
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  sucursalId Int
+  sucursal   Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Cascade)
+
+  @@unique([sucursalId, clave])
+  @@index([sucursalId])
 }
 
 model Rol {
@@ -228,6 +264,7 @@ model Usuario {
   movimientosCaja       MovimientoCaja[]
   pagosRegistrados      Pago[]
   movimientosInventario MovimientoInventario[]
+  auditorias             EventoAuditoria[] @relation("AuditoriaActor")
 
   @@index([restauranteId])
   @@index([sucursalId])
@@ -721,6 +758,39 @@ model RolPermiso {
 
   @@id([rolId, permisoId])
   @@index([permisoId])
+}
+
+// ==========================================
+// SPRINT 8: AUDITORIA INMUTABLE
+// ==========================================
+
+model EventoAuditoria {
+  id            BigInt   @id @default(autoincrement())
+  accion        String   @db.VarChar(80)
+  recurso       String   @db.VarChar(80)
+  recursoId     String?  @db.VarChar(100)
+  actorEmail    String   @db.VarChar(150)
+  valoresAntes  Json?
+  valoresDespues Json?
+  ip            String?  @db.VarChar(64)
+  agenteUsuario String?  @db.VarChar(300)
+  correlacionId String   @db.VarChar(100)
+  creadoEn      DateTime @default(now())
+
+  actorId      Int?
+  restauranteId Int?
+  sucursalId    Int?
+
+  actor      Usuario?     @relation("AuditoriaActor", fields: [actorId], references: [id], onDelete: SetNull)
+  restaurante Restaurante? @relation(fields: [restauranteId], references: [id], onDelete: SetNull)
+  sucursal     Sucursal?    @relation(fields: [sucursalId], references: [id], onDelete: SetNull)
+
+  @@index([restauranteId, creadoEn])
+  @@index([sucursalId, creadoEn])
+  @@index([actorId, creadoEn])
+  @@index([recurso, recursoId])
+  @@index([accion])
+  @@index([correlacionId])
 }
 
 // ==========================================

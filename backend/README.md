@@ -23,7 +23,7 @@
 
 ## SIGR V2 backend
 
-Backend NestJS/PostgreSQL multiempresa y multisucursal. La guía vigente de configuración, calidad, health checks, errores, correlación, paginación y concurrencia está en [OPERACION.md](./OPERACION.md).
+Backend V1 NestJS/PostgreSQL multiempresa y multisucursal. Consulte [OPERACION.md](./OPERACION.md) para ejecución y [DESPLIEGUE.md](./DESPLIEGUE.md) para producción, migraciones, respaldos y rollback.
 
 ## Description
 

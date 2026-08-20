@@ -11,6 +11,9 @@ export type ConfiguracionEntorno = {
   throttleTtlMs: number;
   throttleLimite: number;
   zonaHoraria: string;
+  swaggerHabilitado: boolean;
+  metricasHabilitadas: boolean;
+  confianzaProxy: boolean;
 };
 
 const AMBIENTES = new Set<AmbienteAplicacion>([
@@ -66,6 +69,17 @@ export function validarEntorno(
   );
   const zonaHoraria = variables.TIME_ZONE?.trim() || 'America/Bogota';
   validarZonaHoraria(zonaHoraria);
+  const swaggerHabilitado = booleano(
+    variables.SWAGGER_ENABLED,
+    ambiente !== 'production',
+    'SWAGGER_ENABLED',
+  );
+  const metricasHabilitadas = booleano(
+    variables.METRICS_ENABLED,
+    true,
+    'METRICS_ENABLED',
+  );
+  const confianzaProxy = booleano(variables.TRUST_PROXY, false, 'TRUST_PROXY');
 
   const corsOrigenes = (variables.CORS_ORIGINS ?? 'http://localhost:5173')
     .split(',')
@@ -88,7 +102,21 @@ export function validarEntorno(
     throttleTtlMs,
     throttleLimite,
     zonaHoraria,
+    swaggerHabilitado,
+    metricasHabilitadas,
+    confianzaProxy,
   };
+}
+
+function booleano(
+  valor: string | undefined,
+  predeterminado: boolean,
+  nombre: string,
+): boolean {
+  if (valor === undefined || valor.trim() === '') return predeterminado;
+  if (valor === 'true') return true;
+  if (valor === 'false') return false;
+  throw new Error(`${nombre} debe ser true o false`);
 }
 
 export function obtenerEntorno(): ConfiguracionEntorno {

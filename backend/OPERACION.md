@@ -1,10 +1,10 @@
 # SIGR V2 — Operación del backend
 
-Este documento describe el contrato operativo incorporado en el Sprint 9. El frontend no forma parte de este alcance.
+Este documento describe el contrato operativo del Backend V1 consolidado en el Sprint 11. El frontend no forma parte de este alcance.
 
 ## Requisitos
 
-- Node.js compatible con NestJS 11.
+- Node.js 24 LTS (misma línea usada por la imagen reproducible).
 - PostgreSQL accesible mediante `DATABASE_URL`.
 - Dependencias instaladas con `npm install`.
 - Migraciones aplicadas con `npx prisma migrate deploy`.
@@ -13,18 +13,21 @@ Copie `.env.example` como `.env` y reemplace todos los valores de ejemplo. La ap
 
 ## Variables de entorno
 
-| Variable | Uso |
-| --- | --- |
-| `NODE_ENV` | `development`, `test` o `production`. |
-| `DATABASE_URL` | URL PostgreSQL obligatoria. |
-| `JWT_SECRET` | Secreto JWT; mínimo 32 caracteres en producción. |
-| `JWT_EXPIRES_IN` | Duración como `30m`, `12h` o `7d`. |
-| `PORT` | Puerto HTTP; predeterminado `3000`. |
-| `CORS_ORIGINS` | Orígenes exactos separados por coma; sin `*`. En producción deben usar HTTPS. |
-| `THROTTLE_TTL_MS` | Ventana del limitador en milisegundos. |
-| `THROTTLE_LIMIT` | Solicitudes permitidas por ventana. |
-| `SEED_ADMIN_PASSWORD` | Contraseña usada únicamente al ejecutar el seed. |
-| `TIME_ZONE` | Zona horaria IANA usada como referencia operativa, por ejemplo `America/Bogota`. |
+| Variable              | Uso                                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------- |
+| `NODE_ENV`            | `development`, `test` o `production`.                                                       |
+| `DATABASE_URL`        | URL PostgreSQL obligatoria.                                                                 |
+| `JWT_SECRET`          | Secreto JWT; mínimo 32 caracteres en producción.                                            |
+| `JWT_EXPIRES_IN`      | Duración como `30m`, `12h` o `7d`.                                                          |
+| `PORT`                | Puerto HTTP; predeterminado `3000`.                                                         |
+| `CORS_ORIGINS`        | Orígenes exactos separados por coma; sin `*`. En producción deben usar HTTPS.               |
+| `THROTTLE_TTL_MS`     | Ventana del limitador en milisegundos.                                                      |
+| `THROTTLE_LIMIT`      | Solicitudes permitidas por ventana.                                                         |
+| `SEED_ADMIN_PASSWORD` | Contraseña usada únicamente al ejecutar el seed.                                            |
+| `TIME_ZONE`           | Zona horaria IANA usada como referencia operativa, por ejemplo `America/Bogota`.            |
+| `SWAGGER_ENABLED`     | Publica `/docs`; por defecto activo fuera de producción e inactivo en producción.           |
+| `METRICS_ENABLED`     | Publica métricas básicas en `/health/metrics`.                                              |
+| `TRUST_PROXY`         | Confía en un salto de proxy para IP/rate limiting; sólo detrás de infraestructura conocida. |
 
 No deben versionarse archivos `.env`, secretos JWT, contraseñas ni tokens.
 
@@ -43,8 +46,13 @@ npm run test:e2e -- --runInBand
 
 - `GET /health/live`: confirma que el proceso HTTP responde.
 - `GET /health/ready`: confirma además que PostgreSQL acepta consultas.
+- `GET /health/metrics`: contadores Prometheus sin etiquetas ni datos de tenants.
 
 Un orquestador debe usar `live` para reinicio y `ready` para decidir si envía tráfico. Ninguno de los dos endpoints expone configuración, empresas, sucursales o secretos.
+
+## API y seguridad HTTP
+
+Cuando `SWAGGER_ENABLED=true`, OpenAPI se sirve en `/docs` con esquemas Bearer e Idempotency-Key. En producción permanece deshabilitado por defecto. Helmet aplica cabeceras defensivas y el cuerpo HTTP se limita a 1 MiB. El rate limiting se configura por ambiente; `TRUST_PROXY` sólo debe activarse detrás del proxy controlado que elimina encabezados reenviados del cliente.
 
 ## Errores y correlación
 

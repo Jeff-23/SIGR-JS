@@ -53,12 +53,27 @@ describe('AppController (e2e)', () => {
     await request(app.getHttpServer())
       .get('/health/live')
       .expect(200)
-      .expect({ status: 'ok' });
+      .expect(
+        ({ body }: { body: { status: string; uptimeSeconds: number } }) => {
+          expect(body.status).toBe('ok');
+          expect(body.uptimeSeconds).toBeGreaterThanOrEqual(0);
+        },
+      );
 
     await request(app.getHttpServer())
       .get('/health/ready')
       .expect(200)
       .expect({ status: 'ok', database: 'available' });
+
+    await request(app.getHttpServer())
+      .get('/health/metrics')
+      .expect(200)
+      .expect('Content-Type', /text\/plain/)
+      .expect((respuesta) => {
+        expect(respuesta.text).toContain('sigr_http_requests_total');
+        expect(respuesta.text).not.toContain('restauranteId');
+        expect(respuesta.text).not.toContain('sucursalId');
+      });
   });
 
   afterEach(async () => {

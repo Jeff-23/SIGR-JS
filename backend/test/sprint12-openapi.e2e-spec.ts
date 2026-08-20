@@ -21,5 +21,17 @@ describe('Sprint 12 - contrato OpenAPI', () => {
     const documento = crearDocumentoOpenApi(app);
     expect(() => validarDocumentoOpenApi(documento)).not.toThrow();
     expect(documento.info.version).toBe('1.0.0');
+    expect(documento.components?.schemas?.LoginDto).toBeDefined();
+    const pago = documento.paths['/ventas/{id}/pagos']?.post;
+    expect(pago?.summary).toBeTruthy();
+    expect(pago?.tags).toContain('Ventas');
+    expect(pago?.security).toContainEqual({ bearer: [], idempotency: [] });
+    expect(pago?.responses?.['409']).toBeDefined();
+    const respuestaError = pago?.responses?.['500'];
+    expect(
+      respuestaError && 'headers' in respuestaError
+        ? respuestaError.headers?.['X-Request-Id']
+        : undefined,
+    ).toBeDefined();
   });
 });

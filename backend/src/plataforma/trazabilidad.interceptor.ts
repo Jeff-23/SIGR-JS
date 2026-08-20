@@ -36,7 +36,15 @@ export class TrazabilidadInterceptor implements NestInterceptor {
     resultado: 'completada' | 'fallida',
   ) {
     const response = context.switchToHttp().getResponse<Response>();
-    this.metricas.registrar(request.method, response.statusCode, duracionMs);
+    const rutaExpress = obtenerRutaExpress(request);
+    this.metricas.registrar(
+      request.method,
+      typeof rutaExpress === 'string'
+        ? rutaExpress
+        : request.originalUrl.split('?')[0],
+      response.statusCode,
+      duracionMs,
+    );
     this.logger.log(
       JSON.stringify({
         evento: 'solicitud_http',
@@ -49,4 +57,12 @@ export class TrazabilidadInterceptor implements NestInterceptor {
       }),
     );
   }
+}
+
+function obtenerRutaExpress(request: unknown): string | undefined {
+  if (!request || typeof request !== 'object') return undefined;
+  const route = (request as Record<string, unknown>).route;
+  if (!route || typeof route !== 'object') return undefined;
+  const path = (route as Record<string, unknown>).path;
+  return typeof path === 'string' ? path : undefined;
 }

@@ -9,6 +9,8 @@
 5. Iniciar backend y comprobar `/health/live`, `/health/ready` y `/health/metrics`.
 6. Habilitar tráfico sólo cuando `ready` responda 200.
 
+La certificación acumulada se ejecuta con `npm run certify`. `POSTGRES_PORT` y `BACKEND_PORT` permiten levantar entornos aislados sin colisionar con desarrollo.
+
 El servicio `migrate` del compose aplica migraciones antes de iniciar el backend. Una migración destructiva requiere estrategia expand/contract y respaldo probado. El rollback de aplicación consiste en desplegar la imagen anterior; el rollback de datos se realiza exclusivamente desde un respaldo verificado, nunca borrando migraciones ya aplicadas.
 
 ## Checklist

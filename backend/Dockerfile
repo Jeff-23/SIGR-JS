@@ -27,4 +27,4 @@ COPY --from=build --chown=sigr:sigr /app/prisma.config.ts ./prisma.config.ts
 COPY --from=build --chown=sigr:sigr /app/package.json ./package.json
 USER sigr
 EXPOSE 3000
-CMD ["node", "dist/main.js"]
+CMD ["node", "dist/src/main.js"]

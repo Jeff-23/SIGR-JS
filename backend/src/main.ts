@@ -3,9 +3,10 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { obtenerEntorno } from './config/entorno';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { json, urlencoded } from 'express';
+import { crearDocumentoOpenApi } from './plataforma/openapi';
 
 async function bootstrap() {
   const entorno = obtenerEntorno();
@@ -38,23 +39,7 @@ async function bootstrap() {
   );
 
   if (entorno.swaggerHabilitado) {
-    const configuracion = new DocumentBuilder()
-      .setTitle('SIGR V2 Backend API')
-      .setDescription(
-        'API multiempresa y multisucursal. Pedido, Venta, Pago, Factura y Documento Electrónico son recursos independientes.',
-      )
-      .setVersion('1.0.0')
-      .addBearerAuth()
-      .addApiKey(
-        { type: 'apiKey', in: 'header', name: 'Idempotency-Key' },
-        'idempotency',
-      )
-      .build();
-    SwaggerModule.setup(
-      'docs',
-      app,
-      SwaggerModule.createDocument(app, configuracion),
-    );
+    SwaggerModule.setup('docs', app, crearDocumentoOpenApi(app));
   }
 
   app.enableShutdownHooks();

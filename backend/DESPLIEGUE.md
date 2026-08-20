@@ -26,6 +26,8 @@ El servicio `migrate` del compose aplica migraciones antes de iniciar el backend
 - [ ] Logs JSON centralizados por `correlacionId`, sin cuerpos ni secretos.
 - [ ] Scraping de `/health/metrics` configurado y alertas externas sobre tasa 5xx y latencia.
 - [ ] Separación Pedido/Venta/Pago/Factura/Documento Electrónico verificada.
+- [ ] Adaptador fiscal real registrado y diagnóstico del restaurante aprobado primero en habilitación.
+- [ ] Gestor de secretos resuelve todas las referencias `secret://...` sin registrar sus valores en logs.
 
 ## Respaldo y restauración
 
@@ -39,7 +41,7 @@ La restauración debe ensayarse primero en una base aislada y validarse con `npx
 ## Backlog fuera de Backend V1
 
 - Frontend V2 alineado al contrato vigente.
-- Integración real con DIAN, firma, habilitación y contingencias.
+- Adaptadores reales de proveedores seleccionados, firma, habilitación y contingencias según contrato.
 - Devoluciones comerciales y notas crédito/débito completas.
 - Métricas externas persistentes, trazas distribuidas y alertamiento gestionado.
 - Almacenamiento de documentos y adjuntos, cuando exista requisito aprobado.

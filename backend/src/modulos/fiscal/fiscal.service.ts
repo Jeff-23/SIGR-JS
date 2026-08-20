@@ -8,10 +8,110 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { ConfigurarPerfilFiscalDto } from './dto/configurar-perfil-fiscal.dto';
 import { CrearResolucionDto } from './dto/crear-resolucion.dto';
+import { ProveedorFiscalRegistry } from './proveedores/proveedor-fiscal.registry';
 
 @Injectable()
 export class FiscalService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly proveedores: ProveedorFiscalRegistry,
+  ) {}
+
+  async diagnosticarAlta(restauranteId: number, usuario: UsuarioAutenticado) {
+    this.autorizarRestaurante(restauranteId, usuario);
+    const restaurante = await this.prisma.restaurante.findFirst({
+      where: { id: restauranteId, estado: true },
+      include: {
+        perfilFiscal: true,
+        resolucionesDian: { where: { activa: true } },
+      },
+    });
+    if (!restaurante) throw new NotFoundException('Restaurante no encontrado');
+    const perfil = restaurante.perfilFiscal;
+    const hoy = new Date();
+    hoy.setUTCHours(0, 0, 0, 0);
+    const resolucionesVigentes = restaurante.resolucionesDian.filter(
+      (r) =>
+        r.vigenteDesde <= hoy &&
+        r.vigenteHasta >= hoy &&
+        r.siguienteNumero <= r.rangoHasta,
+    );
+    const adapter = this.proveedores.obtener(perfil?.proveedorCodigo);
+    const referenciasSeguras = perfil
+      ? [perfil.credencialRef, perfil.certificadoRef, perfil.softwareIdRef]
+          .filter((ref): ref is string => Boolean(ref))
+          .every((ref) => ref.startsWith('secret://'))
+      : false;
+    const checks = {
+      restauranteActivo: true,
+      perfilFiscalActivo: Boolean(perfil?.activo),
+      datosFiscalesCompletos: Boolean(
+        perfil?.responsabilidadFiscal && perfil.municipioCodigo,
+      ),
+      referenciasSecretasSeguras: referenciasSeguras,
+      resolucionVigenteDisponible: resolucionesVigentes.length > 0,
+      proveedorConfigurado: Boolean(perfil?.proveedorCodigo),
+      proveedorSoportado: Boolean(adapter),
+    };
+    let proveedorDiagnostico: { disponible: boolean; mensaje: string } = {
+      disponible: false,
+      mensaje: perfil?.proveedorCodigo
+        ? `No existe un adaptador registrado para ${perfil.proveedorCodigo}`
+        : 'No se ha seleccionado proveedor fiscal',
+    };
+    if (adapter && perfil)
+      proveedorDiagnostico = await adapter.diagnosticar(perfil);
+    const listoConfiguracion =
+      checks.restauranteActivo &&
+      checks.perfilFiscalActivo &&
+      checks.datosFiscalesCompletos &&
+      checks.referenciasSecretasSeguras &&
+      checks.resolucionVigenteDisponible &&
+      checks.proveedorConfigurado;
+    return {
+      restauranteId,
+      ambiente: perfil?.ambiente ?? null,
+      modoOperacion: perfil?.modoOperacion ?? null,
+      checks,
+      listoConfiguracion,
+      listoTransmision:
+        listoConfiguracion &&
+        checks.proveedorSoportado &&
+        proveedorDiagnostico.disponible,
+      proveedorDiagnostico,
+      resolucionesVigentes: resolucionesVigentes.length,
+    };
+  }
+
+  async resumenOperacion(restauranteId: number, usuario: UsuarioAutenticado) {
+    this.autorizarRestaurante(restauranteId, usuario);
+    const restaurante = await this.prisma.restaurante.findFirst({
+      where: { id: restauranteId, estado: true },
+      select: { id: true },
+    });
+    if (!restaurante) throw new NotFoundException('Restaurante no encontrado');
+    const documentos = await this.prisma.documentoElectronico.groupBy({
+      by: ['estado'],
+      where: { factura: { venta: { sucursal: { restauranteId } } } },
+      _count: { _all: true },
+    });
+    const outbox = await this.prisma.outboxFiscal.groupBy({
+      by: ['estado'],
+      where: {
+        documento: { factura: { venta: { sucursal: { restauranteId } } } },
+      },
+      _count: { _all: true },
+    });
+    return {
+      restauranteId,
+      documentos: Object.fromEntries(
+        documentos.map((item) => [item.estado, item._count._all]),
+      ),
+      outbox: Object.fromEntries(
+        outbox.map((item) => [item.estado, item._count._all]),
+      ),
+    };
+  }
 
   private autorizarRestaurante(
     restauranteId: number,

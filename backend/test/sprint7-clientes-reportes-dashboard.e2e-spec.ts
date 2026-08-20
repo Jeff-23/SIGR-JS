@@ -651,18 +651,20 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
       monto: 12000.3,
       referencia: `REF-${sufijo}`,
     };
-    const a = await request(app.getHttpServer())
-      .post(`/ventas/${ventaIntegridadId}/pagos`)
-      .set('Authorization', `Bearer ${tokenA}`)
-      .set('Idempotency-Key', clave)
-      .send(cuerpo)
-      .expect(201);
-    const b = await request(app.getHttpServer())
-      .post(`/ventas/${ventaIntegridadId}/pagos`)
-      .set('Authorization', `Bearer ${tokenA}`)
-      .set('Idempotency-Key', clave)
-      .send(cuerpo)
-      .expect(201);
+    const [a, b] = await Promise.all([
+      request(app.getHttpServer())
+        .post(`/ventas/${ventaIntegridadId}/pagos`)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .set('Idempotency-Key', clave)
+        .send(cuerpo)
+        .expect(201),
+      request(app.getHttpServer())
+        .post(`/ventas/${ventaIntegridadId}/pagos`)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .set('Idempotency-Key', clave)
+        .send(cuerpo)
+        .expect(201),
+    ]);
 
     expect(a.body.id).toBe(b.body.id);
     expect(a.body.pagos).toHaveLength(1);

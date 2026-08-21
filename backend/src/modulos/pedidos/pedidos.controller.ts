@@ -2,11 +2,13 @@
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   ParseIntPipe,
   Patch,
   Post,
   Req,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 
@@ -42,8 +44,14 @@ export class PedidosController {
 
     @Req()
     request: RequestAutenticada,
+
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.pedidosService.create(createPedidoDto, request.user);
+    return this.pedidosService.create(
+      createPedidoDto,
+      request.user,
+      idempotencyKey,
+    );
   }
 
   @Post(':id/detalles')
@@ -87,8 +95,10 @@ export class PedidosController {
   findAll(
     @Req()
     request: RequestAutenticada,
+    @Query('sucursalId', new ParseIntPipe({ optional: true }))
+    sucursalId?: number,
   ) {
-    return this.pedidosService.findAll(request.user);
+    return this.pedidosService.findAll(request.user, sucursalId);
   }
 
   @Get('domicilios/activos')

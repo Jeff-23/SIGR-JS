@@ -7,6 +7,7 @@
   Patch,
   Post,
   Req,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 
@@ -39,8 +40,12 @@ export class ProductosController {
 
   @Get()
   @Permisos('PRODUCTOS_VER')
-  findAll(@Req() request: RequestAutenticada) {
-    return this.productosService.findAll(request.user);
+  findAll(
+    @Req() request: RequestAutenticada,
+    @Query('sucursalId', new ParseIntPipe({ optional: true }))
+    sucursalId?: number,
+  ) {
+    return this.productosService.findAll(request.user, sucursalId);
   }
 
   @Patch(':id')

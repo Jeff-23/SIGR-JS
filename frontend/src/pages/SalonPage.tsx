@@ -4,7 +4,7 @@ import { useState } from "react";
 import { menu, money } from "../data/demo";
 import { useApp } from "../store/app";
 import type { MenuItem, Table } from "../types";
-export function SalonPage() {
+export function DemoSalonPage() {
   const { tables, orders, createOrder, releaseTable, occupyWithoutOrder } = useApp();
   const [selected, setSelected] = useState<Table | null>(null);
   const [cart, setCart] = useState<Array<MenuItem & { quantity: number }>>([]);

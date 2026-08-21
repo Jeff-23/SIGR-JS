@@ -49,12 +49,19 @@ export class MesasService {
     return this.prisma.mesa.create({ data });
   }
 
-  findAll(usuario: UsuarioAutenticado) {
+  findAll(usuario: UsuarioAutenticado, sucursalId?: number) {
     return this.prisma.mesa.findMany({
       where: {
         estado: true,
-        zona: { estado: true, sucursal: this.filtroSucursal(usuario) },
+        zona: {
+          estado: true,
+          sucursal: {
+            ...this.filtroSucursal(usuario),
+            ...(sucursalId ? { id: sucursalId } : {}),
+          },
+        },
       },
+      include: { zona: true },
       orderBy: { numero: 'asc' },
     });
   }

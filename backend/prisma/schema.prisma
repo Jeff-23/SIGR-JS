@@ -390,6 +390,9 @@ model Pedido {
   estado   EstadoPedido @default(PENDIENTE)
   creadoEn DateTime     @default(now())
 
+  idempotenciaClave String? @db.VarChar(100)
+  idempotenciaHash  String? @db.VarChar(64)
+
   sucursalId Int
   mesaId     Int?
   usuarioId  Int
@@ -403,6 +406,9 @@ model Pedido {
   factura   Factura?
   venta     Venta?
   domicilio Domicilio?
+
+  @@unique([sucursalId, idempotenciaClave])
+  @@index([sucursalId, creadoEn])
 }
 
 model Domicilio {
@@ -434,6 +440,7 @@ model DetallePedido {
   cantidad       Int
   precioUnitario Decimal @db.Decimal(10, 2)
   subtotal       Decimal @db.Decimal(10, 2)
+  observaciones  String? @db.VarChar(300)
 
   pedidoId   Int
   productoId Int

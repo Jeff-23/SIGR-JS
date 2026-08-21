@@ -23,6 +23,11 @@ export class DetallePedidoDto {
   @IsInt()
   @Min(1)
   cantidad: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  observaciones?: string;
 }
 
 export class DomicilioPedidoDto {

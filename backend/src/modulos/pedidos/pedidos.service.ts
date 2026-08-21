@@ -22,10 +22,16 @@ import { AgregarDetallesPedidoDto } from './dto/agregar-detalles-pedido.dto';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { ActualizarDomicilioDto } from './dto/actualizar-domicilio.dto';
+import {
+  hashSolicitud,
+  normalizarClaveIdempotencia,
+  validarReplayIdempotente,
+} from '../../plataforma/idempotencia';
 
 type DetalleEntrada = {
   productoId: number;
   cantidad: number;
+  observaciones?: string;
 };
 
 type DetallePreparado = {
@@ -33,6 +39,7 @@ type DetallePreparado = {
   cantidad: number;
   precioUnitario: Prisma.Decimal;
   subtotal: Prisma.Decimal;
+  observaciones: string | null;
 };
 
 @Injectable()
@@ -82,14 +89,17 @@ export class PedidosService {
   }
 
   private agruparCantidades(detalles: DetalleEntrada[]) {
-    const cantidades = new Map<number, number>();
+    const cantidades = new Map<string, DetalleEntrada>();
 
     for (const detalle of detalles) {
-      cantidades.set(
-        detalle.productoId,
-
-        (cantidades.get(detalle.productoId) ?? 0) + detalle.cantidad,
-      );
+      const observaciones = detalle.observaciones?.trim() || undefined;
+      const clave = `${detalle.productoId}:${observaciones ?? ''}`;
+      const existente = cantidades.get(clave);
+      cantidades.set(clave, {
+        productoId: detalle.productoId,
+        cantidad: (existente?.cantidad ?? 0) + detalle.cantidad,
+        observaciones,
+      });
     }
 
     return cantidades;
@@ -108,7 +118,9 @@ export class PedidosService {
   }> {
     const cantidades = this.agruparCantidades(detalles);
 
-    const productosIds = [...cantidades.keys()];
+    const productosIds = [
+      ...new Set([...cantidades.values()].map((detalle) => detalle.productoId)),
+    ];
 
     const productos = await tx.producto.findMany({
       where: {
@@ -144,7 +156,8 @@ export class PedidosService {
 
     const detallesPreparados: DetallePreparado[] = [];
 
-    for (const [productoId, cantidad] of cantidades) {
+    for (const detalle of cantidades.values()) {
+      const { productoId, cantidad } = detalle;
       const producto = productosPorId.get(productoId);
 
       if (!producto) {
@@ -165,6 +178,8 @@ export class PedidosService {
         precioUnitario: producto.precio,
 
         subtotal,
+
+        observaciones: detalle.observaciones ?? null,
       });
     }
 
@@ -368,8 +383,27 @@ export class PedidosService {
     data: CreatePedidoDto,
 
     usuarioActual: UsuarioAutenticado,
+    claveRecibida: string | undefined,
   ) {
+    const clave = normalizarClaveIdempotencia(claveRecibida);
+    const solicitudHash = hashSolicitud({ operacion: 'CREAR_PEDIDO', data });
     return this.prisma.transaccionSerializable(async (tx) => {
+      const replay = await tx.pedido.findFirst({
+        where: {
+          idempotenciaClave: clave,
+          sucursal: this.filtroSucursal(usuarioActual),
+        },
+        include: {
+          detalles: { include: { producto: true } },
+          mesa: { include: { zona: true } },
+          domicilio: true,
+        },
+      });
+      if (replay) {
+        validarReplayIdempotente(replay.idempotenciaHash, solicitudHash);
+        return replay;
+      }
+
       const contexto = await this.resolverContextoPedido(
         tx,
         data,
@@ -393,6 +427,10 @@ export class PedidosService {
           tipo: data.tipo,
 
           estado: EstadoPedido.PENDIENTE,
+
+          idempotenciaClave: clave,
+
+          idempotenciaHash: solicitudHash,
 
           total: preparado.total.plus(data.domicilio?.costo ?? 0),
 
@@ -756,13 +794,17 @@ export class PedidosService {
     });
   }
 
-  findAll(usuarioActual: UsuarioAutenticado) {
+  findAll(usuarioActual: UsuarioAutenticado, sucursalId?: number) {
     return this.prisma.pedido.findMany({
       where: {
-        sucursal: this.filtroSucursal(usuarioActual),
+        sucursal: {
+          ...this.filtroSucursal(usuarioActual),
+          ...(sucursalId ? { id: sucursalId } : {}),
+        },
       },
 
       include: {
+        sucursal: true,
         mesa: {
           include: {
             zona: true,

@@ -89,6 +89,7 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
             'PEDIDOS_VER',
             'PEDIDOS_CREAR',
             'PEDIDOS_EDITAR',
+            'PRODUCTOS_VER',
             'COMANDAS_ENVIAR',
             'COMANDAS_VER',
             'COMANDAS_ACTUALIZAR_ESTADO',
@@ -245,6 +246,7 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
     const pedido = await request(app.getHttpServer())
       .post('/pedidos')
       .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `s16-pedido-mesa-${sufijo}`)
       .send({
         tipo: 'MESA',
         mesaId,
@@ -344,6 +346,7 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
     const pedido = await request(app.getHttpServer())
       .post('/pedidos')
       .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `s16-pedido-domicilio-${sufijo}`)
       .send({
         tipo: 'DOMICILIO',
         sucursalId,
@@ -403,6 +406,51 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       domicilioCosto: '5000',
       total: '27000',
     });
+  });
+
+  it('protege pedidos contra reintentos y conserva observaciones operativas', async () => {
+    const clave = `s22-pedido-${sufijo}`;
+    const cuerpo = {
+      tipo: 'MOSTRADOR',
+      sucursalId,
+      detalles: [{ productoId, cantidad: 2, observaciones: 'Sin cebolla' }],
+    };
+    const primero = await request(app.getHttpServer())
+      .post('/pedidos')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', clave)
+      .send(cuerpo)
+      .expect(201);
+    const replay = await request(app.getHttpServer())
+      .post('/pedidos')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', clave)
+      .send(cuerpo)
+      .expect(201);
+    expect(replay.body.id).toBe(primero.body.id);
+    expect(primero.body.detalles[0].observaciones).toBe('Sin cebolla');
+    expect(
+      await prisma.pedido.count({ where: { idempotenciaClave: clave } }),
+    ).toBe(1);
+
+    await request(app.getHttpServer())
+      .post('/pedidos')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', clave)
+      .send({ ...cuerpo, detalles: [{ productoId, cantidad: 1 }] })
+      .expect(409);
+
+    const mesas = await request(app.getHttpServer())
+      .get(`/mesas?sucursalId=${sucursalId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(mesas.body[0].zona.sucursalId).toBe(sucursalId);
+
+    const productos = await request(app.getHttpServer())
+      .get(`/productos?sucursalId=${sucursalId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(productos.body[0].categoria.sucursalId).toBe(sucursalId);
   });
 
   it('usa prefijo configurado y genera una tirilla interna segura', async () => {

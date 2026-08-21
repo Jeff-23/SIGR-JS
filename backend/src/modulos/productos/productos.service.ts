@@ -138,7 +138,7 @@ export class ProductosService {
     });
   }
 
-  async findAll(usuarioActual: UsuarioAutenticado) {
+  async findAll(usuarioActual: UsuarioAutenticado, sucursalId?: number) {
     return this.prisma.producto.findMany({
       where: {
         estado: true,
@@ -160,12 +160,14 @@ export class ProductosService {
                   id: usuarioActual.sucursalId,
                 }
               : {}),
+            ...(sucursalId ? { id: sucursalId } : {}),
           },
         },
       },
 
       include: {
         recetas: true,
+        categoria: true,
       },
 
       orderBy: {

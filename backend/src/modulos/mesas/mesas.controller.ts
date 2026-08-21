@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Req,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { CapabilitiesGuard } from '../auth/capabilities.guard';
@@ -38,8 +39,12 @@ export class MesasController {
 
   @Get()
   @Permisos('MESAS_VER')
-  findAll(@Req() request: RequestAutenticada) {
-    return this.mesasService.findAll(request.user);
+  findAll(
+    @Req() request: RequestAutenticada,
+    @Query('sucursalId', new ParseIntPipe({ optional: true }))
+    sucursalId?: number,
+  ) {
+    return this.mesasService.findAll(request.user, sucursalId);
   }
 
   @Patch(':id/ocupar-sin-pedido')

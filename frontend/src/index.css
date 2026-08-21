@@ -78,6 +78,15 @@ button {
   .qty {
     @apply grid h-8 w-8 place-items-center rounded-lg bg-denim/5 hover:bg-marigold/30;
   }
+  .salon-filter {
+    @apply whitespace-nowrap rounded-xl border border-denim/10 bg-white px-4 py-2 text-xs font-extrabold transition hover:border-marigold;
+  }
+  .salon-filter.active {
+    @apply border-steel bg-steel text-white;
+  }
+  .status-pill {
+    @apply shrink-0 rounded-full bg-marigold/25 px-3 py-1 text-[10px] font-black uppercase tracking-wide;
+  }
   .empty {
     @apply mt-8 grid min-h-[55vh] place-items-center content-center gap-3 rounded-[28px] border border-dashed border-denim/15 bg-white/55 p-8 text-center text-denim/35;
   }

@@ -87,6 +87,15 @@ button {
   .status-pill {
     @apply shrink-0 rounded-full bg-marigold/25 px-3 py-1 text-[10px] font-black uppercase tracking-wide;
   }
+  .kds-card {
+    @apply relative flex min-h-[430px] flex-col overflow-hidden rounded-[24px] border border-denim/[.06] bg-white shadow-card;
+  }
+  .kds-card.warning { @apply border-amber-300; }
+  .kds-card.critical { @apply border-red-400 shadow-[0_12px_34px_rgba(220,38,38,.12)]; }
+  .kds-header { @apply flex min-h-[112px] items-start justify-between gap-4 border-t-[6px] bg-denim/[.025] p-5; }
+  .kds-timer { @apply mt-7 flex shrink-0 items-center gap-1 rounded-full bg-denim/5 px-3 py-2 text-xs font-black; }
+  .kds-timer.warning { @apply bg-amber-100 text-amber-800; }
+  .kds-timer.critical { @apply animate-pulse bg-red-600 text-white; }
   .empty {
     @apply mt-8 grid min-h-[55vh] place-items-center content-center gap-3 rounded-[28px] border border-dashed border-denim/15 bg-white/55 p-8 text-center text-denim/35;
   }

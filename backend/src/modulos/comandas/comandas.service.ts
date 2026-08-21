@@ -10,6 +10,7 @@ import {
   EstadoPedido,
   EstadoVenta,
   Prisma,
+  PrioridadComanda,
   TipoPedido,
 } from '@prisma/client';
 
@@ -18,6 +19,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CrearComandaDto } from './dto/crear-comanda.dto';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import {
+  ActualizarEstacionDto,
+  CrearEstacionDto,
+} from './dto/gestionar-estacion.dto';
 
 @Injectable()
 export class ComandasService {
@@ -71,7 +76,7 @@ export class ComandasService {
         },
 
         include: {
-          detalles: true,
+          detalles: { include: { producto: { include: { estacion: true } } } },
         },
       });
 
@@ -155,10 +160,31 @@ export class ComandasService {
         );
       }
 
-      const detallesComanda: {
-        detallePedidoId: number;
-        cantidad: number;
-      }[] = [];
+      const detallesPorEstacion = new Map<
+        number,
+        {
+          detallePedidoId: number;
+          cantidad: number;
+        }[]
+      >();
+
+      const estacionPredeterminada = await tx.estacionPreparacion.upsert({
+        where: {
+          sucursalId_codigo: {
+            sucursalId: pedido.sucursalId,
+            codigo: 'COCINA',
+          },
+        },
+        update: { estado: true },
+        create: {
+          sucursalId: pedido.sucursalId,
+          codigo: 'COCINA',
+          nombre: 'Cocina',
+          color: '#F97316',
+          orden: 10,
+        },
+        select: { id: true },
+      });
 
       for (const [detallePedidoId, cantidadSolicitada] of solicitados) {
         const detallePedido = detallesPedido.get(detallePedidoId);
@@ -173,43 +199,52 @@ export class ComandasService {
           );
         }
 
-        detallesComanda.push({
+        const estacionId = detallePedido.producto.estacion?.estado
+          ? detallePedido.producto.estacion.id
+          : estacionPredeterminada.id;
+        if (!estacionId) {
+          throw new BadRequestException(
+            `El producto ${detallePedido.productoId} no tiene estación de preparación activa`,
+          );
+        }
+        const grupo = detallesPorEstacion.get(estacionId) ?? [];
+        grupo.push({
           detallePedidoId,
           cantidad: cantidadSolicitada,
         });
+        detallesPorEstacion.set(estacionId, grupo);
       }
 
-      return tx.comanda.create({
-        data: {
-          pedidoId: pedido.id,
-
-          detalles: {
-            create: detallesComanda,
-          },
-        },
-
-        include: {
-          detalles: {
+      const comandas = [];
+      for (const [estacionId, detalles] of detallesPorEstacion) {
+        comandas.push(
+          await tx.comanda.create({
+            data: {
+              pedidoId: pedido.id,
+              estacionId,
+              detalles: { create: detalles },
+            },
             include: {
-              detallePedido: {
+              estacion: true,
+              detalles: {
                 include: {
-                  producto: true,
+                  detallePedido: { include: { producto: true } },
                 },
               },
+              pedido: { include: { mesa: true } },
             },
-          },
-
-          pedido: {
-            include: {
-              mesa: true,
-            },
-          },
-        },
-      });
+          }),
+        );
+      }
+      return { comandas };
     });
   }
 
-  listarKds(usuario: UsuarioAutenticado) {
+  listarKds(
+    usuario: UsuarioAutenticado,
+    sucursalId?: number,
+    estacionId?: number,
+  ) {
     return this.prisma.comanda.findMany({
       where: {
         estado: {
@@ -222,10 +257,13 @@ export class ComandasService {
 
         pedido: {
           ...this.filtroPedido(usuario),
+          ...(sucursalId ? { sucursalId } : {}),
         },
+        ...(estacionId ? { estacionId } : {}),
       },
 
       include: {
+        estacion: true,
         pedido: {
           include: {
             mesa: {
@@ -247,10 +285,69 @@ export class ComandasService {
         },
       },
 
-      orderBy: {
-        fechaEnvio: 'asc',
-      },
+      orderBy: [{ prioridad: 'desc' }, { fechaEnvio: 'asc' }],
       take: 500,
+    });
+  }
+
+  listarEstaciones(usuario: UsuarioAutenticado, sucursalId?: number) {
+    return this.prisma.estacionPreparacion.findMany({
+      where: {
+        estado: true,
+        sucursal: {
+          ...this.filtroSucursal(usuario),
+          ...(sucursalId ? { id: sucursalId } : {}),
+        },
+      },
+      orderBy: [{ orden: 'asc' }, { nombre: 'asc' }],
+    });
+  }
+
+  async crearEstacion(data: CrearEstacionDto, usuario: UsuarioAutenticado) {
+    const sucursal = await this.prisma.sucursal.findFirst({
+      where: { id: data.sucursalId, ...this.filtroSucursal(usuario) },
+      select: { id: true },
+    });
+    if (!sucursal) throw new NotFoundException('Sucursal no encontrada');
+    return this.prisma.estacionPreparacion.create({
+      data: {
+        ...data,
+        codigo: data.codigo.trim().toUpperCase(),
+        nombre: data.nombre.trim(),
+      },
+    });
+  }
+
+  async actualizarEstacion(
+    id: number,
+    data: ActualizarEstacionDto,
+    usuario: UsuarioAutenticado,
+  ) {
+    const estacion = await this.prisma.estacionPreparacion.findFirst({
+      where: { id, sucursal: this.filtroSucursal(usuario) },
+      select: { id: true },
+    });
+    if (!estacion) throw new NotFoundException('Estación no encontrada');
+    return this.prisma.estacionPreparacion.update({
+      where: { id },
+      data: { ...data, ...(data.nombre ? { nombre: data.nombre.trim() } : {}) },
+    });
+  }
+
+  async actualizarPrioridad(
+    id: number,
+    prioridad: PrioridadComanda,
+    usuario: UsuarioAutenticado,
+  ) {
+    const comanda = await this.prisma.comanda.findFirst({
+      where: { id, pedido: this.filtroPedido(usuario) },
+      select: { id: true },
+    });
+    if (!comanda) throw new NotFoundException('Comanda no encontrada');
+    return this.prisma.comanda.update({
+      where: { id },
+      data: { prioridad },
+      include: { estacion: true },
     });
   }
 
@@ -302,6 +399,7 @@ export class ComandasService {
         data,
 
         include: {
+          estacion: true,
           detalles: {
             include: {
               detallePedido: {

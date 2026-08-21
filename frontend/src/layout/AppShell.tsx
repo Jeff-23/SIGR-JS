@@ -30,7 +30,7 @@ const nav = [
     label: "Cocina y bar",
     icon: Flame,
     permission: "COMANDAS_VER",
-    capability: "COMANDAS",
+    capability: "KDS",
   },
   { to: "/caja", label: "Caja", icon: Receipt, permission: "CAJA_VER", capability: null },
   {

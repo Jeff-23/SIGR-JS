@@ -26,6 +26,11 @@ export class CreateProductoDto {
   @IsNotEmpty()
   categoriaId: number;
 
+  @IsInt()
+  @IsOptional()
+  @Min(1)
+  estacionId?: number;
+
   @IsEnum(EstrategiaInventario)
   @IsOptional()
   estrategiaInventario?: EstrategiaInventario;

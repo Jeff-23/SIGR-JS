@@ -739,6 +739,28 @@ async function bootstrap() {
       },
     });
 
+    const sucursalesKds = await prisma.sucursal.findMany({
+      select: { id: true },
+    });
+    for (const sucursal of sucursalesKds) {
+      for (const estacion of [
+        { codigo: 'COCINA', nombre: 'Cocina', color: '#F97316', orden: 10 },
+        { codigo: 'BAR', nombre: 'Bar', color: '#3B82F6', orden: 20 },
+      ]) {
+        await prisma.estacionPreparacion.upsert({
+          where: {
+            sucursalId_codigo: {
+              sucursalId: sucursal.id,
+              codigo: estacion.codigo,
+            },
+          },
+          update: { ...estacion, estado: true },
+          create: { ...estacion, sucursalId: sucursal.id },
+        });
+      }
+    }
+    console.log('Estaciones KDS base configuradas por sucursal.');
+
     const permisosAdmin = await prisma.permiso.findMany({
       where: {
         activo: true,

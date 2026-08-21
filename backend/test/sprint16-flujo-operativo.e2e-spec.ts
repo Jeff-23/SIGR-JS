@@ -21,6 +21,7 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
   let zonaId = 0;
   let mesaId = 0;
   let productoId = 0;
+  let productoBarId = 0;
   let categoriaId = 0;
   let cajaId = 0;
   let token = '';
@@ -199,7 +200,9 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       where: { restauranteId },
     });
     await prisma.caja.deleteMany({ where: { id: cajaId } });
-    await prisma.producto.deleteMany({ where: { id: productoId } });
+    await prisma.producto.deleteMany({
+      where: { id: { in: [productoId, productoBarId] } },
+    });
     await prisma.categoria.deleteMany({ where: { id: categoriaId } });
     await prisma.mesa.deleteMany({ where: { id: mesaId } });
     await prisma.zona.deleteMany({ where: { id: zonaId } });
@@ -282,7 +285,7 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
     ).toBe('OCUPADA');
     for (const estado of ['EN_PREPARACION', 'LISTA', 'ENTREGADA']) {
       await request(app.getHttpServer())
-        .patch(`/comandas/${comanda.body.id}/estado`)
+        .patch(`/comandas/${comanda.body.comandas[0].id}/estado`)
         .set('Authorization', `Bearer ${token}`)
         .send({ estado })
         .expect(200);
@@ -377,7 +380,7 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       .expect(200);
     for (const estado of ['EN_PREPARACION', 'LISTA', 'ENTREGADA']) {
       await request(app.getHttpServer())
-        .patch(`/comandas/${comanda.body.id}/estado`)
+        .patch(`/comandas/${comanda.body.comandas[0].id}/estado`)
         .set('Authorization', `Bearer ${token}`)
         .send({ estado })
         .expect(200);
@@ -451,6 +454,79 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
     expect(productos.body[0].categoria.sucursalId).toBe(sucursalId);
+  });
+
+  it('divide una orden por estaciones y permite priorizar cada comanda', async () => {
+    const bar = await prisma.estacionPreparacion.upsert({
+      where: { sucursalId_codigo: { sucursalId, codigo: 'BAR' } },
+      update: { estado: true },
+      create: {
+        sucursalId,
+        codigo: 'BAR',
+        nombre: 'Bar',
+        color: '#3B82F6',
+        orden: 20,
+      },
+    });
+    const cocina = await prisma.estacionPreparacion.findUniqueOrThrow({
+      where: { sucursalId_codigo: { sucursalId, codigo: 'COCINA' } },
+    });
+    await prisma.producto.update({
+      where: { id: productoId },
+      data: { estacionId: cocina.id },
+    });
+    const productoBar = await prisma.producto.create({
+      data: {
+        nombre: `Bebida ${sufijo}`,
+        precio: 6000,
+        categoriaId,
+        estacionId: bar.id,
+      },
+    });
+    productoBarId = productoBar.id;
+    const pedido = await request(app.getHttpServer())
+      .post('/pedidos')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `s23-estaciones-${sufijo}`)
+      .send({
+        tipo: 'MOSTRADOR',
+        sucursalId,
+        detalles: [
+          { productoId, cantidad: 1 },
+          { productoId: productoBarId, cantidad: 2 },
+        ],
+      })
+      .expect(201);
+    const envio = await request(app.getHttpServer())
+      .post(`/pedidos/${pedido.body.id}/comandas`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        detalles: pedido.body.detalles.map(
+          (detalle: { id: number; cantidad: number }) => ({
+            detallePedidoId: detalle.id,
+            cantidad: detalle.cantidad,
+          }),
+        ),
+      })
+      .expect(201);
+    expect(envio.body.comandas).toHaveLength(2);
+    const codigos = (
+      envio.body.comandas as Array<{ estacion: { codigo: string } }>
+    ).map((comanda) => comanda.estacion.codigo);
+    expect(new Set(codigos)).toEqual(new Set(['COCINA', 'BAR']));
+    const urgenteId = envio.body.comandas[0].id as number;
+    await request(app.getHttpServer())
+      .patch(`/comandas/${urgenteId}/prioridad`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ prioridad: 'URGENTE' })
+      .expect(200);
+    const tablero = await request(app.getHttpServer())
+      .get(`/comandas?sucursalId=${sucursalId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(
+      tablero.body.find((comanda: { id: number }) => comanda.id === urgenteId),
+    ).toMatchObject({ prioridad: 'URGENTE' });
   });
 
   it('usa prefijo configurado y genera una tirilla interna segura', async () => {

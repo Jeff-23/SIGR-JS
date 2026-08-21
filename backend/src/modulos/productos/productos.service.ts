@@ -125,13 +125,30 @@ export class ProductosService {
     return producto;
   }
 
+  private async validarEstacion(
+    estacionId: number | undefined,
+    sucursalId: number,
+  ) {
+    if (estacionId === undefined) return;
+    const estacion = await this.prisma.estacionPreparacion.findFirst({
+      where: { id: estacionId, sucursalId, estado: true },
+      select: { id: true },
+    });
+    if (!estacion) {
+      throw new NotFoundException(
+        'Estación de preparación no encontrada en la sucursal del producto',
+      );
+    }
+  }
+
   async create(data: CreateProductoDto, usuarioActual: UsuarioAutenticado) {
     this.validarCapacidadesInventario(data.estrategiaInventario, usuarioActual);
 
-    await this.validarCategoriaDentroDelAlcance(
+    const categoria = await this.validarCategoriaDentroDelAlcance(
       data.categoriaId,
       usuarioActual,
     );
+    await this.validarEstacion(data.estacionId, categoria.sucursalId);
 
     return this.prisma.producto.create({
       data,
@@ -168,6 +185,7 @@ export class ProductosService {
       include: {
         recetas: true,
         categoria: true,
+        estacion: true,
       },
 
       orderBy: {
@@ -186,6 +204,13 @@ export class ProductosService {
       id,
       usuarioActual,
     );
+    if (data.estacionId !== undefined) {
+      const categoria = await this.prisma.categoria.findUniqueOrThrow({
+        where: { id: producto.categoriaId },
+        select: { sucursalId: true },
+      });
+      await this.validarEstacion(data.estacionId, categoria.sucursalId);
+    }
 
     if (data.estrategiaInventario !== undefined) {
       this.validarCapacidadesInventario(

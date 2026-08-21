@@ -12,14 +12,16 @@ export function KitchenPage() {
   const [sound, setSound] = useState(true);
   const [now, setNow] = useState(() => new Date().getTime());
   const known = useRef(new Set<number>());
+  const alertsReady = useRef(false);
   const active = useMemo(() => orders.filter((order) => order.status !== "PAGADO" && order.status !== "PENDIENTE_PAGO"), [orders]);
   useEffect(() => {
     const newcomers = active.filter((order) => !known.current.has(order.id));
-    if (newcomers.length && known.current.size) {
+    if (newcomers.length && alertsReady.current) {
       toast.success(`${newcomers.length} nueva${newcomers.length > 1 ? "s" : ""} comanda${newcomers.length > 1 ? "s" : ""}`, { icon: "🔔", duration: 6000 });
       if (sound) { const context = new AudioContext(); const oscillator = context.createOscillator(); oscillator.connect(context.destination); oscillator.frequency.value = 880; oscillator.start(); oscillator.stop(context.currentTime + 0.16); }
     }
     active.forEach((order) => known.current.add(order.id));
+    alertsReady.current = true;
   }, [active, sound]);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date().getTime()), 60000);

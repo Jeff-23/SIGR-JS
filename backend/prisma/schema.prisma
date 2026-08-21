@@ -143,6 +143,13 @@ enum TipoMovimientoInventario {
   REVERSO_VENTA
 }
 
+enum OrigenRegistroFactura {
+  SISTEMA
+  PAPEL
+  DIGITACION_DIRECTA
+  IMPORTADO
+}
+
 model Restaurante {
   id            Int      @id @default(autoincrement())
   nombre        String   @db.VarChar(100)
@@ -165,6 +172,7 @@ model Restaurante {
   auditorias       EventoAuditoria[]
   perfilFiscal     PerfilFiscal?
   resolucionesDian ResolucionNumeracionDian[]
+  registrosFactura RegistroFacturaOperativa[]
 
   @@index([planId])
 }
@@ -222,6 +230,7 @@ model Sucursal {
   movimientosInventario MovimientoInventario[]
   configuraciones       ConfiguracionSucursal[]
   auditorias            EventoAuditoria[]
+  registrosFactura      RegistroFacturaOperativa[]
 }
 
 // ==========================================
@@ -296,14 +305,15 @@ model Usuario {
   pedidos Pedido[]
   ventas  Venta[]
 
-  cajasAbiertas         Caja[]                 @relation("CajaAbiertaPor")
-  cajasCerradas         Caja[]                 @relation("CajaCerradaPor")
+  cajasAbiertas         Caja[]                     @relation("CajaAbiertaPor")
+  cajasCerradas         Caja[]                     @relation("CajaCerradaPor")
   movimientosCaja       MovimientoCaja[]
   pagosRegistrados      Pago[]
   movimientosInventario MovimientoInventario[]
-  auditorias            EventoAuditoria[]      @relation("AuditoriaActor")
-  mesasOcupadasManual   Mesa[]                 @relation("MesaOcupadaManualPor")
-  domiciliosAsignados   Domicilio[]            @relation("DomicilioRepartidor")
+  auditorias            EventoAuditoria[]          @relation("AuditoriaActor")
+  mesasOcupadasManual   Mesa[]                     @relation("MesaOcupadaManualPor")
+  domiciliosAsignados   Domicilio[]                @relation("DomicilioRepartidor")
+  registrosFactura      RegistroFacturaOperativa[]
 
   @@index([restauranteId])
   @@index([sucursalId])
@@ -513,6 +523,7 @@ model Venta {
   detalles              DetalleVenta[]
   pagos                 Pago[]
   factura               Factura?
+  registrosFactura      RegistroFacturaOperativa[]
   movimientosInventario MovimientoInventario[]
 
   @@unique([sucursalId, idempotenciaClave])
@@ -661,7 +672,52 @@ model Factura {
    */
   documentoElectronico DocumentoElectronico?
 
-  pagos Pago[]
+  pagos             Pago[]
+  registroOperativo RegistroFacturaOperativa?
+}
+
+model RegistroFacturaOperativa {
+  id                Int                   @id @default(autoincrement())
+  numero            String                @db.VarChar(80)
+  numeroComanda     String?               @db.VarChar(80)
+  numeroSoporte     String?               @db.VarChar(80)
+  origen            OrigenRegistroFactura
+  fechaOperacion    DateTime
+  subtotal          Decimal               @db.Decimal(14, 2)
+  descuentos        Decimal               @default(0) @db.Decimal(14, 2)
+  impuestos         Decimal               @default(0) @db.Decimal(14, 2)
+  propina           Decimal               @default(0) @db.Decimal(14, 2)
+  domicilio         Decimal               @default(0) @db.Decimal(14, 2)
+  total             Decimal               @db.Decimal(14, 2)
+  detalles          Json
+  impuestosDetalle  Json?
+  formasPago        Json?
+  soporteArchivoRef String?               @db.VarChar(500)
+  observaciones     String?               @db.VarChar(500)
+  idempotenciaClave String?               @db.VarChar(100)
+  creadoEn          DateTime              @default(now())
+  actualizadoEn     DateTime              @updatedAt
+
+  restauranteId Int
+  sucursalId    Int
+  digitadoPorId Int
+  ventaId       Int?
+  facturaId     Int? @unique
+
+  restaurante Restaurante @relation(fields: [restauranteId], references: [id], onDelete: Restrict)
+  sucursal    Sucursal    @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  digitadoPor Usuario     @relation(fields: [digitadoPorId], references: [id], onDelete: Restrict)
+  venta       Venta?      @relation(fields: [ventaId], references: [id], onDelete: SetNull)
+  factura     Factura?    @relation(fields: [facturaId], references: [id], onDelete: SetNull)
+
+  @@unique([sucursalId, numero])
+  @@unique([sucursalId, numeroComanda])
+  @@unique([sucursalId, numeroSoporte])
+  @@unique([sucursalId, idempotenciaClave])
+  @@index([restauranteId, fechaOperacion])
+  @@index([sucursalId, fechaOperacion])
+  @@index([digitadoPorId])
+  @@index([ventaId])
 }
 
 model Pago {

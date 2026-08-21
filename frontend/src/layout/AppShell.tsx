@@ -19,11 +19,37 @@ import { useApp } from "../store/app";
 
 const nav = [
   { to: "/", label: "Resumen", icon: LayoutDashboard, permission: null },
-  { to: "/salon", label: "Salón", icon: UtensilsCrossed, permission: "MESAS_VER" },
-  { to: "/cocina", label: "Cocina y bar", icon: Flame, permission: "COMANDAS_VER" },
+  {
+    to: "/salon",
+    label: "Salón",
+    icon: UtensilsCrossed,
+    permission: "MESAS_VER",
+  },
+  {
+    to: "/cocina",
+    label: "Cocina y bar",
+    icon: Flame,
+    permission: "COMANDAS_VER",
+  },
   { to: "/caja", label: "Caja", icon: Receipt, permission: "CAJA_VER" },
-  { to: "/reportes", label: "Reportes", icon: BarChart3, permission: "REPORTES_VER" },
-  { to: "/configuracion", label: "Configuración", icon: Settings, permission: "CONFIGURACION_VER" },
+  {
+    to: "/facturas",
+    label: "Facturas",
+    icon: ClipboardList,
+    permission: "REGISTROS_FACTURA_VER",
+  },
+  {
+    to: "/reportes",
+    label: "Reportes",
+    icon: BarChart3,
+    permission: "REPORTES_VER",
+  },
+  {
+    to: "/configuracion",
+    label: "Configuración",
+    icon: Settings,
+    permission: "CONFIGURACION_VER",
+  },
 ];
 export function AppShell() {
   const [open, setOpen] = useState(false);
@@ -41,19 +67,23 @@ export function AppShell() {
         </div>
         <nav className="mt-10 space-y-1">
           {nav
-            .filter((item) => !item.permission || session?.user.permisos.includes(item.permission))
+            .filter(
+              (item) =>
+                !item.permission ||
+                session?.user.permisos.includes(item.permission),
+            )
             .map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              onClick={() => setOpen(false)}
-              className={({ isActive }) =>
-                `flex items-center gap-3 rounded-2xl px-4 py-3.5 text-sm font-bold transition ${isActive ? "bg-marigold text-steel" : "text-white/58 hover:bg-white/7 hover:text-white"}`
-              }
-            >
-              <Icon size={19} />
-              {label}
-            </NavLink>
+              <NavLink
+                key={to}
+                to={to}
+                onClick={() => setOpen(false)}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 rounded-2xl px-4 py-3.5 text-sm font-bold transition ${isActive ? "bg-marigold text-steel" : "text-white/58 hover:bg-white/7 hover:text-white"}`
+                }
+              >
+                <Icon size={19} />
+                {label}
+              </NavLink>
             ))}
         </nav>
         <div className="absolute bottom-5 left-5 right-5 rounded-2xl border border-white/10 bg-white/5 p-4">

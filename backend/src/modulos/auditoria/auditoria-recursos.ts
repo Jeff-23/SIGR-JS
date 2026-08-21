@@ -6,6 +6,7 @@ const RECURSOS_POR_SEGMENTO: Record<string, string> = {
   ventas: 'VENTA',
   pagos: 'PAGO',
   facturas: 'FACTURA',
+  'registros-factura': 'REGISTRO_FACTURA',
   'documentos-electronicos': 'DOCUMENTO_ELECTRONICO',
   cajas: 'CAJA',
   inventario: 'INVENTARIO',

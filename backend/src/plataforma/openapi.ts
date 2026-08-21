@@ -24,6 +24,7 @@ const RUTAS_IDEMPOTENTES = [
   'POST /ventas/directa',
   'POST /ventas/manual',
   'POST /ventas/{id}/pagos',
+  'POST /registros-factura',
 ];
 
 const nombresRecursos: Record<string, string> = {
@@ -138,6 +139,7 @@ export function validarDocumentoOpenApi(documento: OpenAPIObject) {
     '/ventas',
     '/facturas',
     '/documentos-electronicos',
+    '/registros-factura',
   ];
   for (const ruta of requeridas) {
     if (

@@ -14,46 +14,50 @@ import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { Brand } from "../components/Brand";
 import { Connection } from "../components/Connection";
-import { branches } from "../data/demo";
 import { useApp } from "../store/app";
 
 const nav = [
-  { to: "/", label: "Resumen", icon: LayoutDashboard, permission: null },
+  { to: "/", label: "Resumen", icon: LayoutDashboard, permission: null, capability: null },
   {
     to: "/salon",
     label: "Salón",
     icon: UtensilsCrossed,
     permission: "MESAS_VER",
+    capability: "MESAS",
   },
   {
     to: "/cocina",
     label: "Cocina y bar",
     icon: Flame,
     permission: "COMANDAS_VER",
+    capability: "COMANDAS",
   },
-  { to: "/caja", label: "Caja", icon: Receipt, permission: "CAJA_VER" },
+  { to: "/caja", label: "Caja", icon: Receipt, permission: "CAJA_VER", capability: null },
   {
     to: "/facturas",
     label: "Facturas",
     icon: ClipboardList,
     permission: "REGISTROS_FACTURA_VER",
+    capability: "FACTURACION",
   },
   {
     to: "/reportes",
     label: "Reportes",
     icon: BarChart3,
     permission: "REPORTES_VER",
+    capability: null,
   },
   {
     to: "/configuracion",
     label: "Configuración",
     icon: Settings,
     permission: "CONFIGURACION_VER",
+    capability: null,
   },
 ];
 export function AppShell() {
   const [open, setOpen] = useState(false);
-  const { session, setSession, branchId, setBranch } = useApp();
+  const { session, logout, branchId, branches, branchesLoading, setBranch, serviceAvailable, hasPermission, hasCapability } = useApp();
   return (
     <div className="min-h-screen bg-[#f4f2ec] text-denim">
       <aside
@@ -69,8 +73,7 @@ export function AppShell() {
           {nav
             .filter(
               (item) =>
-                !item.permission ||
-                session?.user.permisos.includes(item.permission),
+                hasPermission(item.permission) && hasCapability(item.capability),
             )
             .map(({ to, label, icon: Icon }) => (
               <NavLink
@@ -97,7 +100,7 @@ export function AppShell() {
               </strong>
               <span className="text-xs text-white/45">{session?.user.rol}</span>
             </div>
-            <button onClick={() => setSession(null)} aria-label="Cerrar sesión">
+            <button onClick={logout} aria-label="Cerrar sesión">
               <LogOut size={18} />
             </button>
           </div>
@@ -117,13 +120,15 @@ export function AppShell() {
           </button>
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-bold uppercase tracking-[.14em] text-denim/38">
-              Restaurante El Mono
+              {session?.user.restauranteNombre ?? (session?.demo ? "Restaurante El Mono" : `Restaurante ${session?.user.restauranteId ?? "SIGR"}`)}
             </p>
             <select
-              value={branchId}
+              value={branchId ?? ""}
               onChange={(e) => setBranch(Number(e.target.value))}
+              disabled={branchesLoading || branches.length <= 1}
               className="-ml-1 mt-1 bg-transparent text-lg font-black outline-none"
             >
+              {branches.length === 0 && <option value="">{branchesLoading ? "Consultando sucursales…" : "Sin sucursal asignada"}</option>}
               {branches.map((branch) => (
                 <option key={branch.id} value={branch.id}>
                   {branch.name}
@@ -131,6 +136,7 @@ export function AppShell() {
               ))}
             </select>
           </div>
+          {!serviceAvailable && <span className="hidden rounded-full bg-orange-100 px-3 py-2 text-xs font-bold text-orange-800 md:block">Servidor sin respuesta</span>}
           <Connection />
           <button className="hidden rounded-xl border border-denim/10 p-2.5 text-denim/50 sm:block">
             <ClipboardList size={19} />

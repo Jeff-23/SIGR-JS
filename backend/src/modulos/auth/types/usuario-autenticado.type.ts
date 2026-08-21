@@ -10,4 +10,6 @@
 
   permisos: string[];
   capacidades: string[];
+  restauranteNombre?: string;
+  sucursalNombre?: string;
 };

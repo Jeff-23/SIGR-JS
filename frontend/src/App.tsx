@@ -11,7 +11,7 @@ import { pending } from "./lib/offline";
 import { CashPage } from "./pages/CashPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { InvoicesPage } from "./pages/InvoicesPage";
-import { KitchenPage } from "./pages/KitchenPage";
+import { KitchenRouterPage } from "./pages/KitchenRouterPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { SalonRouterPage } from "./pages/SalonRouterPage";
@@ -37,7 +37,7 @@ function ApplicationRoutes() {
   return <Routes><Route element={<AppShell />}>
     <Route index element={<DashboardPage/>}/>
     <Route path="salon" element={<RouteGuard permission="MESAS_VER" capability="MESAS" branchRequired><SalonRouterPage/></RouteGuard>}/>
-    <Route path="cocina" element={<RouteGuard permission="COMANDAS_VER" capability="COMANDAS" branchRequired><KitchenPage/></RouteGuard>}/>
+    <Route path="cocina" element={<RouteGuard permission="COMANDAS_VER" capability="KDS" branchRequired><KitchenRouterPage/></RouteGuard>}/>
     <Route path="caja" element={<RouteGuard permission="CAJA_VER" branchRequired><CashPage/></RouteGuard>}/>
     <Route path="facturas" element={<RouteGuard permission="REGISTROS_FACTURA_VER" capability="FACTURACION" branchRequired><InvoicesPage/></RouteGuard>}/>
     <Route path="reportes" element={<RouteGuard permission="REPORTES_VER" branchRequired><ReportsPage/></RouteGuard>}/>

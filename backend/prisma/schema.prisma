@@ -51,6 +51,12 @@ enum EstadoComanda {
   CANCELADA
 }
 
+enum PrioridadComanda {
+  NORMAL
+  ALTA
+  URGENTE
+}
+
 enum EstadoDomicilio {
   PENDIENTE_ASIGNACION
   ASIGNADO
@@ -231,6 +237,7 @@ model Sucursal {
   configuraciones       ConfiguracionSucursal[]
   auditorias            EventoAuditoria[]
   registrosFactura      RegistroFacturaOperativa[]
+  estacionesPreparacion EstacionPreparacion[]
 }
 
 // ==========================================
@@ -375,12 +382,34 @@ model Producto {
   creadoEn DateTime @default(now())
 
   categoriaId Int
+  estacionId  Int?
   categoria   Categoria @relation(fields: [categoriaId], references: [id])
+  estacion    EstacionPreparacion? @relation(fields: [estacionId], references: [id], onDelete: SetNull)
 
   detalles              DetallePedido[]
   detallesVenta         DetalleVenta[]
   recetas               Receta[]
   movimientosInventario MovimientoInventario[]
+
+  @@index([estacionId])
+}
+
+model EstacionPreparacion {
+  id        Int      @id @default(autoincrement())
+  codigo    String   @db.VarChar(40)
+  nombre    String   @db.VarChar(80)
+  color     String   @default("#F97316") @db.VarChar(7)
+  orden     Int      @default(0)
+  estado    Boolean  @default(true)
+  creadoEn  DateTime @default(now())
+
+  sucursalId Int
+  sucursal   Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Cascade)
+  productos  Producto[]
+  comandas   Comanda[]
+
+  @@unique([sucursalId, codigo])
+  @@index([sucursalId, estado])
 }
 
 model Pedido {
@@ -458,6 +487,7 @@ model Comanda {
   id Int @id @default(autoincrement())
 
   estado EstadoComanda @default(PENDIENTE)
+  prioridad PrioridadComanda @default(NORMAL)
 
   fechaEnvio   DateTime  @default(now())
   fechaInicio  DateTime?
@@ -465,11 +495,14 @@ model Comanda {
   fechaEntrega DateTime?
 
   pedidoId Int
+  estacionId Int
 
   pedido   Pedido           @relation(fields: [pedidoId], references: [id], onDelete: Restrict)
+  estacion EstacionPreparacion @relation(fields: [estacionId], references: [id], onDelete: Restrict)
   detalles DetalleComanda[]
 
   @@index([pedidoId])
+  @@index([estacionId, estado, prioridad])
   @@index([estado])
   @@index([fechaEnvio])
 }

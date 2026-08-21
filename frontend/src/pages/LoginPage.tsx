@@ -45,7 +45,7 @@ export function LoginPage() {
           "REGISTROS_FACTURA_ELIMINAR",
           "CONFIGURACION_VER",
         ],
-        capacidades: ["MESAS", "COMANDAS", "INVENTARIO", "FACTURACION"],
+        capacidades: ["MESAS", "KDS", "INVENTARIO", "FACTURACION"],
         restauranteNombre: "Restaurante El Mono",
       },
     });

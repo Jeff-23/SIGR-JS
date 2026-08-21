@@ -1,7 +1,18 @@
 import { EstrategiaInventario, UnidadInventario } from '@prisma/client';
-import { IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 
 export class UpdateProductoDto {
+  @IsInt()
+  @IsOptional()
+  @Min(1)
+  estacionId?: number;
   @IsString()
   @IsOptional()
   nombre?: string;

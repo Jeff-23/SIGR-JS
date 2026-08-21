@@ -6,7 +6,7 @@ import type { StationStatus } from "../types";
 
 const labels: Record<StationStatus, string> = { PENDIENTE: "Iniciar preparación", PREPARANDO: "Marcar listo", LISTO: "Entregar a servicio", ENTREGADO: "Entregado" };
 
-export function KitchenPage() {
+export function DemoKitchenPage() {
   const { orders, advanceStation, markDelivered } = useApp();
   const [station, setStation] = useState<"TODAS" | "COCINA" | "BAR">("TODAS");
   const [sound, setSound] = useState(true);

@@ -89,7 +89,16 @@ export class SucursalesService {
     await this.validarRestauranteActivo(data.restauranteId);
 
     return this.prisma.sucursal.create({
-      data,
+      data: {
+        ...data,
+        estacionesPreparacion: {
+          create: [
+            { codigo: 'COCINA', nombre: 'Cocina', color: '#F97316', orden: 10 },
+            { codigo: 'BAR', nombre: 'Bar', color: '#3B82F6', orden: 20 },
+          ],
+        },
+      },
+      include: { estacionesPreparacion: true },
     });
   }
 

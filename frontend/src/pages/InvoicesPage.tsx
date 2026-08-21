@@ -1,4 +1,13 @@
-import { Download, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import {
+  Download,
+  Eye,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import toast from "react-hot-toast";
@@ -15,7 +24,13 @@ type InvoiceRecord = {
   fechaOperacion: string;
   subtotal: string | number;
   impuestos: string | number;
+  descuentos: string | number;
+  propina: string | number;
+  domicilio: string | number;
   total: string | number;
+  detalles?: Array<Line & { total: number }>;
+  formasPago?: Array<{ nombre: string; monto: number }>;
+  soporteArchivoRef?: string | null;
   sucursal: { id: number; nombre: string };
   digitadoPor: { nombres: string; apellidos: string };
 };
@@ -32,6 +47,9 @@ const demoRecords: InvoiceRecord[] = [
     fechaOperacion: new Date().toISOString(),
     subtotal: 42000,
     impuestos: 3360,
+    descuentos: 0,
+    propina: 0,
+    domicilio: 0,
     total: 45360,
     sucursal: { id: 1, nombre: "La Carolina" },
     digitadoPor: { nombres: "Laura", apellidos: "Cajera" },
@@ -45,6 +63,9 @@ const demoRecords: InvoiceRecord[] = [
     fechaOperacion: new Date(Date.now() - 86400000).toISOString(),
     subtotal: 68000,
     impuestos: 5440,
+    descuentos: 0,
+    propina: 0,
+    domicilio: 0,
     total: 73440,
     sucursal: { id: 1, nombre: "La Carolina" },
     digitadoPor: { nombres: "Carlos", apellidos: "Administrador" },
@@ -61,6 +82,7 @@ export function InvoicesPage() {
   const [to, setTo] = useState("");
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<InvoiceRecord | null>(null);
   const [saving, setSaving] = useState(false);
   const canCreate =
     session?.user.permisos.includes("REGISTROS_FACTURA_CREAR") ?? false;
@@ -161,6 +183,32 @@ export function InvoicesPage() {
     }
   }
 
+  async function openSupport(record: InvoiceRecord) {
+    try {
+      if (record.soporteArchivoRef?.startsWith("http")) {
+        window.open(record.soporteArchivoRef, "_blank", "noopener,noreferrer");
+        return;
+      }
+      const response = await api.get(
+        `/registros-factura/${record.id}/soporte`,
+        { responseType: "blob" },
+      );
+      const url = URL.createObjectURL(response.data);
+      window.open(url, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  }
+
+  function setPeriod(kind: "today" | "month") {
+    const today = new Date();
+    const end = today.toISOString().slice(0, 10);
+    const start = kind === "today" ? end : `${end.slice(0, 7)}-01`;
+    setFrom(start);
+    setTo(end);
+  }
+
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
@@ -205,6 +253,20 @@ export function InvoicesPage() {
       </section>
 
       <section className="card">
+        <div className="mb-3 flex flex-wrap gap-2">
+          <button
+            className="rounded-xl bg-denim/5 px-3 py-2 text-xs font-bold"
+            onClick={() => setPeriod("today")}
+          >
+            Hoy
+          </button>
+          <button
+            className="rounded-xl bg-denim/5 px-3 py-2 text-xs font-bold"
+            onClick={() => setPeriod("month")}
+          >
+            Este mes
+          </button>
+        </div>
         <div className="grid gap-3 md:grid-cols-[1fr_180px_180px_auto]">
           <label className="relative">
             <Search className="absolute left-4 top-4 text-denim/30" size={18} />
@@ -281,16 +343,39 @@ export function InvoicesPage() {
                     {money.format(Number(record.total))}
                   </td>
                   <td className="px-5 py-4 text-right">
-                    {canDelete && (
-                      <button
-                        disabled={!online && !session?.demo}
-                        onClick={() => void remove(record)}
-                        className="rounded-xl p-2 text-red-600 hover:bg-red-50 disabled:opacity-30"
-                        aria-label={`Eliminar ${record.numero}`}
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    )}
+                    <div className="flex justify-end gap-1">
+                      {record.soporteArchivoRef && (
+                        <button
+                          onClick={() => void openSupport(record)}
+                          className="rounded-xl p-2 text-blue-700 hover:bg-blue-50"
+                          aria-label={`Ver soporte ${record.numero}`}
+                        >
+                          <Eye size={18} />
+                        </button>
+                      )}
+                      {canCreate && (
+                        <button
+                          onClick={() => {
+                            setEditing(record);
+                            setOpen(true);
+                          }}
+                          className="rounded-xl p-2 text-denim/60 hover:bg-denim/5"
+                          aria-label={`Editar ${record.numero}`}
+                        >
+                          <Pencil size={18} />
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button
+                          disabled={!online && !session?.demo}
+                          onClick={() => void remove(record)}
+                          className="rounded-xl p-2 text-red-600 hover:bg-red-50 disabled:opacity-30"
+                          aria-label={`Eliminar ${record.numero}`}
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -313,10 +398,15 @@ export function InvoicesPage() {
           branchId={branchId}
           demo={Boolean(session?.demo)}
           saving={saving}
+          initial={editing}
           setSaving={setSaving}
-          onClose={() => setOpen(false)}
+          onClose={() => {
+            setOpen(false);
+            setEditing(null);
+          }}
           onSaved={async () => {
             setOpen(false);
+            setEditing(null);
             await load(true);
           }}
         />
@@ -329,6 +419,7 @@ function InvoiceForm({
   branchId,
   demo,
   saving,
+  initial,
   setSaving,
   onClose,
   onSaved,
@@ -336,23 +427,34 @@ function InvoiceForm({
   branchId: number;
   demo: boolean;
   saving: boolean;
+  initial: InvoiceRecord | null;
   setSaving: (value: boolean) => void;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
-  const [number, setNumber] = useState("");
-  const [command, setCommand] = useState("");
-  const [support, setSupport] = useState("");
-  const [supportFile, setSupportFile] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 16));
-  const [taxes, setTaxes] = useState(0);
-  const [discounts, setDiscounts] = useState(0);
-  const [tip, setTip] = useState(0);
-  const [delivery, setDelivery] = useState(0);
-  const [payment, setPayment] = useState("EFECTIVO");
-  const [lines, setLines] = useState<Line[]>([
-    { nombre: "", cantidad: 1, precioUnitario: 0 },
-  ]);
+  const [number, setNumber] = useState(initial?.numero ?? "");
+  const [command, setCommand] = useState(initial?.numeroComanda ?? "");
+  const [support, setSupport] = useState(initial?.numeroSoporte ?? "");
+  const [file, setFile] = useState<File | null>(null);
+  const [date, setDate] = useState(
+    (initial ? new Date(initial.fechaOperacion) : new Date())
+      .toISOString()
+      .slice(0, 16),
+  );
+  const [taxes, setTaxes] = useState(Number(initial?.impuestos ?? 0));
+  const [discounts, setDiscounts] = useState(Number(initial?.descuentos ?? 0));
+  const [tip, setTip] = useState(Number(initial?.propina ?? 0));
+  const [delivery, setDelivery] = useState(Number(initial?.domicilio ?? 0));
+  const [payment, setPayment] = useState(
+    initial?.formasPago?.[0]?.nombre ?? "EFECTIVO",
+  );
+  const [lines, setLines] = useState<Line[]>(
+    initial?.detalles?.map(({ nombre, cantidad, precioUnitario }) => ({
+      nombre,
+      cantidad: Number(cantidad),
+      precioUnitario: Number(precioUnitario),
+    })) ?? [{ nombre: "", cantidad: 1, precioUnitario: 0 }],
+  );
   const subtotal = useMemo(
     () =>
       lines.reduce((sum, line) => sum + line.cantidad * line.precioUnitario, 0),
@@ -368,32 +470,45 @@ function InvoiceForm({
     event.preventDefault();
     setSaving(true);
     try {
-      if (!demo)
-        await mutation("POST", "/registros-factura", {
-          numero: number,
-          numeroComanda: command || undefined,
-          numeroSoporte: support || undefined,
-          soporteArchivoRef: supportFile || undefined,
-          origen: "PAPEL",
-          fechaOperacion: new Date(date).toISOString(),
-          sucursalId: branchId,
-          subtotal,
-          descuentos: discounts,
-          impuestos: taxes,
-          propina: tip,
-          domicilio: delivery,
-          total: subtotal - discounts + taxes + tip + delivery,
-          formasPago: [
-            {
-              nombre: payment,
-              monto: subtotal - discounts + taxes + tip + delivery,
-            },
-          ],
-          detalles: lines.map((line) => ({
-            ...line,
-            total: line.cantidad * line.precioUnitario,
-          })),
-        });
+      if (!demo) {
+        const result = await mutation(
+          initial ? "PATCH" : "POST",
+          initial ? `/registros-factura/${initial.id}` : "/registros-factura",
+          {
+            numero: number,
+            numeroComanda: command || undefined,
+            numeroSoporte: support || undefined,
+            origen: initial?.origen ?? "PAPEL",
+            fechaOperacion: new Date(date).toISOString(),
+            sucursalId: branchId,
+            subtotal,
+            descuentos: discounts,
+            impuestos: taxes,
+            propina: tip,
+            domicilio: delivery,
+            total: subtotal - discounts + taxes + tip + delivery,
+            formasPago: [
+              {
+                nombre: payment,
+                monto: subtotal - discounts + taxes + tip + delivery,
+              },
+            ],
+            detalles: lines.map((line) => ({
+              ...line,
+              total: line.cantidad * line.precioUnitario,
+            })),
+          },
+        );
+        if (file && navigator.onLine && "data" in result) {
+          const form = new FormData();
+          form.append("archivo", file);
+          await api.post(`/registros-factura/${result.data.id}/soporte`, form);
+        } else if (file && !navigator.onLine) {
+          toast(
+            "El registro quedó en cola; adjunta el archivo cuando vuelva internet.",
+          );
+        }
+      }
       toast.success(onlineOrQueued());
       await onSaved();
     } catch (error) {
@@ -412,7 +527,9 @@ function InvoiceForm({
           <div>
             <p className="eyebrow">Digitación manual</p>
             <h2 className="mt-1 text-2xl font-black">
-              Registrar factura en papel
+              {initial
+                ? "Corregir registro operativo"
+                : "Registrar factura en papel"}
             </h2>
           </div>
           <button
@@ -450,12 +567,17 @@ function InvoiceForm({
             value={support}
             onChange={(e) => setSupport(e.target.value)}
           />
-          <input
-            className="input sm:col-span-2"
-            placeholder="Referencia o URL de foto/archivo (opcional)"
-            value={supportFile}
-            onChange={(e) => setSupportFile(e.target.value)}
-          />
+          <label className="sm:col-span-2">
+            <span className="mb-1 block text-xs font-bold text-denim/50">
+              Foto o PDF del soporte (opcional, máximo 5 MB)
+            </span>
+            <input
+              className="input pt-3"
+              type="file"
+              accept="image/jpeg,image/png,image/webp,application/pdf"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
         </div>
         <div className="mt-5 space-y-3">
           <div className="flex items-center justify-between">
@@ -606,7 +728,11 @@ function InvoiceForm({
             Cancelar
           </button>
           <button className="primary w-auto px-6" disabled={saving}>
-            {saving ? "Guardando…" : "Guardar registro"}
+            {saving
+              ? "Guardando…"
+              : initial
+                ? "Guardar corrección"
+                : "Guardar registro"}
           </button>
         </div>
       </form>

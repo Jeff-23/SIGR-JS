@@ -29,7 +29,8 @@ export type MenuItem = {
   station: "COCINA" | "BAR";
   category: string;
 };
-export type OrderStatus = "NUEVO" | "PREPARANDO" | "LISTO" | "ENTREGADO";
+export type OrderStatus = "NUEVO" | "PREPARANDO" | "LISTO" | "ENTREGADO" | "PENDIENTE_PAGO" | "PAGADO";
+export type StationStatus = "PENDIENTE" | "PREPARANDO" | "LISTO" | "ENTREGADO";
 export type Order = {
   id: number;
   table: number;
@@ -37,4 +38,7 @@ export type Order = {
   status: OrderStatus;
   items: Array<MenuItem & { quantity: number }>;
   total: number;
+  paymentStatus: "PENDIENTE" | "PAGADO";
+  stationStatus: Record<"COCINA" | "BAR", StationStatus | "NO_APLICA">;
+  note?: string;
 };

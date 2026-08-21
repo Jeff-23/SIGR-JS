@@ -1,11 +1,14 @@
 import {
   Download,
   Eye,
+  Maximize2,
+  Minimize2,
   Pencil,
   Plus,
   RefreshCw,
   Search,
   Trash2,
+  WandSparkles,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -432,6 +435,8 @@ function InvoiceForm({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
+  const [minimized, setMinimized] = useState(false);
+  const [lookingUp, setLookingUp] = useState(false);
   const [number, setNumber] = useState(initial?.numero ?? "");
   const [command, setCommand] = useState(initial?.numeroComanda ?? "");
   const [support, setSupport] = useState(initial?.numeroSoporte ?? "");
@@ -466,6 +471,25 @@ function InvoiceForm({
         position === index ? { ...line, ...changes } : line,
       ),
     );
+  async function lookupNumber() {
+    if (!number.trim()) { toast.error("Escribe primero el número de factura"); return; }
+    setLookingUp(true);
+    try {
+      let found: InvoiceRecord | undefined;
+      if (demo) found = demoRecords.find((record) => record.numero.toLowerCase() === number.trim().toLowerCase());
+      else {
+        const response = await api.get("/registros-factura", { params: { buscar: number.trim(), sucursalId: branchId, limite: 10 } });
+        found = response.data.datos.find((record: InvoiceRecord) => record.numero.toLowerCase() === number.trim().toLowerCase());
+      }
+      if (!found) { toast("No existe un registro previo; continúa con la digitación manual."); return; }
+      setCommand(found.numeroComanda ?? ""); setSupport(found.numeroSoporte ?? "");
+      setDate(new Date(found.fechaOperacion).toISOString().slice(0, 16));
+      setTaxes(Number(found.impuestos)); setDiscounts(Number(found.descuentos)); setTip(Number(found.propina)); setDelivery(Number(found.domicilio));
+      setPayment(found.formasPago?.[0]?.nombre ?? "EFECTIVO");
+      if (found.detalles?.length) setLines(found.detalles.map(({ nombre, cantidad, precioUnitario }) => ({ nombre, cantidad: Number(cantidad), precioUnitario: Number(precioUnitario) })));
+      toast.success("Datos recuperados del archivo");
+    } catch (error) { toast.error(errorMessage(error)); } finally { setLookingUp(false); }
+  }
   async function submit(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
@@ -517,6 +541,7 @@ function InvoiceForm({
       setSaving(false);
     }
   }
+  if (minimized) return <button type="button" onClick={() => setMinimized(false)} className="fixed bottom-5 right-5 z-50 flex items-center gap-3 rounded-2xl bg-steel px-5 py-4 text-left text-white shadow-2xl"><Maximize2 size={19}/><span><small className="block text-[10px] font-bold uppercase tracking-wider text-white/45">Borrador en curso</small><strong>{number || "Nueva factura"}</strong></span></button>;
   return (
     <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-steel/65 p-4">
       <form
@@ -534,6 +559,14 @@ function InvoiceForm({
           </div>
           <button
             type="button"
+            onClick={() => setMinimized(true)}
+            className="ml-auto mr-1 rounded-xl p-2 hover:bg-denim/5"
+            aria-label="Minimizar formulario"
+          >
+            <Minimize2 />
+          </button>
+          <button
+            type="button"
             onClick={onClose}
             className="rounded-xl p-2 hover:bg-denim/5"
           >
@@ -541,13 +574,7 @@ function InvoiceForm({
           </button>
         </div>
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          <input
-            className="input"
-            required
-            placeholder="Número de factura"
-            value={number}
-            onChange={(e) => setNumber(e.target.value)}
-          />
+          <div className="flex gap-2"><input className="input min-w-0" required placeholder="Número de factura" value={number} onChange={(e) => setNumber(e.target.value)} /><button type="button" onClick={() => void lookupNumber()} disabled={lookingUp} className="secondary h-14 w-14 shrink-0 p-0" title="Buscar y autocompletar"><WandSparkles size={18}/></button></div>
           <input
             className="input"
             type="datetime-local"

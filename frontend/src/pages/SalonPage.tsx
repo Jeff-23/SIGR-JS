@@ -1,10 +1,11 @@
-import { Minus, Plus, ShoppingBag, Users, X } from "lucide-react";
+import { CheckCircle2, Minus, Plus, ShoppingBag, Unlock, Users, X } from "lucide-react";
+import toast from "react-hot-toast";
 import { useState } from "react";
 import { menu, money } from "../data/demo";
 import { useApp } from "../store/app";
 import type { MenuItem, Table } from "../types";
 export function SalonPage() {
-  const { tables, createOrder } = useApp();
+  const { tables, orders, createOrder, releaseTable, occupyWithoutOrder } = useApp();
   const [selected, setSelected] = useState<Table | null>(null);
   const [cart, setCart] = useState<Array<MenuItem & { quantity: number }>>([]);
   const add = (item: MenuItem) =>
@@ -32,7 +33,13 @@ export function SalonPage() {
       status: "NUEVO",
       items: cart,
       total,
+      paymentStatus: "PENDIENTE",
+      stationStatus: {
+        COCINA: cart.some((item) => item.station === "COCINA") ? "PENDIENTE" : "NO_APLICA",
+        BAR: cart.some((item) => item.station === "BAR") ? "PENDIENTE" : "NO_APLICA",
+      },
     });
+    toast.success(`Pedido enviado · Cocina y bar fueron notificados`);
     setSelected(null);
     setCart([]);
   };
@@ -80,6 +87,20 @@ export function SalonPage() {
                   ? "En servicio"
                   : "Pendiente de pago"}
             </span>
+            {table.state === "LIBRE" && (
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(event) => { event.stopPropagation(); occupyWithoutOrder(table.id); toast.success(`Mesa ${table.number} ocupada sin pedido`); }}
+                className="mt-3 rounded-lg border border-denim/10 px-2 py-1 text-[10px] font-bold"
+              >Sólo ocupar</span>
+            )}
+            {table.state !== "LIBRE" && !table.orderId && (
+              <span role="button" tabIndex={0} onClick={(event) => { event.stopPropagation(); releaseTable(table.id); toast.success(`Mesa ${table.number} liberada sin consumo`); }} className="mt-3 flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700"><Unlock size={11}/> Liberar sin consumo</span>
+            )}
+            {table.orderId && orders.find((order) => order.id === table.orderId)?.paymentStatus === "PAGADO" && (
+              <span role="button" tabIndex={0} onClick={(event) => { event.stopPropagation(); releaseTable(table.id); toast.success(`Mesa ${table.number} libre para nuevo servicio`); }} className="mt-3 flex items-center gap-1 rounded-lg bg-emerald-600 px-2 py-1 text-[10px] font-bold text-white"><CheckCircle2 size={11}/> Cerrar y liberar</span>
+            )}
           </button>
         ))}
       </div>

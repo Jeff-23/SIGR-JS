@@ -4,11 +4,13 @@ import { AppShell } from "./layout/AppShell";
 import { pending } from "./lib/offline";
 import { synchronize } from "./lib/api";
 import { DashboardPage } from "./pages/DashboardPage";
+import { ReportsPage } from "./pages/ReportsPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { KitchenPage } from "./pages/KitchenPage";
 import { InvoicesPage } from "./pages/InvoicesPage";
 import { LoginPage } from "./pages/LoginPage";
-import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { SalonPage } from "./pages/SalonPage";
+import { CashPage } from "./pages/CashPage";
 import { useApp } from "./store/app";
 
 export default function App() {
@@ -62,7 +64,7 @@ export default function App() {
             />
             <Route
               path="caja"
-              element={<PlaceholderPage title="Caja y pagos" />}
+              element={<CashPage />}
             />
             <Route
               path="facturas"
@@ -76,11 +78,11 @@ export default function App() {
             />
             <Route
               path="reportes"
-              element={<PlaceholderPage title="Reportes" />}
+              element={<ReportsPage />}
             />
             <Route
               path="configuracion"
-              element={<PlaceholderPage title="Configuración" />}
+              element={<SettingsPage />}
             />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

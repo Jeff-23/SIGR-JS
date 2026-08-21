@@ -1,5 +1,6 @@
 export type Session = {
   token: string;
+  createdAt: string;
   user: {
     id: number;
     nombres: string;
@@ -9,10 +10,12 @@ export type Session = {
     sucursalId: number | null;
     permisos: string[];
     capacidades: string[];
+    restauranteNombre?: string;
+    sucursalNombre?: string;
   };
   demo?: boolean;
 };
-export type Branch = { id: number; name: string; location: string };
+export type Branch = { id: number; name: string; location: string; active?: boolean };
 export type TableState = "LIBRE" | "OCUPADA" | "PENDIENTE_PAGO";
 export type Table = {
   id: number;

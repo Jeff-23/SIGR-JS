@@ -38,6 +38,7 @@ export class AuthService {
             },
           },
         },
+        sucursal: { select: { nombre: true } },
       },
     });
 
@@ -86,6 +87,8 @@ export class AuthService {
               (planCapacidad) => planCapacidad.capacidad.codigo,
             )
           : [],
+        restauranteNombre: usuario.restaurante?.nombre,
+        sucursalNombre: usuario.sucursal?.nombre,
       },
       token, // <- ¡Esta es la llave de acceso para todas las rutas futuras!
     };

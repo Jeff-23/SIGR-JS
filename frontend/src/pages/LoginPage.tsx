@@ -11,6 +11,7 @@ import { api, errorMessage } from "../lib/api";
 import { useApp } from "../store/app";
 import type { Session } from "../types";
 import { Brand } from "../components/Brand";
+import { frontendConfig } from "../lib/config";
 
 export function LoginPage() {
   const setSession = useApp((state) => state.setSession);
@@ -23,6 +24,7 @@ export function LoginPage() {
     setSession({
       token: "demo-local",
       demo: true,
+      createdAt: new Date().toISOString(),
       user: {
         id: 1,
         nombres: "Mariana",
@@ -44,17 +46,20 @@ export function LoginPage() {
           "CONFIGURACION_VER",
         ],
         capacidades: ["MESAS", "COMANDAS", "INVENTARIO", "FACTURACION"],
+        restauranteNombre: "Restaurante El Mono",
       },
     });
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError("");
     setLoading(true);
+    if (!frontendConfig.apiConfigured) { setError("El acceso real estará disponible cuando el backend de pruebas sea configurado. Usa el modo demostración."); setLoading(false); return; }
     try {
       const { data } = await api.post("/auth/login", { email, password });
       const context = data.sesion ?? data.usuario;
       const session: Session = {
         token: data.token,
+        createdAt: new Date().toISOString(),
         user: {
           id: context.id,
           nombres: context.nombres ?? "Usuario",
@@ -64,6 +69,8 @@ export function LoginPage() {
           sucursalId: context.sucursalId ?? null,
           permisos: context.permisos ?? [],
           capacidades: context.capacidades ?? [],
+          restauranteNombre: context.restauranteNombre,
+          sucursalNombre: context.sucursalNombre,
         },
       };
       setSession(session);
@@ -158,6 +165,7 @@ export function LoginPage() {
                 {error}
               </p>
             )}
+            {!frontendConfig.apiConfigured && <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">Entorno de demostración: el backend real aún no está configurado.</p>}
             <button className="primary" disabled={loading}>
               {loading ? (
                 "Ingresando…"

@@ -88,7 +88,7 @@ export function InvoicesPage() {
   const [editing, setEditing] = useState<InvoiceRecord | null>(null);
   const [saving, setSaving] = useState(false);
   const canCreate =
-    session?.user.permisos.includes("REGISTROS_FACTURA_CREAR") ?? false;
+    (session?.user.permisos.includes("REGISTROS_FACTURA_CREAR") ?? false) && branchId !== null;
   const canDelete =
     session?.user.permisos.includes("REGISTROS_FACTURA_ELIMINAR") ?? false;
   const canExport =
@@ -398,7 +398,7 @@ export function InvoicesPage() {
       </section>
       {open && (
         <InvoiceForm
-          branchId={branchId}
+          branchId={branchId ?? 0}
           demo={Boolean(session?.demo)}
           saving={saving}
           initial={editing}

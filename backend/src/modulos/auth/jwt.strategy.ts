@@ -54,6 +54,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         restaurante: {
           select: {
             estado: true,
+            nombre: true,
 
             plan: {
               select: {
@@ -82,6 +83,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         sucursal: {
           select: {
             estado: true,
+            nombre: true,
             restauranteId: true,
           },
         },
@@ -133,6 +135,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             (planCapacidad) => planCapacidad.capacidad.codigo,
           )
         : [],
+      restauranteNombre: usuario.restaurante?.nombre,
+      sucursalNombre: usuario.sucursal?.nombre,
     };
   }
 }

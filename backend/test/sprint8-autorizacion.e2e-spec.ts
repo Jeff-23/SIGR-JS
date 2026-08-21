@@ -230,6 +230,14 @@ describe('SPRINT 8 | Autorizacion administrable y dinamica (e2e)', () => {
       .expect(200);
 
     await request(app.getHttpServer())
+      .get('/auth/sesion')
+      .set('Authorization', `Bearer ${tokenTrabajadorA}`)
+      .expect(200)
+      .expect(({ body }: { body: { permisos: string[] } }) => {
+        expect(body.permisos).toContain('CONFIGURACION_VER');
+      });
+
+    await request(app.getHttpServer())
       .get('/configuracion/restaurante')
       .set('Authorization', `Bearer ${tokenTrabajadorA}`)
       .expect(200);
@@ -244,6 +252,14 @@ describe('SPRINT 8 | Autorizacion administrable y dinamica (e2e)', () => {
       .get('/configuracion/restaurante')
       .set('Authorization', `Bearer ${tokenTrabajadorA}`)
       .expect(403);
+
+    await request(app.getHttpServer())
+      .get('/auth/sesion')
+      .set('Authorization', `Bearer ${tokenTrabajadorA}`)
+      .expect(200)
+      .expect(({ body }: { body: { permisos: string[] } }) => {
+        expect(body.permisos).not.toContain('CONFIGURACION_VER');
+      });
   });
 
   it('impide que un ADMIN atraviese el tenant o administre planes', async () => {

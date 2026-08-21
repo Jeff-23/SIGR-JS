@@ -63,22 +63,19 @@ const CAPACIDADES = [
     codigo: 'CLIENTES',
     nombre: 'Clientes',
     modulo: 'CLIENTES',
-    descripcion:
-      'Habilita gestión de clientes e historial comercial.',
+    descripcion: 'Habilita gestión de clientes e historial comercial.',
   },
   {
     codigo: 'MULTICAJA',
     nombre: 'Múltiples cajas',
     modulo: 'CAJA',
-    descripcion:
-      'Permite operar múltiples cajas de forma independiente.',
+    descripcion: 'Permite operar múltiples cajas de forma independiente.',
   },
   {
     codigo: 'ANALYTICS',
     nombre: 'Analítica avanzada',
     modulo: 'REPORTES',
-    descripcion:
-      'Habilita indicadores, estadísticas y análisis avanzados.',
+    descripcion: 'Habilita indicadores, estadísticas y análisis avanzados.',
   },
   {
     codigo: 'MULTISUCURSAL',
@@ -357,6 +354,26 @@ const PERMISOS = [
     codigo: 'FACTURAS_ANULAR',
     nombre: 'Anular facturas',
     modulo: 'FACTURACION',
+  },
+  {
+    codigo: 'REGISTROS_FACTURA_VER',
+    nombre: 'Consultar archivo operativo de facturas',
+    modulo: 'REGISTROS_FACTURA',
+  },
+  {
+    codigo: 'REGISTROS_FACTURA_CREAR',
+    nombre: 'Registrar facturas y comprobantes operativos',
+    modulo: 'REGISTROS_FACTURA',
+  },
+  {
+    codigo: 'REGISTROS_FACTURA_EXPORTAR',
+    nombre: 'Exportar archivo operativo de facturas',
+    modulo: 'REGISTROS_FACTURA',
+  },
+  {
+    codigo: 'REGISTROS_FACTURA_ELIMINAR',
+    nombre: 'Eliminar registros operativos de facturas',
+    modulo: 'REGISTROS_FACTURA',
   },
 
   // Pagos
@@ -678,9 +695,7 @@ async function bootstrap() {
       });
     }
 
-    console.log(
-      'Permisos obsoletos retirados de roles y desactivados.',
-    );
+    console.log('Permisos obsoletos retirados de roles y desactivados.');
 
     // ==========================================
     // 5. SUPERADMIN GLOBAL DE SIGR
@@ -693,8 +708,7 @@ async function bootstrap() {
 
       update: {
         nombre: 'SUPERADMIN',
-        descripcion:
-          'Superadministrador global de la plataforma SIGR',
+        descripcion: 'Superadministrador global de la plataforma SIGR',
         ambito: AmbitoRol.SISTEMA,
         restauranteId: null,
       },
@@ -702,8 +716,7 @@ async function bootstrap() {
       create: {
         clave: 'SISTEMA:SUPERADMIN',
         nombre: 'SUPERADMIN',
-        descripcion:
-          'Superadministrador global de la plataforma SIGR',
+        descripcion: 'Superadministrador global de la plataforma SIGR',
         ambito: AmbitoRol.SISTEMA,
         restauranteId: null,
       },
@@ -755,8 +768,7 @@ async function bootstrap() {
 
         update: {
           nombre: 'ADMIN',
-          descripcion:
-            `Administrador del restaurante ${restaurante.nombre}`,
+          descripcion: `Administrador del restaurante ${restaurante.nombre}`,
           ambito: AmbitoRol.RESTAURANTE,
           restauranteId: restaurante.id,
         },
@@ -764,8 +776,7 @@ async function bootstrap() {
         create: {
           clave: claveAdmin,
           nombre: 'ADMIN',
-          descripcion:
-            `Administrador del restaurante ${restaurante.nombre}`,
+          descripcion: `Administrador del restaurante ${restaurante.nombre}`,
           ambito: AmbitoRol.RESTAURANTE,
           restauranteId: restaurante.id,
         },
@@ -793,6 +804,43 @@ async function bootstrap() {
       console.log(
         `${permisosAdmin.length} permisos asignados al ADMIN de ${restaurante.nombre}.`,
       );
+
+      const codigosContador = new Set([
+        'REGISTROS_FACTURA_VER',
+        'REGISTROS_FACTURA_EXPORTAR',
+        'FACTURAS_VER',
+        'REPORTES_VER',
+        'CAJA_VER',
+        'AUDITORIA_VER',
+      ]);
+      const permisosContador = permisosAdmin.filter((permiso) =>
+        codigosContador.has(permiso.codigo),
+      );
+      const rolContador = await prisma.rol.upsert({
+        where: { clave: `RESTAURANTE:${restaurante.id}:CONTADOR` },
+        update: {
+          nombre: 'CONTADOR',
+          descripcion: `Consulta contable del restaurante ${restaurante.nombre}`,
+          ambito: AmbitoRol.RESTAURANTE,
+          restauranteId: restaurante.id,
+        },
+        create: {
+          clave: `RESTAURANTE:${restaurante.id}:CONTADOR`,
+          nombre: 'CONTADOR',
+          descripcion: `Consulta contable del restaurante ${restaurante.nombre}`,
+          ambito: AmbitoRol.RESTAURANTE,
+          restauranteId: restaurante.id,
+        },
+      });
+      await prisma.rolPermiso.deleteMany({ where: { rolId: rolContador.id } });
+      if (permisosContador.length > 0) {
+        await prisma.rolPermiso.createMany({
+          data: permisosContador.map((permiso) => ({
+            rolId: rolContador.id,
+            permisoId: permiso.id,
+          })),
+        });
+      }
 
       // Migración heredada de usuarios.
       const resultado = await prisma.usuario.updateMany({

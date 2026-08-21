@@ -115,6 +115,10 @@ describe('Sprint 14 | Configuración fiscal multiempresa (e2e)', () => {
       await prisma.outboxFiscal.deleteMany({ where: { documentoId } });
       await prisma.documentoElectronico.delete({ where: { id: documentoId } });
     }
+    if (facturaId)
+      await prisma.registroFacturaOperativa.deleteMany({
+        where: { facturaId },
+      });
     if (facturaId) await prisma.factura.delete({ where: { id: facturaId } });
     if (ventaId) {
       await prisma.detalleVenta.deleteMany({ where: { ventaId } });

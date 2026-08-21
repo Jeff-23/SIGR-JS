@@ -219,6 +219,52 @@ export class FacturasService {
 
         select: { id: true },
       });
+
+      const instantanea = await tx.venta.findUniqueOrThrow({
+        where: { id: venta.id },
+        include: {
+          detalles: { include: { producto: { select: { nombre: true } } } },
+          pagos: { include: { metodoPago: { select: { nombre: true } } } },
+        },
+      });
+      await tx.registroFacturaOperativa.create({
+        data: {
+          numero: numeroFactura,
+          numeroComanda: instantanea.numeroComandaPapel,
+          numeroSoporte: instantanea.numeroSoporte,
+          origen: 'SISTEMA',
+          fechaOperacion: instantanea.fechaOperacion,
+          subtotal: instantanea.subtotal,
+          descuentos: instantanea.descuentos,
+          impuestos: instantanea.impuestos.add(instantanea.impoconsumo),
+          propina: instantanea.propina,
+          domicilio: instantanea.domicilioCosto,
+          total: instantanea.total,
+          detalles: instantanea.detalles.map((detalle) => ({
+            nombre: detalle.producto.nombre,
+            cantidad: detalle.cantidad,
+            precioUnitario: detalle.precioUnitario.toString(),
+            total: detalle.subtotal.toString(),
+          })),
+          impuestosDetalle: [
+            { nombre: 'Impuestos', monto: instantanea.impuestos.toString() },
+            {
+              nombre: 'Impoconsumo',
+              monto: instantanea.impoconsumo.toString(),
+            },
+          ],
+          formasPago: instantanea.pagos.map((pago) => ({
+            nombre: pago.metodoPago.nombre,
+            monto: pago.monto.toString(),
+          })),
+          soporteArchivoRef: instantanea.soporteArchivoRef,
+          restauranteId: sucursal.restauranteId,
+          sucursalId: instantanea.sucursalId,
+          digitadoPorId: usuarioActual.id,
+          ventaId: instantanea.id,
+          facturaId: factura.id,
+        },
+      });
       return factura.id;
     });
 

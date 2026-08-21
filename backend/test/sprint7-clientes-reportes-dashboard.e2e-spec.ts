@@ -353,6 +353,9 @@ describe('SPRINT 7 | Clientes, Reportes y Dashboard (e2e)', () => {
             select: { id: true },
           });
           const facturaIds = facturas.map((factura) => factura.id);
+          await prisma.registroFacturaOperativa.deleteMany({
+            where: { ventaId: { in: ventaIds } },
+          });
           if (facturaIds.length > 0) {
             await prisma.documentoElectronico.deleteMany({
               where: { facturaId: { in: facturaIds } },

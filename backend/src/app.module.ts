@@ -37,6 +37,7 @@ import { TrazabilidadInterceptor } from './plataforma/trazabilidad.interceptor';
 import { PlataformaModule } from './plataforma/plataforma.module';
 import { RespuestaSeguraInterceptor } from './plataforma/respuesta-segura.interceptor';
 import { FiscalModule } from './modulos/fiscal/fiscal.module';
+import { RegistrosFacturaModule } from './modulos/registros-factura/registros-factura.module';
 
 const entorno = obtenerEntorno();
 
@@ -75,6 +76,7 @@ const entorno = obtenerEntorno();
     AuditoriaModule,
     PlataformaModule,
     FiscalModule,
+    RegistrosFacturaModule,
   ],
   controllers: [AppController],
   providers: [

@@ -5,6 +5,7 @@ import { pending } from "./lib/offline";
 import { synchronize } from "./lib/api";
 import { DashboardPage } from "./pages/DashboardPage";
 import { KitchenPage } from "./pages/KitchenPage";
+import { InvoicesPage } from "./pages/InvoicesPage";
 import { LoginPage } from "./pages/LoginPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { SalonPage } from "./pages/SalonPage";
@@ -39,11 +40,39 @@ export default function App() {
         <Routes>
           <Route element={<AppShell />}>
             <Route index element={<DashboardPage />} />
-            <Route path="salon" element={allowed("MESAS_VER") ? <SalonPage /> : <Navigate to="/" replace />} />
-            <Route path="cocina" element={allowed("COMANDAS_VER") ? <KitchenPage /> : <Navigate to="/" replace />} />
+            <Route
+              path="salon"
+              element={
+                allowed("MESAS_VER") ? (
+                  <SalonPage />
+                ) : (
+                  <Navigate to="/" replace />
+                )
+              }
+            />
+            <Route
+              path="cocina"
+              element={
+                allowed("COMANDAS_VER") ? (
+                  <KitchenPage />
+                ) : (
+                  <Navigate to="/" replace />
+                )
+              }
+            />
             <Route
               path="caja"
               element={<PlaceholderPage title="Caja y pagos" />}
+            />
+            <Route
+              path="facturas"
+              element={
+                allowed("REGISTROS_FACTURA_VER") ? (
+                  <InvoicesPage />
+                ) : (
+                  <Navigate to="/" replace />
+                )
+              }
             />
             <Route
               path="reportes"

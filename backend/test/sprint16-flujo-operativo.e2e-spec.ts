@@ -148,6 +148,9 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       select: { id: true },
     });
     const facturaIds = facturas.map((f) => f.id);
+    await prisma.registroFacturaOperativa.deleteMany({
+      where: { sucursalId },
+    });
     const documentos = await prisma.documentoElectronico.findMany({
       where: { facturaId: { in: facturaIds } },
       select: { id: true },

@@ -12,3 +12,4 @@ build/
 .DS_Store
 # Respaldos locales de base de datos
 backups/
+/backend/storage/

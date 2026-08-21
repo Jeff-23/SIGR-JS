@@ -47,6 +47,9 @@ services:
       SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
       METRICS_ENABLED: ${METRICS_ENABLED:-true}
       TRUST_PROXY: ${TRUST_PROXY:-true}
+      SOPORTES_STORAGE_DIR: /app/storage/soportes
+    volumes:
+      - sigr_js_soportes:/app/storage/soportes
     ports:
       - "${BACKEND_PORT:-3000}:3000"
     depends_on:
@@ -68,3 +71,4 @@ services:
 
 volumes:
   sigr_js_pgdata:
+  sigr_js_soportes:

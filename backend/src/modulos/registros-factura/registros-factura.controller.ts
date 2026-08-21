@@ -1,5 +1,6 @@
 import {
   Body,
+  BadRequestException,
   Controller,
   Delete,
   Get,
@@ -11,8 +12,12 @@ import {
   Query,
   Req,
   Res,
+  StreamableFile,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Permisos } from '../auth/permisos.decorator';
@@ -22,13 +27,20 @@ import { ActualizarRegistroFacturaDto } from './dto/actualizar-registro-factura.
 import { CrearRegistroFacturaDto } from './dto/crear-registro-factura.dto';
 import { ListarRegistrosFacturaDto } from './dto/listar-registros-factura.dto';
 import { RegistrosFacturaService } from './registros-factura.service';
+import {
+  ArchivoSoporte,
+  SoportesRegistroService,
+} from './soportes-registro.service';
 
 type RequestAutenticada = { user: UsuarioAutenticado };
 
 @Controller('registros-factura')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class RegistrosFacturaController {
-  constructor(private readonly service: RegistrosFacturaService) {}
+  constructor(
+    private readonly service: RegistrosFacturaService,
+    private readonly soportes: SoportesRegistroService,
+  ) {}
 
   @Post()
   @Permisos('REGISTROS_FACTURA_CREAR')
@@ -65,6 +77,52 @@ export class RegistrosFacturaController {
     response.send(csv);
   }
 
+  @Post(':id/soporte')
+  @Permisos('REGISTROS_FACTURA_CREAR')
+  @UseInterceptors(
+    FileInterceptor('archivo', {
+      limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+    }),
+  )
+  async subirSoporte(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile() archivo: ArchivoSoporte | undefined,
+    @Req() request: RequestAutenticada,
+  ) {
+    if (!archivo) throw new BadRequestException('Debe adjuntar un archivo');
+    const registro = await this.service.obtener(id, request.user);
+    const referencia = await this.soportes.guardar(archivo);
+    try {
+      const actualizado = await this.service.actualizarReferenciaSoporte(
+        id,
+        referencia,
+        request.user,
+      );
+      await this.soportes.eliminar(registro.soporteArchivoRef);
+      return actualizado;
+    } catch (error) {
+      await this.soportes.eliminar(referencia);
+      throw error;
+    }
+  }
+
+  @Get(':id/soporte')
+  @Permisos('REGISTROS_FACTURA_VER')
+  async descargarSoporte(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const registro = await this.service.obtener(id, request.user);
+    const archivo = await this.soportes.leer(registro.soporteArchivoRef);
+    response.setHeader('Content-Type', archivo.tipo);
+    response.setHeader(
+      'Content-Disposition',
+      `inline; filename="${archivo.nombre}"`,
+    );
+    return new StreamableFile(archivo.contenido);
+  }
+
   @Get(':id')
   @Permisos('REGISTROS_FACTURA_VER')
   obtener(
@@ -86,10 +144,13 @@ export class RegistrosFacturaController {
 
   @Delete(':id')
   @Permisos('REGISTROS_FACTURA_ELIMINAR')
-  eliminar(
+  async eliminar(
     @Param('id', ParseIntPipe) id: number,
     @Req() request: RequestAutenticada,
   ) {
-    return this.service.eliminar(id, request.user);
+    const registro = await this.service.obtener(id, request.user);
+    const resultado = await this.service.eliminar(id, request.user);
+    await this.soportes.eliminar(registro.soporteArchivoRef);
+    return resultado;
   }
 }

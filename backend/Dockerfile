@@ -25,6 +25,7 @@ COPY --from=build --chown=sigr:sigr /app/dist ./dist
 COPY --from=build --chown=sigr:sigr /app/prisma ./prisma
 COPY --from=build --chown=sigr:sigr /app/prisma.config.ts ./prisma.config.ts
 COPY --from=build --chown=sigr:sigr /app/package.json ./package.json
+RUN mkdir -p /app/storage/soportes && chown -R sigr:sigr /app/storage
 USER sigr
 EXPOSE 3000
 CMD ["node", "dist/src/main.js"]

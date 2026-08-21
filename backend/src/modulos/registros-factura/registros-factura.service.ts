@@ -375,6 +375,18 @@ export class RegistrosFacturaService {
     return { id: registro.id, eliminado: true };
   }
 
+  async actualizarReferenciaSoporte(
+    id: number,
+    referencia: string,
+    usuario: UsuarioAutenticado,
+  ) {
+    await this.obtener(id, usuario);
+    return this.prisma.registroFacturaOperativa.update({
+      where: { id },
+      data: { soporteArchivoRef: referencia },
+    });
+  }
+
   async exportarCsv(
     filtros: ListarRegistrosFacturaDto,
     usuario: UsuarioAutenticado,

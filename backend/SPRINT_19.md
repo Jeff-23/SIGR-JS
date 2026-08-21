@@ -35,7 +35,7 @@ El `ADMIN` recibe todos los permisos. El rol base `CONTADOR` recibe consulta y e
 
 ## Archivos de soporte
 
-El modelo conserva `soporteArchivoRef`, una referencia neutral al proveedor de almacenamiento. El archivo binario no se guarda dentro de PostgreSQL. En producción debe conectarse a almacenamiento de objetos autorizado para mantener durabilidad, control de acceso y copias de seguridad.
+El modelo conserva `soporteArchivoRef` y el backend permite cargar y descargar el archivo con autenticación. El binario no se guarda dentro de PostgreSQL. El Sprint 20 añadió almacenamiento protegido configurable mediante `SOPORTES_STORAGE_DIR`.
 
 ## Criterios verificados
 

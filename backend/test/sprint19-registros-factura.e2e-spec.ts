@@ -202,6 +202,19 @@ describe('Sprint 19 | Archivo operativo de facturas (e2e)', () => {
       .expect(200);
     expect(csv.text).toContain(`PAP-${sufijo}`);
     await request(app.getHttpServer())
+      .post(`/registros-factura/${registroId}/soporte`)
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .attach('archivo', Buffer.from('%PDF-1.4\nsoporte sprint 19'), {
+        filename: 'soporte.pdf',
+        contentType: 'application/pdf',
+      })
+      .expect(201);
+    const soporte = await request(app.getHttpServer())
+      .get(`/registros-factura/${registroId}/soporte`)
+      .set('Authorization', `Bearer ${tokenConsulta}`)
+      .expect(200);
+    expect(soporte.headers['content-type']).toContain('application/pdf');
+    await request(app.getHttpServer())
       .delete(`/registros-factura/${registroId}`)
       .set('Authorization', `Bearer ${tokenConsulta}`)
       .expect(403);

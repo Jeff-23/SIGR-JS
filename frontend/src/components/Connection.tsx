@@ -1,7 +1,7 @@
 import { CloudOff, RefreshCw, Wifi } from "lucide-react";
 import { useApp } from "../store/app";
 export function Connection() {
-  const { online, pendingCount } = useApp();
+  const { online, serviceAvailable, pendingCount } = useApp();
   return (
     <div
       className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-bold ${online ? "bg-emerald-50 text-emerald-700" : "bg-amber-100 text-amber-900"}`}
@@ -10,11 +10,11 @@ export function Connection() {
       {online ? (
         pendingCount ? (
           <>
-            <RefreshCw size={13} className="animate-spin" /> Sincronizando{" "}
+            <RefreshCw size={13} /> Pendientes de confirmar{" "}
             {pendingCount}
           </>
         ) : (
-          "En línea"
+          serviceAvailable ? "En línea" : "Servicio no disponible"
         )
       ) : (
         `Modo local · ${pendingCount} pendientes`

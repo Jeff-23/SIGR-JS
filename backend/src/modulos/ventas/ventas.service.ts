@@ -803,10 +803,11 @@ export class VentasService {
     );
   }
 
-  findAll(usuarioActual: UsuarioAutenticado) {
+  findAll(usuarioActual: UsuarioAutenticado, sucursalId?: number) {
     return this.prisma.venta.findMany({
       where: {
         sucursal: this.filtroSucursal(usuarioActual),
+        ...(sucursalId ? { sucursalId } : {}),
       },
 
       include: {
@@ -824,6 +825,7 @@ export class VentasService {
 
         factura: true,
         cliente: true,
+        pedido: { include: { mesa: true } },
       },
 
       orderBy: {

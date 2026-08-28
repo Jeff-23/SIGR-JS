@@ -345,6 +345,64 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
     expect(duplicadas.map((r) => r.status).sort()).toEqual([201, 409]);
   });
 
+  it('no permite que un pedido histórico libere una ocupación nueva', async () => {
+    const venta = await prisma.venta.findUniqueOrThrow({
+      where: { id: ventaMesaId },
+    });
+    await request(app.getHttpServer())
+      .patch(`/mesas/${mesaId}/ocupar-sin-pedido`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ motivo: 'Nueva visita' })
+      .expect(200);
+    await request(app.getHttpServer())
+      .patch(`/pedidos/${venta.pedidoId}/finalizar-servicio`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({})
+      .expect(400);
+    expect(
+      (await prisma.mesa.findUniqueOrThrow({ where: { id: mesaId } }))
+        .situacion,
+    ).toBe('OCUPADA');
+    await request(app.getHttpServer())
+      .patch(`/mesas/${mesaId}/liberar-sin-consumo`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ motivo: 'Fin prueba' })
+      .expect(200);
+  });
+
+  it('no amplía la sede del usuario mediante filtros ni al crear estaciones', async () => {
+    const otra = await prisma.sucursal.create({
+      data: { restauranteId, nombre: `Sede B ${sufijo}` },
+    });
+    try {
+      for (const ruta of ['/mesas', '/productos', '/estaciones-preparacion']) {
+        const respuesta = await request(app.getHttpServer())
+          .get(ruta)
+          .query({ sucursalId: otra.id })
+          .set('Authorization', `Bearer ${token}`)
+          .expect(200);
+        expect(respuesta.body).toEqual([]);
+      }
+      await request(app.getHttpServer())
+        .post('/estaciones-preparacion')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          sucursalId: otra.id,
+          codigo: 'BAR',
+          nombre: 'Bar',
+          color: '#123456',
+        })
+        .expect(404);
+      expect(
+        await prisma.estacionPreparacion.count({
+          where: { sucursalId: otra.id },
+        }),
+      ).toBe(0);
+    } finally {
+      await prisma.sucursal.delete({ where: { id: otra.id } });
+    }
+  });
+
   it('gestiona domicilio desde cocina hasta entrega al cliente', async () => {
     const pedido = await request(app.getHttpServer())
       .post('/pedidos')

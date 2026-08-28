@@ -177,7 +177,7 @@ export class ProductosService {
                   id: usuarioActual.sucursalId,
                 }
               : {}),
-            ...(sucursalId ? { id: sucursalId } : {}),
+            ...(sucursalId ? { AND: [{ id: sucursalId }] } : {}),
           },
         },
       },

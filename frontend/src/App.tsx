@@ -6,8 +6,7 @@ import { RouteGuard } from "./components/RouteGuard";
 import { useBranches } from "./hooks/useBranches";
 import { useSessionContext } from "./hooks/useSessionContext";
 import { AppShell } from "./layout/AppShell";
-import { synchronize } from "./lib/api";
-import { pending } from "./lib/offline";
+import { ownedPending, synchronize } from "./lib/api";
 import { CashPage } from "./pages/CashPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { InvoicesPage } from "./pages/InvoicesPage";
@@ -26,7 +25,7 @@ function ApplicationRoutes() {
     const unauthorized = () => { if (useApp.getState().session) { logout(); toast.error("Tu sesión terminó. Ingresa nuevamente."); } };
     const service = (event: Event) => setServiceAvailable(Boolean((event as CustomEvent<{ available: boolean }>).detail.available));
     const refresh = async () => {
-      setOnline(navigator.onLine); setPendingCount((await pending()).length);
+      setOnline(navigator.onLine); setPendingCount((await ownedPending()).length);
       if (navigator.onLine && session && !session.demo) { const result = await synchronize(); setPendingCount(result.remaining); }
     };
     window.addEventListener("sigr:unauthorized", unauthorized); window.addEventListener("sigr:service", service);

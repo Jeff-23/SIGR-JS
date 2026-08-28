@@ -867,6 +867,15 @@ export class PedidosService {
         );
       }
       if (pedido.mesaId !== null) {
+        const posterior = await tx.pedido.findFirst({
+          where: { mesaId: pedido.mesaId, id: { gt: pedido.id } },
+          select: { id: true },
+        });
+        if (posterior || pedido.mesa?.ocupacionManual) {
+          throw new BadRequestException(
+            'La mesa ya pertenece a otra ocupación',
+          );
+        }
         await tx.mesa.update({
           where: { id: pedido.mesaId },
           data: {

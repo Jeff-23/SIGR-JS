@@ -38,8 +38,12 @@ export class CajasController {
 
   @Get('abiertas')
   @Permisos('CAJA_VER')
-  listarAbiertas(@Req() request: RequestAutenticada) {
-    return this.cajasService.listarAbiertas(request.user);
+  listarAbiertas(
+    @Req() request: RequestAutenticada,
+    @Query('sucursalId', new ParseIntPipe({ optional: true }))
+    sucursalId?: number,
+  ) {
+    return this.cajasService.listarAbiertas(request.user, sucursalId);
   }
 
   @Get('historial')

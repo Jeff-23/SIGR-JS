@@ -17,5 +17,6 @@ describe("contrato operativo de salón", () => {
   it("excluye pedidos cancelados y facturados del servicio activo", () => {
     expect(activeOrder({ estado: "CANCELADO" } as ApiOrder)).toBe(false);
     expect(activeOrder({ estado: "ENTREGADO" } as ApiOrder)).toBe(true);
+    expect(activeOrder({ estado: "ENTREGADO", venta: { estado: "PAGADA" } } as ApiOrder)).toBe(false);
   });
 });

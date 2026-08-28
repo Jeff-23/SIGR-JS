@@ -2,7 +2,7 @@ export type OrderType = "MESA" | "MOSTRADOR" | "PARA_LLEVAR" | "DOMICILIO";
 
 export type ApiTable = {
   id: number;
-  numero: number;
+  numero: string;
   capacidad: number;
   situacion: "LIBRE" | "OCUPADA" | "PENDIENTE_PAGO";
   ocupacionManual: boolean;
@@ -58,5 +58,5 @@ export function pendingCommandDetails(order: ApiOrder) {
 }
 
 export function activeOrder(order: ApiOrder) {
-  return order.estado !== "CANCELADO" && order.estado !== "FACTURADO";
+  return order.estado !== "CANCELADO" && order.estado !== "FACTURADO" && !(order.estado === "ENTREGADO" && order.venta?.estado === "PAGADA");
 }

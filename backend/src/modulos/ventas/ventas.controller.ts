@@ -99,8 +99,10 @@ export class VentasController {
   findAll(
     @Req()
     request: RequestAutenticada,
+    @Query('sucursalId', new ParseIntPipe({ optional: true }))
+    sucursalId?: number,
   ) {
-    return this.ventasService.findAll(request.user);
+    return this.ventasService.findAll(request.user, sucursalId);
   }
 
   /*

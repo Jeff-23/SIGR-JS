@@ -56,8 +56,10 @@ export class MesasService {
         zona: {
           estado: true,
           sucursal: {
-            ...this.filtroSucursal(usuario),
-            ...(sucursalId ? { id: sucursalId } : {}),
+            AND: [
+              this.filtroSucursal(usuario),
+              ...(sucursalId ? [{ id: sucursalId }] : []),
+            ],
           },
         },
       },

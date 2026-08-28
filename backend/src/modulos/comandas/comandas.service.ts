@@ -175,7 +175,7 @@ export class ComandasService {
             codigo: 'COCINA',
           },
         },
-        update: { estado: true },
+        update: {},
         create: {
           sucursalId: pedido.sucursalId,
           codigo: 'COCINA',
@@ -183,7 +183,7 @@ export class ComandasService {
           color: '#F97316',
           orden: 10,
         },
-        select: { id: true },
+        select: { id: true, estado: true },
       });
 
       for (const [detallePedidoId, cantidadSolicitada] of solicitados) {
@@ -199,9 +199,14 @@ export class ComandasService {
           );
         }
 
-        const estacionId = detallePedido.producto.estacion?.estado
-          ? detallePedido.producto.estacion.id
-          : estacionPredeterminada.id;
+        const asignada = detallePedido.producto.estacion;
+        const estacionId = asignada
+          ? asignada.estado && asignada.sucursalId === pedido.sucursalId
+            ? asignada.id
+            : null
+          : estacionPredeterminada.estado
+            ? estacionPredeterminada.id
+            : null;
         if (!estacionId) {
           throw new BadRequestException(
             `El producto ${detallePedido.productoId} no tiene estación de preparación activa`,
@@ -295,8 +300,10 @@ export class ComandasService {
       where: {
         estado: true,
         sucursal: {
-          ...this.filtroSucursal(usuario),
-          ...(sucursalId ? { id: sucursalId } : {}),
+          AND: [
+            this.filtroSucursal(usuario),
+            ...(sucursalId ? [{ id: sucursalId }] : []),
+          ],
         },
       },
       orderBy: [{ orden: 'asc' }, { nombre: 'asc' }],
@@ -305,7 +312,7 @@ export class ComandasService {
 
   async crearEstacion(data: CrearEstacionDto, usuario: UsuarioAutenticado) {
     const sucursal = await this.prisma.sucursal.findFirst({
-      where: { id: data.sucursalId, ...this.filtroSucursal(usuario) },
+      where: { AND: [{ id: data.sucursalId }, this.filtroSucursal(usuario)] },
       select: { id: true },
     });
     if (!sucursal) throw new NotFoundException('Sucursal no encontrada');

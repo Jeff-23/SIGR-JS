@@ -226,10 +226,11 @@ export class CajasService {
     });
   }
 
-  listarAbiertas(usuario: UsuarioAutenticado) {
+  listarAbiertas(usuario: UsuarioAutenticado, sucursalId?: number) {
     return this.prisma.caja.findMany({
       where: {
         estado: EstadoCaja.ABIERTA,
+        ...(sucursalId ? { sucursalId } : {}),
         sucursal: this.filtroSucursal(usuario),
       },
       include: {

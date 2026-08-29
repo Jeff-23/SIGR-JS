@@ -35,6 +35,8 @@ export function SaleForm({
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [search, setSearch] = useState("");
   const [customerId, setCustomerId] = useState("");
+  const [codigoPromocional, setCodigoPromocional] = useState("");
+  const [usarPuntos, setUsarPuntos] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -122,6 +124,8 @@ export function SaleForm({
             const body = {
               sucursalId: branchId,
               clienteId: customerId ? Number(customerId) : undefined,
+              codigoPromocional: codigoPromocional || undefined,
+              usarPuntos: usarPuntos ? Number(usarPuntos) : undefined,
               ...Object.fromEntries(
                 Object.entries(adjustments)
                   .filter(([, value]) => value !== "")
@@ -340,6 +344,14 @@ export function SaleForm({
             </div>
           ))}
           <section className="grid gap-3 sm:grid-cols-2">
+            <label>
+              Cupón o código promocional
+              <input className="input" maxLength={50} value={codigoPromocional} onChange={(event) => setCodigoPromocional(event.target.value.toUpperCase())} placeholder="Opcional" />
+            </label>
+            <label>
+              Puntos a redimir
+              <input className="input" type="number" min="1" disabled={!customerId} value={usarPuntos} onChange={(event) => setUsarPuntos(event.target.value)} placeholder={customerId ? "Opcional" : "Selecciona cliente"} />
+            </label>
             {(Object.keys(adjustments) as Array<keyof typeof adjustments>).map(
               (key) => (
                 <label key={key}>

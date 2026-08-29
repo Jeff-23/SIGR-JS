@@ -39,6 +39,16 @@ export class AjustesVentaDto {
   @Min(0)
   @IsOptional()
   propina?: number;
+
+  @IsString()
+  @MaxLength(50)
+  @IsOptional()
+  codigoPromocional?: string;
+
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  usarPuntos?: number;
 }
 
 export class DetalleVentaDto {

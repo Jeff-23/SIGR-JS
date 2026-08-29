@@ -39,6 +39,7 @@ import { RespuestaSeguraInterceptor } from './plataforma/respuesta-segura.interc
 import { FiscalModule } from './modulos/fiscal/fiscal.module';
 import { RegistrosFacturaModule } from './modulos/registros-factura/registros-factura.module';
 import { ReservasModule } from './modulos/reservas/reservas.module';
+import { FidelizacionModule } from './modulos/fidelizacion/fidelizacion.module';
 
 const entorno = obtenerEntorno();
 
@@ -79,6 +80,7 @@ const entorno = obtenerEntorno();
     FiscalModule,
     RegistrosFacturaModule,
     ReservasModule,
+    FidelizacionModule,
   ],
   controllers: [AppController],
   providers: [

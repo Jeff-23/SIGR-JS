@@ -21,6 +21,7 @@ import { DeliveryPage } from "./pages/DeliveryPage";
 import { AdminPage } from "./pages/AdminPage";
 import { FiscalPage } from "./pages/FiscalPage";
 import { ContinuityPage } from "./pages/ContinuityPage";
+import { LoyaltyPage } from "./pages/LoyaltyPage";
 import { useApp } from "./store/app";
 
 function ApplicationRoutes() {
@@ -161,6 +162,7 @@ function ApplicationRoutes() {
         <Route path="administracion" element={<AdminPage />} />
         <Route path="fiscal" element={<FiscalPage />} />
         <Route path="continuidad" element={<ContinuityPage />} />
+        <Route path="fidelizacion" element={<RouteGuard permission="CLIENTES_VER" capability="CLIENTES"><LoyaltyPage /></RouteGuard>} />
         <Route path="acceso-denegado" element={<AccessDenied />} />
         <Route path="servicio-no-disponible" element={<ServiceUnavailable />} />
         <Route path="*" element={<Navigate to="/" replace />} />

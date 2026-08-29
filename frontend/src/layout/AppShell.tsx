@@ -6,6 +6,7 @@ import {
   LogOut,
   Menu,
   Receipt,
+  HeartHandshake,
   Settings,
   UtensilsCrossed,
   X,
@@ -18,6 +19,13 @@ import { OperationsNotice } from "../components/OperationsNotice";
 import { useApp } from "../store/app";
 
 const nav = [
+  {
+    to: "/fidelizacion",
+    label: "Promociones y clientes",
+    icon: HeartHandshake,
+    permission: "CLIENTES_VER",
+    capability: "CLIENTES",
+  },
   {
     to: "/continuidad",
     label: "Sincronización",

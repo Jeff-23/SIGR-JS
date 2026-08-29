@@ -107,6 +107,9 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
             'FACTURAS_VER',
             'CONFIGURACION_VER',
             'CONFIGURACION_GESTIONAR',
+            'CLIENTES_VER',
+            'CLIENTES_CREAR',
+            'CLIENTES_EDITAR',
           ],
         },
       },
@@ -191,6 +194,10 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       where: { ventaId: { in: ventaIds } },
     });
     await prisma.venta.deleteMany({ where: { id: { in: ventaIds } } });
+    await prisma.cupon.deleteMany({ where: { restauranteId } });
+    await prisma.promocion.deleteMany({ where: { restauranteId } });
+    await prisma.nivelFidelizacion.deleteMany({ where: { restauranteId } });
+    await prisma.cliente.deleteMany({ where: { restauranteId } });
     const pedidos = await prisma.pedido.findMany({
       where: { sucursalId },
       select: { id: true },
@@ -886,5 +893,77 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ ...base, numeroResolucion: `R2-${sufijo}`, rangoDesde: 50 })
       .expect(400);
+  });
+
+  it('aplica promociones y consolida fidelización y consentimientos', async () => {
+    const cliente = await prisma.cliente.create({
+      data: {
+        restauranteId,
+        nombres: 'Cliente',
+        apellidos: 'Fidelizado',
+        tipoDocumento: 'CC',
+        numeroDocumento: `F${sufijo}`,
+        telefono: '3000000000',
+        correo: `cliente-${sufijo}@test.local`,
+        direccion: 'Prueba',
+        fechaNacimiento: new Date('1990-01-01'),
+      },
+    });
+    await request(app.getHttpServer())
+      .post('/fidelizacion/niveles')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ nombre: `Oro ${sufijo}`, puntosMinimos: 0, multiplicador: 2 })
+      .expect(201);
+    const promocion = await request(app.getHttpServer())
+      .post('/fidelizacion/promociones')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        nombre: `Promo ${sufijo}`,
+        tipo: 'PORCENTAJE',
+        valor: 10,
+        fechaInicio: new Date(Date.now() - 60_000).toISOString(),
+        fechaFin: new Date(Date.now() + 86_400_000).toISOString(),
+        diasSemana: [0, 1, 2, 3, 4, 5, 6],
+        sucursalId,
+        requiereCupon: true,
+      })
+      .expect(201);
+    const codigo = `PROMO${sufijo}`.slice(0, 50);
+    await request(app.getHttpServer())
+      .post('/fidelizacion/cupones')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ codigo, promocionId: promocion.body.id, usosMaximos: 1 })
+      .expect(201);
+    const venta = await request(app.getHttpServer())
+      .post('/ventas/directa')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `s33-${sufijo}`)
+      .send({
+        sucursalId,
+        clienteId: cliente.id,
+        codigoPromocional: codigo,
+        detalles: [{ productoId, cantidad: 1 }],
+      })
+      .expect(201);
+    expect(Number(venta.body.descuentos)).toBe(2000);
+    await request(app.getHttpServer())
+      .post(`/fidelizacion/clientes/${cliente.id}/puntos/ajuste`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ puntos: 50, motivo: 'Bonificación de bienvenida' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .put(`/fidelizacion/clientes/${cliente.id}/consentimientos/WHATSAPP`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ otorgado: true, fuente: 'Prueba E2E' })
+      .expect(200);
+    const resumen = await request(app.getHttpServer())
+      .get(`/fidelizacion/clientes/${cliente.id}/resumen`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(resumen.body.cuentaFidelizacion.saldoPuntos).toBe(50);
+    expect(resumen.body.consentimientos[0].otorgado).toBe(true);
+    expect(resumen.body.ventas[0].aplicacionesDescuento[0].origen).toBe(
+      'CUPON',
+    );
   });
 });

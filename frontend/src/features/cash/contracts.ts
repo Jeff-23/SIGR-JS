@@ -21,6 +21,12 @@ export type Sale = {
     monto: string | number;
     referencia?: string;
     metodoPago: PaymentMethod;
+    devoluciones?: Array<{
+      id: number;
+      monto: string | number;
+      motivo: string;
+      creadoEn: string;
+    }>;
   }>;
   detalles: Array<{
     id: number;
@@ -64,7 +70,29 @@ export function balance(sale: Pick<Sale, "total" | "pagos">) {
     Math.max(
       0,
       cents(sale.total) -
-        sale.pagos.reduce((sum, payment) => sum + cents(payment.monto), 0),
+        sale.pagos.reduce(
+          (sum, payment) =>
+            sum +
+            cents(payment.monto) -
+            (payment.devoluciones ?? []).reduce(
+              (returned, refund) => returned + cents(refund.monto),
+              0,
+            ),
+          0,
+        ),
+    ) / 100
+  );
+}
+
+export function refundable(payment: Sale["pagos"][number]) {
+  return (
+    Math.max(
+      0,
+      cents(payment.monto) -
+        (payment.devoluciones ?? []).reduce(
+          (sum, refund) => sum + cents(refund.monto),
+          0,
+        ),
     ) / 100
   );
 }

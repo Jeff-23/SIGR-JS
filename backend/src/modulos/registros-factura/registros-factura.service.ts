@@ -7,6 +7,11 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  hashSolicitud,
+  normalizarClaveIdempotencia,
+  validarReplayIdempotente,
+} from '../../plataforma/idempotencia';
 import { respuestaPaginada } from '../../plataforma/paginacion';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { ActualizarRegistroFacturaDto } from './dto/actualizar-registro-factura.dto';
@@ -175,7 +180,11 @@ export class RegistrosFacturaService {
       );
     }
     const sucursal = await this.validarSucursal(data.sucursalId, usuario);
-    const clave = this.texto(idempotenciaClave)?.slice(0, 100) ?? null;
+    const clave =
+      idempotenciaClave === undefined
+        ? null
+        : normalizarClaveIdempotencia(idempotenciaClave);
+    const hash = hashSolicitud({ data, usuarioId: usuario.id });
     if (clave) {
       const existente = await this.prisma.registroFacturaOperativa.findUnique({
         where: {
@@ -185,7 +194,10 @@ export class RegistrosFacturaService {
           },
         },
       });
-      if (existente) return existente;
+      if (existente) {
+        validarReplayIdempotente(existente.idempotenciaHash, hash);
+        return existente;
+      }
     }
     if (data.ventaId) {
       const venta = await this.prisma.venta.findFirst({
@@ -217,6 +229,7 @@ export class RegistrosFacturaService {
           soporteArchivoRef: this.texto(data.soporteArchivoRef),
           observaciones: this.texto(data.observaciones),
           idempotenciaClave: clave,
+          idempotenciaHash: clave ? hash : null,
           restauranteId: sucursal.restauranteId,
           sucursalId: sucursal.id,
           digitadoPorId: usuario.id,
@@ -232,6 +245,21 @@ export class RegistrosFacturaService {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
+        if (clave) {
+          const existente =
+            await this.prisma.registroFacturaOperativa.findUnique({
+              where: {
+                sucursalId_idempotenciaClave: {
+                  sucursalId: data.sucursalId,
+                  idempotenciaClave: clave,
+                },
+              },
+            });
+          if (existente) {
+            validarReplayIdempotente(existente.idempotenciaHash, hash);
+            return existente;
+          }
+        }
         throw new ConflictException(
           'Ya existe la factura, comanda o soporte en esta sucursal',
         );

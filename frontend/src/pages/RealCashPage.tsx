@@ -7,11 +7,15 @@ import { useApp } from "../store/app";
 import { money } from "../data/demo";
 import {
   balance,
+  refundable,
   type CashDrawer,
   type PaymentMethod,
   type Sale,
 } from "../features/cash/contracts";
 import type { ApiOrder } from "../features/salon/contracts";
+import { confirmedPost } from "../lib/confirmed-operation";
+import { FinancialRecovery } from "../components/FinancialRecovery";
+import { SaleForm } from "../features/cash/SaleForm";
 
 export function RealCashPage() {
   const { branchId, session, hasPermission } = useApp();
@@ -52,6 +56,7 @@ export function RealCashPage() {
   const [counted, setCounted] = useState("");
   const [observation, setObservation] = useState("");
   const [showOpen, setShowOpen] = useState(false);
+  const [saleMode, setSaleMode] = useState<"directa" | "manual" | null>(null);
   const mounted = useRef(true);
   const load = useCallback(async () => {
     if (!branchId) return;
@@ -183,7 +188,8 @@ export function RealCashPage() {
     } catch (error) {
       // Keep the exact operation/key even when the server committed but its response was lost.
       if (
-        !uncertain && isAxiosError(error) &&
+        !uncertain &&
+        isAxiosError(error) &&
         error.response &&
         error.response.status >= 400 &&
         error.response.status < 500
@@ -213,6 +219,46 @@ export function RealCashPage() {
           Actualizar
         </button>
       </header>
+      <FinancialRecovery
+        scope={attemptKey}
+        onRecovered={async () => {
+          setSelectedDrawer(null);
+          setShowOpen(false);
+          await load();
+        }}
+      />
+      {hasPermission("VENTAS_CREAR") && hasPermission("PRODUCTOS_VER") && (
+        <div className="flex flex-wrap gap-3">
+          <button
+            disabled={busy || Boolean(failure)}
+            className="secondary w-auto"
+            onClick={() => setSaleMode("directa")}
+          >
+            Venta directa
+          </button>
+          {hasPermission("VENTAS_REGISTRAR_MANUAL") && (
+            <button
+              disabled={busy || Boolean(failure)}
+              className="secondary w-auto"
+              onClick={() => setSaleMode("manual")}
+            >
+              Digitar venta en papel
+            </button>
+          )}
+        </div>
+      )}
+      {saleMode && (
+        <SaleForm
+          mode={saleMode}
+          scope={attemptKey}
+          onClose={() => setSaleMode(null)}
+          onSaved={async () => {
+            setSaleMode(null);
+            await load();
+            toast.success("Venta registrada sin cobrar ni facturar");
+          }}
+        />
+      )}
       {failure && (
         <div role="alert" className="rounded-xl bg-red-50 p-4 text-red-800">
           No se puede confirmar el estado actual: {failure}. Las acciones están
@@ -242,7 +288,7 @@ export function RealCashPage() {
               onSubmit={(event) => {
                 event.preventDefault();
                 void run(async () => {
-                  await api.post("/cajas/abrir", {
+                  await confirmedPost(attemptKey, "/cajas/abrir", {
                     sucursalId: branchId,
                     nombre: opening.nombre,
                     saldoInicial: Number(opening.saldoInicial),
@@ -451,7 +497,8 @@ export function RealCashPage() {
                     onSubmit={(event) => {
                       event.preventDefault();
                       void run(async () => {
-                        await api.post(
+                        await confirmedPost(
+                          attemptKey,
                           `/cajas/${selectedDrawer.id}/movimientos`,
                           { ...movement, monto: Number(movement.monto) },
                         );
@@ -503,7 +550,7 @@ export function RealCashPage() {
                       <input
                         className="input"
                         required
-                        maxLength={150}
+                        maxLength={120}
                         value={movement.concepto}
                         onChange={(event) =>
                           setMovement({
@@ -528,10 +575,14 @@ export function RealCashPage() {
                       )
                         return;
                       void run(async () => {
-                        await api.post(`/cajas/${selectedDrawer.id}/cerrar`, {
-                          saldoContado: Number(counted),
-                          observacion: observation || undefined,
-                        });
+                        await confirmedPost(
+                          attemptKey,
+                          `/cajas/${selectedDrawer.id}/cerrar`,
+                          {
+                            saldoContado: Number(counted),
+                            observacion: observation || undefined,
+                          },
+                        );
                         setSelectedDrawer(null);
                         toast.success("Caja cerrada");
                       });
@@ -603,10 +654,44 @@ export function RealCashPage() {
                 {money.format(balance(selectedSale))}
               </p>
               {selectedSale.pagos.map((item) => (
-                <p key={item.id}>
-                  Pago #{item.id}: {item.metodoPago.nombre} ·{" "}
-                  {money.format(Number(item.monto))}
-                </p>
+                <div key={item.id} className="rounded-xl border p-3">
+                  <p>
+                    Pago #{item.id}: {item.metodoPago.nombre} ·{" "}
+                    {money.format(Number(item.monto))}
+                  </p>
+                  {(item.devoluciones ?? []).map((refund) => (
+                    <p key={refund.id} className="text-sm text-amber-800">
+                      Devolución #{refund.id}: −{money.format(Number(refund.monto))} · {refund.motivo}
+                    </p>
+                  ))}
+                  {hasPermission("PAGOS_REGISTRAR") && refundable(item) > 0 && (
+                    <button
+                      className="secondary mt-2 print:hidden"
+                      disabled={busy || uncertain}
+                      onClick={() => {
+                        const amount = window.prompt(
+                          `Monto a devolver (máximo ${money.format(refundable(item))})`,
+                          String(refundable(item)),
+                        );
+                        if (amount === null) return;
+                        const reason = window.prompt("Motivo obligatorio de la devolución");
+                        if (!reason?.trim()) return;
+                        void run(async () => {
+                          await api.post(
+                            `/ventas/${selectedSale.id}/pagos/${item.id}/devoluciones`,
+                            { monto: Number(amount), motivo: reason.trim() },
+                            { headers: { "Idempotency-Key": crypto.randomUUID() } },
+                          );
+                          const detail = await api.get<Sale>(`/ventas/${selectedSale.id}`);
+                          setSelectedSale(detail.data);
+                          toast.success("Devolución registrada sin alterar el pago original");
+                        });
+                      }}
+                    >
+                      Registrar devolución
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
             <button
@@ -715,6 +800,32 @@ export function RealCashPage() {
                       : "Confirmar cobro"}
                   </button>
                 </form>
+              )}
+            {hasPermission("VENTAS_ANULAR") &&
+              selectedSale.estado !== "ANULADA" &&
+              selectedSale.pagos.length > 0 &&
+              selectedSale.pagos.every((item) => refundable(item) === 0) && (
+                <button
+                  className="secondary print:hidden"
+                  disabled={busy || uncertain}
+                  onClick={() => {
+                    const reason = window.prompt(
+                      "Motivo de la reversión comercial (los pagos deben estar totalmente devueltos)",
+                    );
+                    if (!reason?.trim()) return;
+                    void run(async () => {
+                      await api.post(
+                        `/ventas/${selectedSale.id}/reversar`,
+                        { motivo: reason.trim() },
+                        { headers: { "Idempotency-Key": crypto.randomUUID() } },
+                      );
+                      setSelectedSale(null);
+                      toast.success("Venta revertida con trazabilidad append-only");
+                    });
+                  }}
+                >
+                  Reversar venta después de devoluciones
+                </button>
               )}
             {hasPermission("VENTAS_ANULAR") &&
               selectedSale.estado !== "ANULADA" &&

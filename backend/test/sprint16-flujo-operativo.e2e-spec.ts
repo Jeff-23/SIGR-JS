@@ -96,7 +96,12 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
             'COMANDAS_ACTUALIZAR_ESTADO',
             'VENTAS_CREAR',
             'VENTAS_REGISTRAR_MANUAL',
+            'VENTAS_ANULAR',
             'PAGOS_REGISTRAR',
+            'CAJA_ABRIR',
+            'CAJA_VER',
+            'CAJA_MOVIMIENTOS',
+            'CAJA_CERRAR',
             'FACTURAS_EMITIR',
             'FACTURAS_VER',
             'CONFIGURACION_VER',
@@ -167,6 +172,12 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
     await prisma.documentoElectronico.deleteMany({
       where: { id: { in: documentoIds } },
     });
+    await prisma.reversionVenta.deleteMany({
+      where: { ventaId: { in: ventaIds } },
+    });
+    await prisma.devolucionPago.deleteMany({
+      where: { pago: { ventaId: { in: ventaIds } } },
+    });
     await prisma.pago.deleteMany({ where: { ventaId: { in: ventaIds } } });
     await prisma.factura.deleteMany({ where: { id: { in: facturaIds } } });
     await prisma.movimientoInventario.deleteMany({
@@ -199,7 +210,8 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
     await prisma.configuracionRestaurante.deleteMany({
       where: { restauranteId },
     });
-    await prisma.caja.deleteMany({ where: { id: cajaId } });
+    await prisma.movimientoCaja.deleteMany({ where: { caja: { sucursalId } } });
+    await prisma.caja.deleteMany({ where: { sucursalId } });
     await prisma.producto.deleteMany({
       where: { id: { in: [productoId, productoBarId] } },
     });
@@ -245,6 +257,74 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       .expect(200);
   });
 
+  it('reintenta apertura, movimiento y cierre sin duplicar ni cambiar importes', async () => {
+    const apertura = {
+      sucursalId,
+      nombre: `Reintentos ${sufijo}`,
+      saldoInicial: 10000,
+    };
+    const abrir = () =>
+      request(app.getHttpServer())
+        .post('/cajas/abrir')
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', `abrir-${sufijo}`)
+        .send(apertura);
+    const respuestas = await Promise.all([abrir(), abrir()]);
+    expect(respuestas.map((respuesta) => respuesta.status)).toEqual([201, 201]);
+    const id = respuestas[0].body.id as number;
+    expect(respuestas[1].body.id).toBe(id);
+    expect(
+      await prisma.caja.count({
+        where: { sucursalId, aperturaClave: `abrir-${sufijo}` },
+      }),
+    ).toBe(1);
+    await request(app.getHttpServer())
+      .post('/cajas/abrir')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `abrir-${sufijo}`)
+      .send({ ...apertura, saldoInicial: 20000 })
+      .expect(409);
+    const movimiento = {
+      tipo: 'INGRESO',
+      monto: 5000,
+      concepto: 'Prueba de reintento',
+    };
+    const mover = () =>
+      request(app.getHttpServer())
+        .post(`/cajas/${id}/movimientos`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', `movimiento-${sufijo}`)
+        .send(movimiento);
+    const movimientos = await Promise.all([mover(), mover()]);
+    expect(movimientos.map((respuesta) => respuesta.status)).toEqual([
+      201, 201,
+    ]);
+    expect(movimientos[0].body.id).toBe(movimientos[1].body.id);
+    const cerrar = () =>
+      request(app.getHttpServer())
+        .post(`/cajas/${id}/cerrar`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', `cierre-${sufijo}`)
+        .send({ saldoContado: 15000 });
+    const cierres = await Promise.all([cerrar(), cerrar()]);
+    expect(cierres.map((respuesta) => respuesta.status)).toEqual([201, 201]);
+    expect(cierres[0].body).toMatchObject({
+      saldoEsperado: '15000',
+      diferencia: '0',
+    });
+    expect(cierres[0].body.fechaCierre).toBe(cierres[1].body.fechaCierre);
+    await mover().expect(201);
+    expect(await prisma.movimientoCaja.count({ where: { cajaId: id } })).toBe(
+      1,
+    );
+    await request(app.getHttpServer())
+      .post(`/cajas/${id}/cerrar`)
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `cierre-${sufijo}`)
+      .send({ saldoContado: 14000 })
+      .expect(409);
+  });
+
   it('no libera la mesa pagada hasta que cocina y servicio entregan', async () => {
     const pedido = await request(app.getHttpServer())
       .post('/pedidos')
@@ -271,7 +351,7 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
     ventaMesaId = venta.body.id as number;
     expect(venta.body.total).toBe('22000');
     const metodo = await prisma.metodoPago.findFirstOrThrow({
-      where: { activo: true },
+      where: { activo: true, tipo: 'EFECTIVO' },
     });
     await request(app.getHttpServer())
       .post(`/ventas/${ventaMesaId}/pagos`)
@@ -294,6 +374,48 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       (await prisma.mesa.findUniqueOrThrow({ where: { id: mesaId } }))
         .situacion,
     ).toBe('LIBRE');
+  });
+
+  it('devuelve pagos y revierte la venta con movimientos append-only', async () => {
+    const venta = await prisma.venta.findUniqueOrThrow({
+      where: { id: ventaMesaId },
+      include: { pagos: true },
+    });
+    const pago = venta.pagos[0];
+    const claveDevolucion = `s16-devolucion-${sufijo}`;
+    const devolver = () =>
+      request(app.getHttpServer())
+        .post(`/ventas/${venta.id}/pagos/${pago.id}/devoluciones`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', claveDevolucion)
+        .send({ monto: Number(pago.monto), motivo: 'Solicitud del cliente' });
+    const respuestas = await Promise.all([devolver(), devolver()]);
+    expect(respuestas.map((respuesta) => respuesta.status)).toEqual([201, 201]);
+    expect(respuestas[0].body.id).toBe(respuestas[1].body.id);
+    expect(
+      await prisma.devolucionPago.count({ where: { pagoId: pago.id } }),
+    ).toBe(1);
+    expect(
+      await prisma.movimientoCaja.count({
+        where: { cajaId, concepto: `Devolución pago #${pago.id}` },
+      }),
+    ).toBe(1);
+
+    const claveReversion = `s16-reversion-${sufijo}`;
+    const reversar = () =>
+      request(app.getHttpServer())
+        .post(`/ventas/${venta.id}/reversar`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', claveReversion)
+        .send({ motivo: 'Operación comercial revertida' });
+    const reversiones = await Promise.all([reversar(), reversar()]);
+    expect(reversiones.map((respuesta) => respuesta.status)).toEqual([
+      201, 201,
+    ]);
+    expect(reversiones[0].body.estado).toBe('ANULADA');
+    expect(
+      await prisma.reversionVenta.count({ where: { ventaId: venta.id } }),
+    ).toBe(1);
   });
 
   it('preserva soporte, precios e impuestos originales y bloquea duplicados', async () => {

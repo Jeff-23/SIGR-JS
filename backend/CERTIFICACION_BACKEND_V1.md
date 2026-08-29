@@ -27,6 +27,11 @@ Los archivos `.env` están ignorados y no se versionan. La revisión busca patro
 
 El Sprint 13 incorporó `npm run audit:check`: bloquea vulnerabilidades altas o críticas nuevas y admite temporalmente sólo la cadena conocida `prisma` → `@prisma/config` → `deepmerge-ts`. Prisma 7.9.1 todavía conserva `deepmerge-ts` 7.1.5, por lo que actualizar sin eliminar el aviso no se considera una corrección real.
 
+Actualización 2026-08-28: se sustituyó exclusivamente la dependencia transitiva
+`@prisma/config` → `deepmerge-ts` mediante override exacto a 8.0.2, manteniendo
+Prisma 7.9.1. `npm audit` informa cero vulnerabilidades y se retiró la excepción
+del control de auditoría. La aceptación histórica anterior ya no aplica a este árbol.
+
 ## Extensión Sprint 13
 
 - OpenAPI enriquecido con DTOs derivados de `class-validator`, etiquetas, resúmenes, respuestas de error, Bearer, idempotencia y `X-Request-Id`.

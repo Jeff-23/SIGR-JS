@@ -62,6 +62,13 @@ export async function ownedPending() {
   const scope = currentScope();
   return (await pending()).filter((operation) => sameScope(operation.scope, scope));
 }
+export async function discardOwnedPending(id: string) {
+  const scope = currentScope();
+  const operation = (await pending()).find((item) => item.id === id);
+  if (!operation || !sameScope(operation.scope, scope))
+    throw new Error("La operación no pertenece a la sesión actual");
+  await removePending(id);
+}
 let synchronizing: Promise<{ synced: number; remaining: number }> | null = null;
 export function synchronize() {
   if (!synchronizing) synchronizing = synchronizeOwned().finally(() => { synchronizing = null; });

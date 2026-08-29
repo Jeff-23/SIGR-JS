@@ -18,6 +18,11 @@ import { AbrirCajaDto } from './dto/abrir-caja.dto';
 import { CerrarCajaDto } from './dto/cerrar-caja.dto';
 import { ListarCajasDto } from './dto/listar-cajas.dto';
 import { RegistrarMovimientoCajaDto } from './dto/registrar-movimiento-caja.dto';
+import {
+  hashSolicitud,
+  normalizarClaveIdempotencia,
+  validarReplayIdempotente,
+} from '../../plataforma/idempotencia';
 
 @Injectable()
 export class CajasService {
@@ -157,7 +162,16 @@ export class CajasService {
     };
   }
 
-  async abrir(data: AbrirCajaDto, usuario: UsuarioAutenticado) {
+  async abrir(
+    data: AbrirCajaDto,
+    usuario: UsuarioAutenticado,
+    claveRecibida?: string,
+  ) {
+    const clave =
+      claveRecibida === undefined
+        ? undefined
+        : normalizarClaveIdempotencia(claveRecibida);
+    const hash = hashSolicitud({ data, usuarioId: usuario.id });
     return this.prisma.transaccionSerializable(async (tx) => {
       const sucursal = await tx.sucursal.findFirst({
         where: {
@@ -175,6 +189,27 @@ export class CajasService {
       }
 
       await this.bloquearSucursal(tx, sucursal.id);
+
+      if (clave) {
+        const replay = await tx.caja.findUnique({
+          where: {
+            sucursalId_aperturaClave: {
+              sucursalId: sucursal.id,
+              aperturaClave: clave,
+            },
+          },
+          include: {
+            sucursal: true,
+            abiertaPor: {
+              select: { id: true, nombres: true, apellidos: true, email: true },
+            },
+          },
+        });
+        if (replay) {
+          validarReplayIdempotente(replay.aperturaHash, hash);
+          return replay;
+        }
+      }
 
       if (!this.permiteMulticaja(usuario)) {
         const cajaAbierta = await tx.caja.findFirst({
@@ -210,6 +245,8 @@ export class CajasService {
           observacionApertura: observacion,
           sucursalId: sucursal.id,
           abiertaPorId: usuario.id,
+          aperturaClave: clave,
+          aperturaHash: clave ? hash : undefined,
         },
         include: {
           sucursal: true,
@@ -310,6 +347,8 @@ export class CajasService {
       orderBy: {
         fechaCierre: 'desc',
       },
+      skip: (filtros.pagina - 1) * filtros.limite,
+      take: filtros.limite,
     });
   }
 
@@ -399,14 +438,19 @@ export class CajasService {
     cajaId: number,
     data: RegistrarMovimientoCajaDto,
     usuario: UsuarioAutenticado,
+    claveRecibida?: string,
   ) {
+    const clave =
+      claveRecibida === undefined
+        ? undefined
+        : normalizarClaveIdempotencia(claveRecibida);
+    const hash = hashSolicitud({ cajaId, data, usuarioId: usuario.id });
     return this.prisma.transaccionSerializable(async (tx) => {
       await this.bloquearCaja(tx, cajaId);
 
       const caja = await tx.caja.findFirst({
         where: {
           id: cajaId,
-          estado: EstadoCaja.ABIERTA,
           sucursal: this.filtroSucursal(usuario),
         },
       });
@@ -414,6 +458,23 @@ export class CajasService {
       if (!caja) {
         throw new NotFoundException('Caja abierta no encontrada');
       }
+
+      if (clave) {
+        const replay = await tx.movimientoCaja.findUnique({
+          where: {
+            cajaId_idempotenciaClave: { cajaId, idempotenciaClave: clave },
+          },
+          include: {
+            usuario: { select: { id: true, nombres: true, apellidos: true } },
+          },
+        });
+        if (replay) {
+          validarReplayIdempotente(replay.idempotenciaHash, hash);
+          return replay;
+        }
+      }
+      if (caja.estado !== EstadoCaja.ABIERTA)
+        throw new BadRequestException('La caja está cerrada');
 
       const concepto = data.concepto.trim();
 
@@ -431,6 +492,8 @@ export class CajasService {
           observacion: data.observacion?.trim() || null,
           cajaId: caja.id,
           usuarioId: usuario.id,
+          idempotenciaClave: clave,
+          idempotenciaHash: clave ? hash : undefined,
         },
         include: {
           usuario: {
@@ -449,14 +512,19 @@ export class CajasService {
     cajaId: number,
     data: CerrarCajaDto,
     usuario: UsuarioAutenticado,
+    claveRecibida?: string,
   ) {
+    const clave =
+      claveRecibida === undefined
+        ? undefined
+        : normalizarClaveIdempotencia(claveRecibida);
+    const hash = hashSolicitud({ cajaId, data, usuarioId: usuario.id });
     return this.prisma.transaccionSerializable(async (tx) => {
       await this.bloquearCaja(tx, cajaId);
 
       const caja = await tx.caja.findFirst({
         where: {
           id: cajaId,
-          estado: EstadoCaja.ABIERTA,
           sucursal: this.filtroSucursal(usuario),
         },
       });
@@ -464,6 +532,24 @@ export class CajasService {
       if (!caja) {
         throw new NotFoundException('Caja abierta no encontrada');
       }
+
+      if (clave && caja.cierreClave === clave) {
+        validarReplayIdempotente(caja.cierreHash, hash);
+        return tx.caja.findUniqueOrThrow({
+          where: { id: cajaId },
+          include: {
+            sucursal: true,
+            abiertaPor: {
+              select: { id: true, nombres: true, apellidos: true },
+            },
+            cerradaPor: {
+              select: { id: true, nombres: true, apellidos: true },
+            },
+          },
+        });
+      }
+      if (caja.estado !== EstadoCaja.ABIERTA)
+        throw new BadRequestException('La caja está cerrada');
 
       const resumen = await this.calcularResumen(
         tx,
@@ -481,6 +567,8 @@ export class CajasService {
         },
         data: {
           estado: EstadoCaja.CERRADA,
+          cierreClave: clave,
+          cierreHash: clave ? hash : undefined,
           fechaCierre: new Date(),
           cerradaPorId: usuario.id,
           saldoEsperado: resumen.saldoEsperado,

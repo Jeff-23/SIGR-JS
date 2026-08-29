@@ -1,25 +1,106 @@
-import { Building2, CheckCircle2, FileBadge2, Save, ShieldCheck, Store } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
-import toast from "react-hot-toast";
-import { ErrorState, LoadingState } from "../components/AsyncState";
-import { api, apiFailure, errorMessage } from "../lib/api";
+import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useApp } from "../store/app";
-
-type EffectiveConfig = { valores: Record<string, string | number>; origenes: Record<string, string> };
-const defaults: EffectiveConfig = { valores: { ZONA_HORARIA: "America/Bogota", PORCENTAJE_IMPUESTO: 0, MONEDA: "COP", PREFIJO_PEDIDO: "PED", PREFIJO_VENTA: "VEN", PREFIJO_FACTURA: "FAC" }, origenes: {} };
-
+import { useResource } from "../hooks/useResource";
+import { api, errorMessage } from "../lib/api";
+type Config = {
+  valores: Record<string, string | number>;
+  origenes: Record<string, string>;
+};
 export function SettingsPage() {
-  const { session, branchId, branches } = useApp(); const [tab,setTab]=useState<"operacion"|"fiscal"|"seguridad">("operacion"); const [config,setConfig]=useState(defaults); const [loading,setLoading]=useState(!session?.demo); const [failure,setFailure]=useState<ReturnType<typeof apiFailure>|null>(null); const [saving,setSaving]=useState(false);
-  const canManage = session?.user.permisos.includes("CONFIGURACION_GESTIONAR") ?? false; const branch = branches.find((item)=>item.id===branchId);
-  const load = useCallback(async()=>{ if(session?.demo||!branchId)return; await Promise.resolve(); setLoading(true);setFailure(null);try{const {data}=await api.get<EffectiveConfig>(`/configuracion/efectiva/${branchId}`);setConfig(data);}catch(error){setFailure(apiFailure(error));}finally{setLoading(false);}},[branchId,session?.demo]);
-  useEffect(()=>{const timer=window.setTimeout(()=>void load(),0);return()=>window.clearTimeout(timer);},[load]);
-  const change=(key:string,value:string|number)=>setConfig((current)=>({...current,valores:{...current.valores,[key]:value}}));
-  const save=async()=>{if(!branchId||!canManage)return;setSaving(true);try{await Promise.all(Object.entries(config.valores).map(([key,value])=>api.patch(`/configuracion/sucursales/${branchId}/${key}`,{valor:value})));toast.success("Configuración guardada y auditada");await load();}catch(error){toast.error(errorMessage(error));}finally{setSaving(false);}};
-  if(loading)return <LoadingState label="Consultando configuración efectiva…"/>; if(failure)return <ErrorState detail={failure.message} requestId={failure.requestId} retry={()=>void load()}/>;
-  return <div className="space-y-6"><header><p className="eyebrow">Administración</p><h1 className="page-title">Configuración</h1><p className="mt-2 text-sm text-denim/50">Valores efectivos y auditados de la sucursal seleccionada.</p></header><div className="flex flex-wrap gap-2">{([{id:"operacion",label:"Operación",icon:Store},{id:"fiscal",label:"Perfil fiscal",icon:FileBadge2},{id:"seguridad",label:"Accesos",icon:ShieldCheck}] as const).map(({id,label,icon:Icon})=><button key={id} onClick={()=>setTab(id)} className={`secondary h-11 w-auto px-4 ${tab===id?"bg-steel text-white":""}`}><Icon size={17}/>{label}</button>)}</div>
-  {tab==="operacion"&&<section className="card max-w-4xl"><div className="flex items-center gap-3"><Building2/><div><h2 className="font-black">{branch?.name??"Sucursal"}</h2><p className="text-xs text-denim/45">La configuración de sucursal prevalece sobre la del restaurante.</p></div></div><div className="mt-6 grid gap-4 sm:grid-cols-2"><Field label="Zona horaria" value={config.valores.ZONA_HORARIA} origin={config.origenes.ZONA_HORARIA} onChange={(value)=>change("ZONA_HORARIA",value)}/><Field label="Impuesto (%)" type="number" value={config.valores.PORCENTAJE_IMPUESTO} origin={config.origenes.PORCENTAJE_IMPUESTO} onChange={(value)=>change("PORCENTAJE_IMPUESTO",Number(value))}/><Field label="Moneda" value={config.valores.MONEDA} origin={config.origenes.MONEDA} onChange={(value)=>change("MONEDA",value.toUpperCase())}/><Field label="Prefijo de pedido" value={config.valores.PREFIJO_PEDIDO} origin={config.origenes.PREFIJO_PEDIDO} onChange={(value)=>change("PREFIJO_PEDIDO",value.toUpperCase())}/><Field label="Prefijo de venta" value={config.valores.PREFIJO_VENTA} origin={config.origenes.PREFIJO_VENTA} onChange={(value)=>change("PREFIJO_VENTA",value.toUpperCase())}/><Field label="Prefijo de factura" value={config.valores.PREFIJO_FACTURA} origin={config.origenes.PREFIJO_FACTURA} onChange={(value)=>change("PREFIJO_FACTURA",value.toUpperCase())}/></div>{canManage?<button onClick={()=>void save()} disabled={saving} className="primary mt-6 w-auto px-6"><Save size={18}/>{saving?"Guardando…":"Guardar cambios"}</button>:<p className="mt-6 rounded-xl bg-denim/5 p-3 text-sm text-denim/55">Tu rol puede consultar, pero no modificar esta configuración.</p>}</section>}
-  {tab==="fiscal"&&<section className="grid gap-4 lg:grid-cols-2"><article className="card"><p className="eyebrow">Preparación fiscal</p><h2 className="mt-2 text-xl font-black">Facturación electrónica</h2><div className="mt-5 space-y-3">{["Factura comercial separada del archivo","Documento electrónico separado de la factura","Envío sujeto a proveedor y habilitación"].map((item)=><div className="flex items-center gap-2 text-sm" key={item}><CheckCircle2 size={17} className="text-emerald-600"/>{item}</div>)}</div></article><article className="card"><h2 className="font-black">Integración controlada</h2><p className="mt-3 text-sm leading-relaxed text-denim/55">La gestión completa del perfil, resoluciones y cola DIAN se incorporará en el Sprint 29. Esta pantalla no simula una aceptación fiscal.</p></article></section>}
-  {tab==="seguridad"&&<section className="card max-w-4xl"><h2 className="font-black">Tu contexto actual</h2><div className="mt-5 grid gap-3 sm:grid-cols-2"><Info label="Rol" value={session?.user.rol??"—"}/><Info label="Restaurante" value={String(session?.user.restauranteId??"Global")}/><Info label="Sucursal" value={branch?.name??"Sin alcance"}/><Info label="Capacidades activas" value={String(session?.user.capacidades.length??0)}/></div><p className="mt-5 text-sm text-denim/50">Los permisos y capacidades se actualizan periódicamente usando el mismo JWT.</p></section>}</div>;
+  const { session, branchId } = useApp();
+  return <Settings key={`${session?.user.id}:${branchId}`} />;
 }
-function Field({label,value,origin,onChange,type="text"}:{label:string;value:string|number;origin?:string;onChange:(value:string)=>void;type?:string}){return <label className="text-sm font-bold">{label}<input className="input mt-2" type={type} value={value} onChange={(event)=>onChange(event.target.value)}/><small className="mt-1 block text-denim/40">Origen: {origin??"PREDETERMINADO"}</small></label>}
-function Info({label,value}:{label:string;value:string}){return <div className="rounded-xl border border-denim/10 p-4"><small className="text-denim/45">{label}</small><strong className="mt-1 block">{value}</strong></div>}
+function Settings() {
+  const { branchId, session, hasPermission } = useApp();
+  const query = useResource<Config>(`/configuracion/efectiva/${branchId}`, {
+    valores: {},
+    origenes: {},
+  });
+  const [changes, setChanges] = useState<Record<string, string | number>>({}),
+    [busy, setBusy] = useState(false),
+    [message, setMessage] = useState("");
+  return (
+    <div className="space-y-5">
+      <h1 className="page-title">Configuración efectiva</h1>
+      <p>
+        Sólo se guardan las claves modificadas. Los valores heredados del
+        restaurante se conservan.
+      </p>
+      <div className="flex gap-4">
+        <Link to="/fiscal">Perfil fiscal y resoluciones</Link>
+        <Link to="/administracion">Usuarios y accesos</Link>
+      </div>
+      {query.error && <p role="alert">{query.error}</p>}
+      <form
+        className="card max-w-4xl space-y-5"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (busy || session?.demo) return;
+          setBusy(true);
+          setMessage("");
+          let saved = 0;
+          try {
+            for (const [key, value] of Object.entries(changes)) {
+              await api.patch(
+                `/configuracion/sucursales/${branchId}/${encodeURIComponent(key)}`,
+                { valor: value },
+              );
+              saved++;
+              setChanges((current) => {
+                const next = { ...current };
+                delete next[key];
+                return next;
+              });
+            }
+            setMessage(`${saved} cambios guardados y auditados.`);
+            query.refresh();
+          } catch (err) {
+            setMessage(
+              `${saved} cambios confirmados; faltan los restantes. ${errorMessage(err)}`,
+            );
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          {Object.entries(query.data.valores).map(([key, value]) => (
+            <label key={key}>
+              {key.replaceAll("_", " ")}
+              <input
+                className="input mt-1"
+                disabled={!hasPermission("CONFIGURACION_GESTIONAR") || busy}
+                type={typeof value === "number" ? "number" : "text"}
+                min={typeof value === "number" ? 0 : undefined}
+                max={key === "PORCENTAJE_IMPUESTO" ? 100 : undefined}
+                step="0.01"
+                value={changes[key] ?? value}
+                onChange={(e) =>
+                  setChanges((current) => ({
+                    ...current,
+                    [key]:
+                      typeof value === "number"
+                        ? Number(e.target.value)
+                        : e.target.value,
+                  }))
+                }
+              />
+              <small>Origen: {query.data.origenes[key]}</small>
+            </label>
+          ))}
+        </div>
+        {message && <p role="status">{message}</p>}
+        {hasPermission("CONFIGURACION_GESTIONAR") && (
+          <button
+            className="primary"
+            disabled={busy || session?.demo || !Object.keys(changes).length}
+          >
+            Guardar modificaciones
+          </button>
+        )}
+        {session?.demo && <p>La configuración real requiere iniciar sesión.</p>}
+      </form>
+    </div>
+  );
+}

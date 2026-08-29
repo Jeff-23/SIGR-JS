@@ -184,6 +184,26 @@ describe('Sprint 19 | Archivo operativo de facturas (e2e)', () => {
       .send(body)
       .expect(201);
     expect(repetido.body.id).toBe(registroId);
+    await request(app.getHttpServer())
+      .post('/registros-factura')
+      .set('Authorization', `Bearer ${tokenAdmin}`)
+      .set('Idempotency-Key', `s19-${sufijo}`)
+      .send({ ...body, numero: `OTRO-${sufijo}` })
+      .expect(409);
+    const concurrentes = await Promise.all(
+      [1, 2].map(() =>
+        request(app.getHttpServer())
+          .post('/registros-factura')
+          .set('Authorization', `Bearer ${tokenAdmin}`)
+          .set('Idempotency-Key', `s19-${sufijo}`)
+          .send(body)
+          .expect(201),
+      ),
+    );
+    expect(concurrentes.map((r) => (r.body as { id: number }).id)).toEqual([
+      registroId,
+      registroId,
+    ]);
     const listado = await request(app.getHttpServer())
       .get(`/registros-factura?sucursalId=${sucursalId}`)
       .set('Authorization', `Bearer ${tokenConsulta}`)

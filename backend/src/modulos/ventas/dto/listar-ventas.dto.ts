@@ -1,12 +1,28 @@
 import { Type } from 'class-transformer';
-import { IsDateString, IsInt, IsOptional, Max, Min } from 'class-validator';
+import {
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  Max,
+  Min,
+} from 'class-validator';
+import { EstadoVenta, OrigenVenta } from '@prisma/client';
 
-export class ListarCajasDto {
+export class ListarVentasDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @IsOptional()
   sucursalId?: number;
+
+  @IsEnum(EstadoVenta)
+  @IsOptional()
+  estado?: EstadoVenta;
+
+  @IsEnum(OrigenVenta)
+  @IsOptional()
+  origen?: OrigenVenta;
 
   @IsDateString()
   @IsOptional()
@@ -27,5 +43,5 @@ export class ListarCajasDto {
   @Min(1)
   @Max(200)
   @IsOptional()
-  limite = 100;
+  limite = 200;
 }

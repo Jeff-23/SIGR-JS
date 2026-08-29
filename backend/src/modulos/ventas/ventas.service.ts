@@ -13,6 +13,8 @@ import {
   EstadoVenta,
   OrigenVenta,
   Prisma,
+  TipoMetodoPago,
+  TipoMovimientoCaja,
   Venta,
 } from '@prisma/client';
 
@@ -26,6 +28,8 @@ import {
 } from './dto/crear-venta.dto';
 
 import { RegistrarPagoDto } from './dto/registrar-pago.dto';
+import { DevolverPagoDto, ReversarVentaDto } from './dto/devolver-pago.dto';
+import { ListarVentasDto } from './dto/listar-ventas.dto';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { InventarioService } from '../inventario/inventario.service';
@@ -424,6 +428,7 @@ export class VentasService {
         pagos: {
           include: {
             metodoPago: true,
+            devoluciones: true,
           },
         },
       },
@@ -803,11 +808,33 @@ export class VentasService {
     );
   }
 
-  findAll(usuarioActual: UsuarioAutenticado, sucursalId?: number) {
+  findAll(
+    usuarioActual: UsuarioAutenticado,
+    filtros: ListarVentasDto = new ListarVentasDto(),
+  ) {
+    if (
+      filtros.desde &&
+      filtros.hasta &&
+      new Date(filtros.desde).getTime() > new Date(filtros.hasta).getTime()
+    ) {
+      throw new BadRequestException(
+        'La fecha desde no puede ser posterior a la fecha hasta',
+      );
+    }
     return this.prisma.venta.findMany({
       where: {
         sucursal: this.filtroSucursal(usuarioActual),
-        ...(sucursalId ? { sucursalId } : {}),
+        ...(filtros.sucursalId ? { sucursalId: filtros.sucursalId } : {}),
+        ...(filtros.estado ? { estado: filtros.estado } : {}),
+        ...(filtros.origen ? { origen: filtros.origen } : {}),
+        ...(filtros.desde || filtros.hasta
+          ? {
+              fechaOperacion: {
+                ...(filtros.desde ? { gte: new Date(filtros.desde) } : {}),
+                ...(filtros.hasta ? { lte: new Date(filtros.hasta) } : {}),
+              },
+            }
+          : {}),
       },
 
       include: {
@@ -820,6 +847,7 @@ export class VentasService {
         pagos: {
           include: {
             metodoPago: true,
+            devoluciones: true,
           },
         },
 
@@ -831,7 +859,8 @@ export class VentasService {
       orderBy: {
         fechaOperacion: 'desc',
       },
-      take: 200,
+      skip: (filtros.pagina - 1) * filtros.limite,
+      take: filtros.limite,
     });
   }
 
@@ -853,6 +882,7 @@ export class VentasService {
         pagos: {
           include: {
             metodoPago: true,
+            devoluciones: true,
           },
         },
 
@@ -1113,11 +1143,244 @@ export class VentasService {
         pagos: {
           include: {
             metodoPago: true,
+            devoluciones: true,
             caja: { select: { id: true, nombre: true, estado: true } },
           },
         },
         factura: true,
         pedido: true,
+      },
+    });
+  }
+
+  async devolverPago(
+    ventaId: number,
+    pagoId: number,
+    data: DevolverPagoDto,
+    usuarioActual: UsuarioAutenticado,
+    claveRecibida: string | undefined,
+  ) {
+    const clave = normalizarClaveIdempotencia(claveRecibida);
+    const solicitudHash = hashSolicitud({ ventaId, pagoId, data });
+
+    let devolucionId: number;
+    try {
+      devolucionId = await this.prisma.transaccionSerializable(async (tx) => {
+        const pagoAlcanzable = await tx.pago.findFirst({
+          where: {
+            id: pagoId,
+            ventaId,
+            venta: { sucursal: this.filtroSucursal(usuarioActual) },
+          },
+          select: { id: true },
+        });
+        if (!pagoAlcanzable) {
+          throw new NotFoundException('Pago no encontrado para esta venta');
+        }
+
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "Pago" WHERE "id" = ${pagoId} FOR UPDATE`,
+        );
+        const pago = await tx.pago.findUniqueOrThrow({
+          where: { id: pagoId },
+          include: {
+            metodoPago: true,
+            devoluciones: true,
+            venta: { include: { factura: true } },
+          },
+        });
+        const replay = pago.devoluciones.find(
+          (item) => item.idempotenciaClave === clave,
+        );
+        if (replay) {
+          validarReplayIdempotente(replay.idempotenciaHash, solicitudHash);
+          return replay.id;
+        }
+        if (pago.venta?.factura) {
+          throw new BadRequestException(
+            'Una venta facturada requiere nota crédito o reversión fiscal antes de devolver el pago',
+          );
+        }
+
+        const monto = dinero(data.monto, 'monto');
+        const yaDevuelto = pago.devoluciones.reduce(
+          (total, item) => total.plus(item.monto),
+          new Prisma.Decimal(0),
+        );
+        if (yaDevuelto.plus(monto).gt(pago.monto)) {
+          throw new BadRequestException(
+            'La devolución supera el saldo disponible del pago',
+          );
+        }
+
+        let movimientoCajaId: number | null = null;
+        if (pago.metodoPago.tipo === TipoMetodoPago.EFECTIVO) {
+          if (!pago.cajaId) {
+            throw new BadRequestException(
+              'El pago en efectivo no tiene una caja asociada',
+            );
+          }
+          await tx.$queryRaw(
+            Prisma.sql`SELECT "id" FROM "Caja" WHERE "id" = ${pago.cajaId} FOR UPDATE`,
+          );
+          const caja = await tx.caja.findFirst({
+            where: {
+              id: pago.cajaId,
+              estado: EstadoCaja.ABIERTA,
+              sucursalId: pago.venta?.sucursalId,
+            },
+          });
+          if (!caja) {
+            throw new BadRequestException(
+              'La devolución en efectivo requiere la caja original abierta',
+            );
+          }
+          const movimiento = await tx.movimientoCaja.create({
+            data: {
+              cajaId: caja.id,
+              usuarioId: usuarioActual.id,
+              tipo: TipoMovimientoCaja.EGRESO,
+              monto,
+              concepto: `Devolución pago #${pago.id}`,
+              observacion: data.motivo.trim(),
+              idempotenciaClave: `dev:${clave}`,
+              idempotenciaHash: solicitudHash,
+            },
+          });
+          movimientoCajaId = movimiento.id;
+        }
+
+        const devolucion = await tx.devolucionPago.create({
+          data: {
+            pagoId,
+            usuarioId: usuarioActual.id,
+            monto,
+            motivo: data.motivo.trim(),
+            idempotenciaClave: clave,
+            idempotenciaHash: solicitudHash,
+            movimientoCajaId,
+          },
+        });
+        return devolucion.id;
+      });
+    } catch (error) {
+      if (
+        !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+        error.code !== 'P2002'
+      )
+        throw error;
+      const replay = await this.prisma.devolucionPago.findUnique({
+        where: {
+          pagoId_idempotenciaClave: { pagoId, idempotenciaClave: clave },
+        },
+      });
+      if (!replay) throw error;
+      validarReplayIdempotente(replay.idempotenciaHash, solicitudHash);
+      devolucionId = replay.id;
+    }
+
+    return this.prisma.devolucionPago.findUniqueOrThrow({
+      where: { id: devolucionId },
+      include: {
+        pago: { include: { metodoPago: true } },
+        movimientoCaja: true,
+      },
+    });
+  }
+
+  async reversar(
+    id: number,
+    data: ReversarVentaDto,
+    usuarioActual: UsuarioAutenticado,
+    claveRecibida: string | undefined,
+  ) {
+    const clave = normalizarClaveIdempotencia(claveRecibida);
+    const solicitudHash = hashSolicitud({ ventaId: id, data });
+
+    let ventaId: number;
+    try {
+      ventaId = await this.prisma.transaccionSerializable(async (tx) => {
+        const ventaAlcanzable = await tx.venta.findFirst({
+          where: { id, sucursal: this.filtroSucursal(usuarioActual) },
+          select: { id: true },
+        });
+        if (!ventaAlcanzable)
+          throw new NotFoundException('Venta no encontrada');
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "Venta" WHERE "id" = ${id} FOR UPDATE`,
+        );
+        const venta = await tx.venta.findUniqueOrThrow({
+          where: { id },
+          include: {
+            factura: true,
+            reversion: true,
+            pagos: { include: { devoluciones: true } },
+          },
+        });
+        if (venta.reversion) {
+          validarReplayIdempotente(
+            venta.reversion.idempotenciaHash,
+            solicitudHash,
+          );
+          return venta.id;
+        }
+        if (venta.factura) {
+          throw new BadRequestException(
+            'Una venta facturada requiere nota crédito o reversión fiscal',
+          );
+        }
+        const saldoNoDevuelto = venta.pagos.reduce((total, pago) => {
+          const devuelto = pago.devoluciones.reduce(
+            (subtotal, item) => subtotal.plus(item.monto),
+            new Prisma.Decimal(0),
+          );
+          return total.plus(pago.monto.minus(devuelto));
+        }, new Prisma.Decimal(0));
+        if (!saldoNoDevuelto.isZero()) {
+          throw new BadRequestException(
+            'Debes devolver completamente todos los pagos antes de reversar la venta',
+          );
+        }
+        await this.inventarioService.revertirPorAnulacionVenta(tx, {
+          ventaId: venta.id,
+          sucursalId: venta.sucursalId,
+          usuarioActual,
+        });
+        await tx.reversionVenta.create({
+          data: {
+            ventaId: venta.id,
+            usuarioId: usuarioActual.id,
+            motivo: data.motivo.trim(),
+            idempotenciaClave: clave,
+            idempotenciaHash: solicitudHash,
+          },
+        });
+        await tx.venta.update({
+          where: { id: venta.id },
+          data: { estado: EstadoVenta.ANULADA },
+        });
+        return venta.id;
+      });
+    } catch (error) {
+      if (
+        !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+        error.code !== 'P2002'
+      )
+        throw error;
+      const replay = await this.prisma.reversionVenta.findUnique({
+        where: { ventaId: id },
+      });
+      if (!replay) throw error;
+      validarReplayIdempotente(replay.idempotenciaHash, solicitudHash);
+      ventaId = id;
+    }
+
+    return this.prisma.venta.findUniqueOrThrow({
+      where: { id: ventaId },
+      include: {
+        detalles: true,
+        pagos: { include: { devoluciones: true } },
+        reversion: true,
       },
     });
   }

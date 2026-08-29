@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 
 // Sólo la base restaurada de certificación; nunca ejecuta migraciones ni seed.
 const container = 'sigr-cert-smoke-20260828';
+const image = process.env.CERT_IMAGE || 'sigr-backend:revision-sprints-23-31';
 const database = new URL(process.env.DATABASE_URL);
 database.hostname = 'host.docker.internal';
 database.pathname = '/sigr_cert_restore_20260828';
@@ -22,7 +23,7 @@ function docker(args) {
 try {
   docker(['run', '--detach', '--name', container, '-p', '127.0.0.1:3301:3000',
     '-e', 'DATABASE_URL', '-e', 'JWT_SECRET', '-e', 'CORS_ORIGINS',
-    '-e', 'NODE_ENV=production', 'sigr-backend:revision-sprints-23-31']);
+    '-e', 'NODE_ENV=production', image]);
   created = true;
   const user = docker(['inspect', '--format={{.Config.User}}', container]);
   if (!user || user === 'root' || user === '0') throw new Error('Contenedor con usuario root');

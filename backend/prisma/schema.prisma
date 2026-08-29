@@ -14,6 +14,23 @@ enum EstadoMesa {
   FUERA_SERVICIO
 }
 
+enum EstadoReserva {
+  PENDIENTE
+  CONFIRMADA
+  EN_ESPERA
+  SENTADA
+  CANCELADA
+  NO_ASISTIO
+  COMPLETADA
+}
+
+enum EstadoEspera {
+  ESPERANDO
+  AVISADO
+  SENTADO
+  CANCELADO
+}
+
 enum TipoPedido {
   MESA
   PARA_LLEVAR
@@ -238,6 +255,8 @@ model Sucursal {
   auditorias            EventoAuditoria[]
   registrosFactura      RegistroFacturaOperativa[]
   estacionesPreparacion EstacionPreparacion[]
+  reservas              Reserva[]
+  listaEspera           EntradaListaEspera[]
 }
 
 // ==========================================
@@ -309,8 +328,11 @@ model Usuario {
   restaurante Restaurante? @relation(fields: [restauranteId], references: [id])
   sucursal    Sucursal?    @relation(fields: [sucursalId], references: [id])
 
-  pedidos Pedido[]
-  ventas  Venta[]
+  pedidosCreados   Pedido[]             @relation("PedidoCreadoPor")
+  pedidosAtendidos Pedido[]             @relation("PedidoMesero")
+  reservasCreadas  Reserva[]
+  esperasCreadas   EntradaListaEspera[]
+  ventas           Venta[]
 
   cajasAbiertas         Caja[]                     @relation("CajaAbiertaPor")
   cajasCerradas         Caja[]                     @relation("CajaCerradaPor")
@@ -355,7 +377,59 @@ model Mesa {
   zona             Zona     @relation(fields: [zonaId], references: [id])
   ocupadaManualPor Usuario? @relation("MesaOcupadaManualPor", fields: [ocupadaManualPorId], references: [id], onDelete: SetNull)
 
-  pedidos Pedido[]
+  pedidos           Pedido[]
+  pedidosVinculados PedidoMesa[]
+  reservas          Reserva[]
+  esperas           EntradaListaEspera[]
+}
+
+model Reserva {
+  id              Int           @id @default(autoincrement())
+  nombreCliente   String        @db.VarChar(160)
+  telefono        String        @db.VarChar(30)
+  correo          String?       @db.VarChar(150)
+  personas        Int
+  fechaHora       DateTime
+  duracionMinutos Int           @default(90)
+  estado          EstadoReserva @default(PENDIENTE)
+  observaciones   String?       @db.VarChar(500)
+  creadoEn        DateTime      @default(now())
+  actualizadoEn   DateTime      @updatedAt
+
+  sucursalId  Int
+  mesaId      Int?
+  creadoPorId Int
+
+  sucursal  Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  mesa      Mesa?    @relation(fields: [mesaId], references: [id], onDelete: SetNull)
+  creadoPor Usuario  @relation(fields: [creadoPorId], references: [id], onDelete: Restrict)
+
+  @@index([sucursalId, fechaHora])
+  @@index([mesaId, fechaHora])
+  @@index([estado])
+}
+
+model EntradaListaEspera {
+  id            Int          @id @default(autoincrement())
+  nombreCliente String       @db.VarChar(160)
+  telefono      String?      @db.VarChar(30)
+  personas      Int
+  estado        EstadoEspera @default(ESPERANDO)
+  llegadaEn     DateTime     @default(now())
+  avisadoEn     DateTime?
+  sentadoEn     DateTime?
+  observaciones String?      @db.VarChar(500)
+
+  sucursalId  Int
+  mesaId      Int?
+  creadoPorId Int
+
+  sucursal  Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  mesa      Mesa?    @relation(fields: [mesaId], references: [id], onDelete: SetNull)
+  creadoPor Usuario  @relation(fields: [creadoPorId], references: [id], onDelete: Restrict)
+
+  @@index([sucursalId, estado, llegadaEn])
+  @@index([mesaId])
 }
 
 model Categoria {
@@ -427,19 +501,35 @@ model Pedido {
   sucursalId Int
   mesaId     Int?
   usuarioId  Int
+  meseroId   Int?
 
   sucursal Sucursal @relation(fields: [sucursalId], references: [id])
   mesa     Mesa?    @relation(fields: [mesaId], references: [id])
-  usuario  Usuario  @relation(fields: [usuarioId], references: [id])
+  usuario  Usuario  @relation("PedidoCreadoPor", fields: [usuarioId], references: [id])
+  mesero   Usuario? @relation("PedidoMesero", fields: [meseroId], references: [id], onDelete: SetNull)
 
-  detalles  DetallePedido[]
-  comandas  Comanda[]
-  factura   Factura?
-  venta     Venta?
-  domicilio Domicilio?
+  detalles        DetallePedido[]
+  comandas        Comanda[]
+  factura         Factura?
+  venta           Venta?
+  domicilio       Domicilio?
+  mesasVinculadas PedidoMesa[]
 
   @@unique([sucursalId, idempotenciaClave])
   @@index([sucursalId, creadoEn])
+}
+
+model PedidoMesa {
+  pedidoId    Int
+  mesaId      Int
+  principal   Boolean  @default(false)
+  vinculadaEn DateTime @default(now())
+
+  pedido Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  mesa   Mesa   @relation(fields: [mesaId], references: [id], onDelete: Restrict)
+
+  @@id([pedidoId, mesaId])
+  @@index([mesaId])
 }
 
 model Domicilio {
@@ -568,6 +658,7 @@ model Venta {
   registrosFactura      RegistroFacturaOperativa[]
   movimientosInventario MovimientoInventario[]
   reversion             ReversionVenta?
+  divisionesCuenta      DivisionCuenta[]
 
   @@unique([sucursalId, idempotenciaClave])
   @@unique([sucursalId, numeroComandaPapel])
@@ -794,15 +885,17 @@ model Pago {
    * Se mantienen opcionales para compatibilidad
    * con pagos creados antes de Caja.
    */
-  cajaId    Int?
-  usuarioId Int?
+  cajaId           Int?
+  usuarioId        Int?
+  divisionCuentaId Int?
 
-  factura      Factura?         @relation(fields: [facturaId], references: [id])
-  venta        Venta?           @relation(fields: [ventaId], references: [id])
-  metodoPago   MetodoPago       @relation(fields: [metodoPagoId], references: [id])
-  caja         Caja?            @relation(fields: [cajaId], references: [id], onDelete: Restrict)
-  usuario      Usuario?         @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
-  devoluciones DevolucionPago[]
+  factura        Factura?         @relation(fields: [facturaId], references: [id])
+  venta          Venta?           @relation(fields: [ventaId], references: [id])
+  metodoPago     MetodoPago       @relation(fields: [metodoPagoId], references: [id])
+  caja           Caja?            @relation(fields: [cajaId], references: [id], onDelete: Restrict)
+  usuario        Usuario?         @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  devoluciones   DevolucionPago[]
+  divisionCuenta DivisionCuenta?  @relation(fields: [divisionCuentaId], references: [id], onDelete: Restrict)
 
   @@unique([ventaId, idempotenciaClave])
   @@index([facturaId])
@@ -810,6 +903,23 @@ model Pago {
   @@index([metodoPagoId])
   @@index([cajaId])
   @@index([usuarioId])
+  @@index([divisionCuentaId])
+}
+
+model DivisionCuenta {
+  id       Int      @id @default(autoincrement())
+  nombre   String   @db.VarChar(80)
+  modo     String   @db.VarChar(20)
+  total    Decimal  @db.Decimal(12, 2)
+  detalles Json?
+  creadoEn DateTime @default(now())
+
+  ventaId Int
+  venta   Venta  @relation(fields: [ventaId], references: [id], onDelete: Restrict)
+  pagos   Pago[]
+
+  @@unique([ventaId, nombre])
+  @@index([ventaId])
 }
 
 model DevolucionPago {

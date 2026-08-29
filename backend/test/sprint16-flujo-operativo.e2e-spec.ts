@@ -90,6 +90,7 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
             'PEDIDOS_VER',
             'PEDIDOS_CREAR',
             'PEDIDOS_EDITAR',
+            'PEDIDOS_CANCELAR',
             'PRODUCTOS_VER',
             'COMANDAS_ENVIAR',
             'COMANDAS_VER',
@@ -179,6 +180,9 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       where: { pago: { ventaId: { in: ventaIds } } },
     });
     await prisma.pago.deleteMany({ where: { ventaId: { in: ventaIds } } });
+    await prisma.divisionCuenta.deleteMany({
+      where: { ventaId: { in: ventaIds } },
+    });
     await prisma.factura.deleteMany({ where: { id: { in: facturaIds } } });
     await prisma.movimientoInventario.deleteMany({
       where: { ventaId: { in: ventaIds } },
@@ -203,6 +207,8 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       where: { pedidoId: { in: pedidoIds } },
     });
     await prisma.pedido.deleteMany({ where: { id: { in: pedidoIds } } });
+    await prisma.reserva.deleteMany({ where: { sucursalId } });
+    await prisma.entradaListaEspera.deleteMany({ where: { sucursalId } });
     await prisma.resolucionNumeracionDian.deleteMany({
       where: { restauranteId },
     });
@@ -216,7 +222,7 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       where: { id: { in: [productoId, productoBarId] } },
     });
     await prisma.categoria.deleteMany({ where: { id: categoriaId } });
-    await prisma.mesa.deleteMany({ where: { id: mesaId } });
+    await prisma.mesa.deleteMany({ where: { zonaId } });
     await prisma.zona.deleteMany({ where: { id: zonaId } });
     await prisma.usuario.deleteMany({ where: { id: usuarioId } });
     await prisma.rol.deleteMany({ where: { id: rolId } });
@@ -254,6 +260,89 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       .patch(`/mesas/${mesaId}/liberar-sin-consumo`)
       .set('Authorization', `Bearer ${token}`)
       .send({ motivo: 'Limpiar prueba concurrente' })
+      .expect(200);
+  });
+
+  it('gestiona reserva, espera, unión, traslado, separación y mesero', async () => {
+    const mesas = await Promise.all(
+      ['R', 'U', 'T'].map((prefijo) =>
+        prisma.mesa.create({
+          data: {
+            numero: `${prefijo}${sufijo.slice(-4)}`,
+            capacidad: 6,
+            zonaId,
+          },
+        }),
+      ),
+    );
+    const reserva = await request(app.getHttpServer())
+      .post('/reservas')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        sucursalId,
+        nombreCliente: 'Cliente reserva',
+        telefono: '3001234567',
+        personas: 4,
+        fechaHora: new Date(Date.now() + 3600000).toISOString(),
+        mesaId: mesas[0].id,
+      })
+      .expect(201);
+    await request(app.getHttpServer())
+      .patch(`/reservas/${reserva.body.id}/estado`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ estado: 'CONFIRMADA' })
+      .expect(200);
+    const espera = await request(app.getHttpServer())
+      .post('/reservas/espera')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ sucursalId, nombreCliente: 'Cliente espera', personas: 2 })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/reservas/espera/${espera.body.id}/sentar`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ mesaId: mesas[0].id })
+      .expect(201);
+    await request(app.getHttpServer())
+      .patch(`/mesas/${mesas[0].id}/liberar-sin-consumo`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ motivo: 'Continúa prueba' })
+      .expect(200);
+
+    const pedido = await request(app.getHttpServer())
+      .post('/pedidos')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `s32-pedido-${sufijo}`)
+      .send({
+        tipo: 'MESA',
+        mesaId: mesas[0].id,
+        detalles: [{ productoId, cantidad: 1 }],
+      })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/pedidos/${pedido.body.id}/mesas/unir`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ mesaIds: [mesas[1].id] })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/pedidos/${pedido.body.id}/mesas/trasladar`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ mesaDestinoId: mesas[2].id })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/pedidos/${pedido.body.id}/mesas/separar`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ mesaId: mesas[1].id })
+      .expect(201);
+    const mesero = await request(app.getHttpServer())
+      .patch(`/pedidos/${pedido.body.id}/mesero`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ meseroId: usuarioId })
+      .expect(200);
+    expect(mesero.body.mesero.id).toBe(usuarioId);
+    await request(app.getHttpServer())
+      .patch(`/pedidos/${pedido.body.id}/cancelar`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({})
       .expect(200);
   });
 
@@ -465,6 +554,58 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       ),
     );
     expect(duplicadas.map((r) => r.status).sort()).toEqual([201, 409]);
+  });
+
+  it('divide una cuenta y cobra cada parte sin excederla', async () => {
+    const venta = await request(app.getHttpServer())
+      .post('/ventas/directa')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `s32-venta-${sufijo}`)
+      .send({
+        sucursalId,
+        detalles: [{ productoId, cantidad: 1 }],
+      })
+      .expect(201);
+    const totalCentavos = Math.round(Number(venta.body.total) * 100);
+    const primera = Math.floor(totalCentavos / 2) / 100;
+    const segunda = (totalCentavos - Math.floor(totalCentavos / 2)) / 100;
+    const division = await request(app.getHttpServer())
+      .post(`/ventas/${venta.body.id}/division-cuenta`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        modo: 'PERSONAS',
+        partes: [
+          { nombre: 'Persona 1', total: primera },
+          { nombre: 'Persona 2', total: segunda },
+        ],
+      })
+      .expect(201);
+    const metodo = await prisma.metodoPago.findFirstOrThrow({
+      where: { activo: true, tipo: 'EFECTIVO' },
+    });
+    await request(app.getHttpServer())
+      .post(`/ventas/${venta.body.id}/pagos`)
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `s32-pago-sin-parte-${sufijo}`)
+      .send({ metodoPagoId: metodo.id, monto: primera, cajaId })
+      .expect(400);
+    for (const [index, parte] of division.body.entries()) {
+      await request(app.getHttpServer())
+        .post(`/ventas/${venta.body.id}/pagos`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', `s32-pago-${index}-${sufijo}`)
+        .send({
+          metodoPagoId: metodo.id,
+          monto: Number(parte.total),
+          cajaId,
+          divisionCuentaId: parte.id,
+        })
+        .expect(201);
+    }
+    expect(
+      (await prisma.venta.findUniqueOrThrow({ where: { id: venta.body.id } }))
+        .estado,
+    ).toBe('PAGADA');
   });
 
   it('no permite que un pedido histórico libere una ocupación nueva', async () => {

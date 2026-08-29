@@ -8,6 +8,7 @@ import { money } from "../data/demo";
 import {
   balance,
   refundable,
+  divisionBalance,
   type CashDrawer,
   type PaymentMethod,
   type Sale,
@@ -16,6 +17,11 @@ import type { ApiOrder } from "../features/salon/contracts";
 import { confirmedPost } from "../lib/confirmed-operation";
 import { FinancialRecovery } from "../components/FinancialRecovery";
 import { SaleForm } from "../features/cash/SaleForm";
+import {
+  splitPeople,
+  splitPercentages,
+  splitProducts,
+} from "../features/cash/account-split";
 
 export function RealCashPage() {
   const { branchId, session, hasPermission } = useApp();
@@ -36,6 +42,7 @@ export function RealCashPage() {
     metodoPagoId: "",
     cajaId: "",
     referencia: "",
+    divisionCuentaId: "",
   });
   const paymentAttempt = useRef<{
     id: string;
@@ -150,15 +157,24 @@ export function RealCashPage() {
       metodoPagoId: methods[0] ? String(methods[0].id) : "",
       cajaId: drawers[0] ? String(drawers[0].id) : "",
       referencia: "",
+      divisionCuentaId: sale.divisionesCuenta?.[0]
+        ? String(sale.divisionesCuenta[0].id)
+        : "",
     });
   }
   async function pay() {
     if (!selectedSale) return;
     if (!paymentAttempt.current) {
       const monto = Number(payment.monto);
+      const selectedDivision = selectedSale.divisionesCuenta?.find(
+        (item) => item.id === Number(payment.divisionCuentaId),
+      );
+      const maximum = selectedDivision
+        ? divisionBalance(selectedDivision)
+        : balance(selectedSale);
       if (
         !(monto > 0) ||
-        monto > balance(selectedSale) ||
+        monto > maximum ||
         !payment.cajaId ||
         !payment.metodoPagoId
       )
@@ -171,6 +187,9 @@ export function RealCashPage() {
           cajaId: Number(payment.cajaId),
           metodoPagoId: Number(payment.metodoPagoId),
           referencia: payment.referencia.trim() || undefined,
+          divisionCuentaId: payment.divisionCuentaId
+            ? Number(payment.divisionCuentaId)
+            : undefined,
         },
       };
     }
@@ -701,6 +720,87 @@ export function RealCashPage() {
               <Printer size={18} />
               Imprimir comprobante
             </button>
+            {hasPermission("VENTAS_CREAR") &&
+              selectedSale.estado !== "ANULADA" &&
+              selectedSale.pagos.length === 0 && (
+                <button
+                  className="secondary print:hidden"
+                  disabled={busy || uncertain}
+                  onClick={() => {
+                    const mode = window.prompt(
+                      "Tipo de división: PERSONAS, PORCENTAJE o PRODUCTOS",
+                      "PERSONAS",
+                    )?.trim().toUpperCase();
+                    if (!mode) return;
+                    let partes;
+                    try {
+                      if (mode === "PERSONAS") {
+                        partes = splitPeople(
+                          Number(selectedSale.total),
+                          Number(window.prompt("Número de personas", "2")),
+                        );
+                      } else if (mode === "PORCENTAJE") {
+                        const percentages = (window.prompt(
+                          "Porcentajes separados por coma (deben sumar 100)",
+                          "50,50",
+                        ) ?? "")
+                          .split(",")
+                          .map(Number);
+                        partes = splitPercentages(
+                          Number(selectedSale.total),
+                          percentages,
+                        );
+                      } else if (mode === "PRODUCTOS") {
+                        const assignments = selectedSale.detalles.map((detail) =>
+                          Number(
+                            window.prompt(
+                              `Grupo para ${detail.producto?.nombre ?? `Producto ${detail.id}`}`,
+                              "1",
+                            ),
+                          ),
+                        );
+                        partes = splitProducts(selectedSale, assignments);
+                      } else throw new Error("Tipo de división inválido");
+                    } catch (error) {
+                      toast.error(
+                        error instanceof Error ? error.message : "División inválida",
+                      );
+                      return;
+                    }
+                    void run(async () => {
+                      await api.post(`/ventas/${selectedSale.id}/division-cuenta`, {
+                        modo: mode,
+                        partes,
+                      });
+                      const detail = await api.get<Sale>(`/ventas/${selectedSale.id}`);
+                      setSelectedSale(detail.data);
+                      setPayment((current) => ({
+                        ...current,
+                        divisionCuentaId: detail.data.divisionesCuenta?.[0]
+                          ? String(detail.data.divisionesCuenta[0].id)
+                          : "",
+                        monto: detail.data.divisionesCuenta?.[0]
+                          ? String(divisionBalance(detail.data.divisionesCuenta[0]))
+                          : current.monto,
+                      }));
+                      toast.success("Cuenta dividida; cada parte puede pagarse por separado");
+                    });
+                  }}
+                >
+                  Dividir cuenta
+                </button>
+              )}
+            {(selectedSale.divisionesCuenta?.length ?? 0) > 0 && (
+              <div className="rounded-xl bg-slate-50 p-3">
+                <strong>Cuenta dividida</strong>
+                {selectedSale.divisionesCuenta?.map((division) => (
+                  <p key={division.id}>
+                    {division.nombre}: {money.format(Number(division.total))} · saldo{" "}
+                    {money.format(divisionBalance(division))}
+                  </p>
+                ))}
+              </div>
+            )}
             {(uncertain || balance(selectedSale) > 0) &&
               selectedSale.estado !== "ANULADA" &&
               hasPermission("PAGOS_REGISTRAR") && (
@@ -723,7 +823,18 @@ export function RealCashPage() {
                         required
                         min="0.01"
                         step="0.01"
-                        max={balance(selectedSale)}
+                        max={
+                          selectedSale.divisionesCuenta?.find(
+                            (item) => item.id === Number(payment.divisionCuentaId),
+                          )
+                            ? divisionBalance(
+                                selectedSale.divisionesCuenta.find(
+                                  (item) =>
+                                    item.id === Number(payment.divisionCuentaId),
+                                )!,
+                              )
+                            : balance(selectedSale)
+                        }
                         value={payment.monto}
                         onChange={(event) =>
                           setPayment({ ...payment, monto: event.target.value })
@@ -783,6 +894,35 @@ export function RealCashPage() {
                         }
                       />
                     </label>
+                    {(selectedSale.divisionesCuenta?.length ?? 0) > 0 && (
+                      <label>
+                        Parte de la cuenta
+                        <select
+                          required
+                          className="input"
+                          value={payment.divisionCuentaId}
+                          onChange={(event) => {
+                            const division = selectedSale.divisionesCuenta?.find(
+                              (item) => item.id === Number(event.target.value),
+                            );
+                            setPayment({
+                              ...payment,
+                              divisionCuentaId: event.target.value,
+                              monto: division
+                                ? String(divisionBalance(division))
+                                : payment.monto,
+                            });
+                          }}
+                        >
+                          <option value="">Selecciona</option>
+                          {selectedSale.divisionesCuenta?.map((division) => (
+                            <option key={division.id} value={division.id}>
+                              {division.nombre} · {money.format(divisionBalance(division))}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                   </fieldset>
                   {uncertain && (
                     <p role="alert" className="rounded-xl bg-amber-50 p-3">

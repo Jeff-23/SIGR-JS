@@ -30,6 +30,7 @@ import {
 import { RegistrarPagoDto } from './dto/registrar-pago.dto';
 import { DevolverPagoDto, ReversarVentaDto } from './dto/devolver-pago.dto';
 import { ListarVentasDto } from './dto/listar-ventas.dto';
+import { DividirCuentaDto } from './dto/dividir-cuenta.dto';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { InventarioService } from '../inventario/inventario.service';
@@ -854,6 +855,7 @@ export class VentasService {
         factura: true,
         cliente: true,
         pedido: { include: { mesa: true } },
+        divisionesCuenta: { include: { pagos: true }, orderBy: { id: 'asc' } },
       },
 
       orderBy: {
@@ -889,6 +891,7 @@ export class VentasService {
         factura: true,
         pedido: true,
         cliente: true,
+        divisionesCuenta: { include: { pagos: true }, orderBy: { id: 'asc' } },
       },
     });
 
@@ -897,6 +900,59 @@ export class VentasService {
     }
 
     return venta;
+  }
+
+  async dividirCuenta(
+    ventaId: number,
+    data: DividirCuentaDto,
+    usuarioActual: UsuarioAutenticado,
+  ) {
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const venta = await tx.venta.findFirst({
+        where: { id: ventaId, sucursal: this.filtroSucursal(usuarioActual) },
+        include: { pagos: true, divisionesCuenta: true },
+      });
+      if (!venta) throw new NotFoundException('Venta no encontrada');
+      if (venta.estado === EstadoVenta.ANULADA)
+        throw new BadRequestException('No se puede dividir una venta anulada');
+      if (venta.pagos.length > 0)
+        throw new BadRequestException(
+          'La cuenta debe dividirse antes de registrar pagos',
+        );
+      const nombres = data.partes.map((parte) =>
+        parte.nombre.trim().toLowerCase(),
+      );
+      if (new Set(nombres).size !== nombres.length)
+        throw new BadRequestException(
+          'Cada parte de la cuenta debe tener un nombre diferente',
+        );
+      const totalPartes = data.partes.reduce(
+        (total, parte) => total.plus(dinero(parte.total, 'total de parte')),
+        new Prisma.Decimal(0),
+      );
+      if (!totalPartes.eq(venta.total))
+        throw new BadRequestException(
+          'La suma de las partes debe coincidir exactamente con el total de la venta',
+        );
+      await tx.divisionCuenta.deleteMany({ where: { ventaId } });
+      await tx.divisionCuenta.createMany({
+        data: data.partes.map((parte) => ({
+          ventaId,
+          nombre: parte.nombre.trim(),
+          modo: data.modo,
+          total: dinero(parte.total, 'total de parte'),
+          detalles:
+            parte.detalles === undefined
+              ? Prisma.JsonNull
+              : (parte.detalles as Prisma.InputJsonValue),
+        })),
+      });
+      return tx.divisionCuenta.findMany({
+        where: { ventaId },
+        include: { pagos: true },
+        orderBy: { id: 'asc' },
+      });
+    });
   }
 
   async registrarPago(
@@ -970,6 +1026,33 @@ export class VentasService {
           throw new BadRequestException(
             'El método de pago no existe o está inactivo',
           );
+        }
+
+        const divisiones = await tx.divisionCuenta.findMany({
+          where: { ventaId: venta.id },
+          include: { pagos: true },
+        });
+        if (divisiones.length > 0 && data.divisionCuentaId === undefined) {
+          throw new BadRequestException(
+            'Esta venta tiene la cuenta dividida; selecciona la parte que estás cobrando',
+          );
+        }
+        if (data.divisionCuentaId !== undefined) {
+          const parte = divisiones.find(
+            (item) => item.id === data.divisionCuentaId,
+          );
+          if (!parte)
+            throw new BadRequestException(
+              'La parte seleccionada no pertenece a esta venta',
+            );
+          const pagadoParte = parte.pagos.reduce(
+            (total, pago) => total.plus(pago.monto),
+            new Prisma.Decimal(0),
+          );
+          if (pagadoParte.plus(dinero(data.monto, 'monto')).gt(parte.total))
+            throw new BadRequestException(
+              'El pago supera el saldo de la parte seleccionada',
+            );
         }
 
         /*
@@ -1087,6 +1170,7 @@ export class VentasService {
             cajaId: caja.id,
 
             usuarioId: usuarioActual.id,
+            divisionCuentaId: data.divisionCuentaId,
             idempotenciaClave: clave,
             idempotenciaHash: solicitudHash,
           },

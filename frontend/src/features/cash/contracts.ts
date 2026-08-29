@@ -35,7 +35,26 @@ export type Sale = {
     subtotal: string | number;
     producto?: { nombre: string };
   }>;
+  divisionesCuenta?: Array<{
+    id: number;
+    nombre: string;
+    modo: string;
+    total: string | number;
+    pagos: Array<{ id: number; monto: string | number }>;
+  }>;
 };
+
+export function divisionBalance(
+  division: NonNullable<Sale["divisionesCuenta"]>[number],
+) {
+  return (
+    Math.max(
+      0,
+      cents(division.total) -
+        division.pagos.reduce((sum, payment) => sum + cents(payment.monto), 0),
+    ) / 100
+  );
+}
 export type CashDrawer = {
   id: number;
   nombre: string;

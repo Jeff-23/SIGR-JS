@@ -24,6 +24,7 @@ import {
 } from "../features/salon/contracts";
 import { api, apiFailure, errorMessage, mutation } from "../lib/api";
 import { useApp } from "../store/app";
+import { SalonExperiencePanel } from "../features/salon/SalonExperiencePanel";
 
 const money = new Intl.NumberFormat("es-CO", {
   style: "currency",
@@ -325,6 +326,20 @@ export function RealSalonPage() {
           </button>
         </div>
       </div>
+      {branchId && (
+        <div className="mt-6">
+          <SalonExperiencePanel
+            branchId={branchId}
+            tables={tables}
+            orders={orders}
+            canEdit={
+              hasPermission("MESAS_EDITAR") &&
+              hasPermission("PEDIDOS_EDITAR")
+            }
+            onChanged={load}
+          />
+        </div>
+      )}
       <div className="mt-6 flex flex-wrap gap-2">
         <button
           className={`salon-filter ${zone === "all" ? "active" : ""}`}

@@ -23,6 +23,7 @@ import {
 import { RegistrarPagoDto } from './dto/registrar-pago.dto';
 import { DevolverPagoDto, ReversarVentaDto } from './dto/devolver-pago.dto';
 import { ListarVentasDto } from './dto/listar-ventas.dto';
+import { DividirCuentaDto } from './dto/dividir-cuenta.dto';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
@@ -208,5 +209,15 @@ export class VentasController {
     @Req() request: RequestAutenticada,
   ) {
     return this.ventasService.reversar(id, data, request.user, clave);
+  }
+
+  @Post(':id/division-cuenta')
+  @Permisos('VENTAS_CREAR')
+  dividirCuenta(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: DividirCuentaDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.ventasService.dividirCuenta(id, data, request.user);
   }
 }

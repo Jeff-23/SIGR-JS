@@ -25,4 +25,9 @@ export class RegistrarPagoDto {
   @Min(1)
   @IsOptional()
   cajaId?: number;
+
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  divisionCuentaId?: number;
 }

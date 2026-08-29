@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { commandDestination, elapsedMinutes, urgency, type Command } from "./contracts";
+import {
+  commandDestination,
+  elapsedMinutes,
+  pendingCommandCount,
+  urgency,
+  type Command,
+} from "./contracts";
 describe("contrato KDS", () => {
   it("clasifica tiempos", () => {
     expect(urgency(4)).toBe("normal"); expect(urgency(10)).toBe("warning"); expect(urgency(20)).toBe("critical");
@@ -11,5 +17,14 @@ describe("contrato KDS", () => {
   it("identifica destino", () => {
     expect(commandDestination({ pedido: { mesa: { numero: 7 }, tipo: "MESA" } } as Command)).toBe("Mesa 7");
     expect(commandDestination({ pedido: { mesa: null, tipo: "PARA_LLEVAR" } } as Command)).toBe("Para llevar");
+  });
+  it("cuenta únicamente comandas pendientes por iniciar", () => {
+    const commands = [
+      { estado: "PENDIENTE" },
+      { estado: "EN_PREPARACION" },
+      { estado: "PENDIENTE" },
+      { estado: "LISTA" },
+    ] as Command[];
+    expect(pendingCommandCount(commands)).toBe(2);
   });
 });

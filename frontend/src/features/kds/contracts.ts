@@ -19,3 +19,7 @@ export function commandDestination(command: Command) {
   if (command.pedido.mesa) return "Mesa " + command.pedido.mesa.numero;
   return command.pedido.tipo === "PARA_LLEVAR" ? "Para llevar" : command.pedido.tipo === "DOMICILIO" ? "Domicilio" : "Mostrador";
 }
+
+export function pendingCommandCount(commands: Command[]) {
+  return commands.filter((command) => command.estado === "PENDIENTE").length;
+}

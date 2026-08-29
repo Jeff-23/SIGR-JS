@@ -11,12 +11,17 @@ import {
   UtensilsCrossed,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { Brand } from "../components/Brand";
 import { Connection } from "../components/Connection";
 import { OperationsNotice } from "../components/OperationsNotice";
 import { useApp } from "../store/app";
+import { api } from "../lib/api";
+import {
+  pendingCommandCount,
+  type Command,
+} from "../features/kds/contracts";
 
 const nav = [
   {
@@ -120,6 +125,7 @@ const nav = [
 ];
 export function AppShell() {
   const [open, setOpen] = useState(false);
+  const [pendingKitchenCommands, setPendingKitchenCommands] = useState(0);
   const {
     session,
     logout,
@@ -130,7 +136,54 @@ export function AppShell() {
     serviceAvailable,
     hasPermission,
     hasCapability,
+    orders,
   } = useApp();
+  const demoKitchenPending = useMemo(
+    () =>
+      orders.filter(
+        (order) =>
+          order.status !== "PAGADO" &&
+          order.status !== "PENDIENTE_PAGO" &&
+          Object.values(order.stationStatus).some(
+            (state) => state === "PENDIENTE",
+          ),
+      ).length,
+    [orders],
+  );
+  useEffect(() => {
+    if (
+      session?.demo ||
+      !branchId ||
+      !hasPermission("COMANDAS_VER") ||
+      !hasCapability("KDS")
+    )
+      return;
+    const controller = new AbortController();
+    const load = async () => {
+      try {
+        const response = await api.get<Command[]>("/comandas", {
+          params: { sucursalId: branchId },
+          signal: controller.signal,
+        });
+        setPendingKitchenCommands(pendingCommandCount(response.data));
+      } catch {
+        if (!controller.signal.aborted) setPendingKitchenCommands(0);
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 5000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [branchId, hasCapability, hasPermission, session?.demo, session?.user.id]);
+  const kitchenBadge = session?.demo
+    ? demoKitchenPending
+    : branchId &&
+        hasPermission("COMANDAS_VER") &&
+        hasCapability("KDS")
+      ? pendingKitchenCommands
+      : 0;
   return (
     <div className="min-h-screen bg-[#f4f2ec] text-denim">
       <aside
@@ -196,7 +249,16 @@ export function AppShell() {
                 }
               >
                 <Icon size={19} />
-                {label}
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                {to === "/cocina" && kitchenBadge > 0 && (
+                  <span
+                    className="grid min-w-6 place-items-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-black text-white shadow-sm"
+                    aria-label={`${kitchenBadge} comandas pendientes`}
+                    title={`${kitchenBadge} comandas pendientes por iniciar`}
+                  >
+                    {kitchenBadge > 99 ? "99+" : kitchenBadge}
+                  </span>
+                )}
               </NavLink>
             ))}
         </nav>

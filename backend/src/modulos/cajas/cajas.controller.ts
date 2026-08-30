@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   ParseIntPipe,
   Post,
@@ -32,14 +33,22 @@ export class CajasController {
 
   @Post('abrir')
   @Permisos('CAJA_ABRIR')
-  abrir(@Body() data: AbrirCajaDto, @Req() request: RequestAutenticada) {
-    return this.cajasService.abrir(data, request.user);
+  abrir(
+    @Body() data: AbrirCajaDto,
+    @Req() request: RequestAutenticada,
+    @Headers('idempotency-key') clave?: string,
+  ) {
+    return this.cajasService.abrir(data, request.user, clave);
   }
 
   @Get('abiertas')
   @Permisos('CAJA_VER')
-  listarAbiertas(@Req() request: RequestAutenticada) {
-    return this.cajasService.listarAbiertas(request.user);
+  listarAbiertas(
+    @Req() request: RequestAutenticada,
+    @Query('sucursalId', new ParseIntPipe({ optional: true }))
+    sucursalId?: number,
+  ) {
+    return this.cajasService.listarAbiertas(request.user, sucursalId);
   }
 
   @Get('historial')
@@ -66,8 +75,9 @@ export class CajasController {
     @Param('id', ParseIntPipe) id: number,
     @Body() data: RegistrarMovimientoCajaDto,
     @Req() request: RequestAutenticada,
+    @Headers('idempotency-key') clave?: string,
   ) {
-    return this.cajasService.registrarMovimiento(id, data, request.user);
+    return this.cajasService.registrarMovimiento(id, data, request.user, clave);
   }
 
   @Post(':id/cerrar')
@@ -76,7 +86,8 @@ export class CajasController {
     @Param('id', ParseIntPipe) id: number,
     @Body() data: CerrarCajaDto,
     @Req() request: RequestAutenticada,
+    @Headers('idempotency-key') clave?: string,
   ) {
-    return this.cajasService.cerrar(id, data, request.user);
+    return this.cajasService.cerrar(id, data, request.user, clave);
   }
 }

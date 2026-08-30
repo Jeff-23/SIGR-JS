@@ -2,8 +2,13 @@ import { Banknote, CheckCircle2, CreditCard, Receipt, WalletCards } from "lucide
 import toast from "react-hot-toast";
 import { money } from "../data/demo";
 import { useApp } from "../store/app";
+import { RealCashPage } from "./RealCashPage";
 
 export function CashPage() {
+  const { session, branchId } = useApp();
+  return session?.demo ? <DemoCashPage/> : <RealCashPage key={branchId}/>;
+}
+function DemoCashPage() {
   const { orders, markPaid } = useApp();
   const pending = orders.filter((order) => order.status === "PENDIENTE_PAGO" && order.paymentStatus === "PENDIENTE");
   const paid = orders.filter((order) => order.paymentStatus === "PAGADO");

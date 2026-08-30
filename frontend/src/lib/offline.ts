@@ -1,4 +1,5 @@
 const DB_NAME = "sigr-continuidad";
+import type { OperationScope } from "./offline-policy";
 const STORE = "operaciones";
 export type PendingOperation = {
   id: string;
@@ -6,6 +7,7 @@ export type PendingOperation = {
   path: string;
   body: unknown;
   createdAt: string;
+  scope?: OperationScope;
 };
 
 function database(): Promise<IDBDatabase> {

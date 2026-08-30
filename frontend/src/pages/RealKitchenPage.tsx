@@ -31,13 +31,15 @@ export function RealKitchenPage() {
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<ReturnType<typeof apiFailure> | null>(null);
   const [now, setNow] = useState(() => new Date().getTime());
-  const [sound, setSound] = useState(() => localStorage.getItem("sigr-kds-sound") !== "off");
+  const [sound, setSound] = useState(false);
+  const soundEnabled = useRef(false);
+  const [compact, setCompact] = useState(false);
+  const [unseen, setUnseen] = useState(0);
   const [busy, setBusy] = useState<number | null>(null);
   const [stationForm, setStationForm] = useState(false);
   const [newStation, setNewStation] = useState({ codigo: "", nombre: "", color: "#8B5CF6" });
   const known = useRef(new Set<number>());
   const ready = useRef(new Set<number>());
-  const initialized = useRef(false);
 
   const load = useCallback(async (quiet = false) => {
     if (!branchId) return;
@@ -49,33 +51,33 @@ export function RealKitchenPage() {
         api.get<Command[]>("/comandas", { params }),
       ]);
       const incoming = commandResponse.data;
-      if (initialized.current) {
+      {
         const newcomers = incoming.filter((command) => !known.current.has(command.id));
         const newlyReady = incoming.filter((command) => command.estado === "LISTA" && !ready.current.has(command.id));
         if (newcomers.length) {
+          setUnseen((count) => count + newcomers.length);
           toast.success(String(newcomers.length) + " nueva(s) comanda(s)", { icon: "🔔", duration: 6000 });
-          if (sound) beep(880);
+          if (soundEnabled.current) beep(880);
         }
         if (newlyReady.length) {
           toast.success(String(newlyReady.length) + " comanda(s) lista(s) para servicio", { icon: "✅" });
-          if (sound) beep(660, 0.22);
+          if (soundEnabled.current) beep(660, 0.22);
         }
       }
       incoming.forEach((command) => {
         known.current.add(command.id);
         if (command.estado === "LISTA") ready.current.add(command.id);
       });
-      initialized.current = true;
       setStations(stationResponse.data); setCommands(incoming); setFailure(null);
     } catch (error) {
-      if (!quiet) setFailure(apiFailure(error));
+      setFailure(apiFailure(error));
     } finally {
       if (!quiet) setLoading(false);
     }
-  }, [branchId, sound]);
+  }, [branchId]);
 
   useEffect(() => {
-    initialized.current = false; known.current.clear(); ready.current.clear();
+    known.current.clear(); ready.current.clear();
     const initial = window.setTimeout(() => void load(), 0);
     const poll = window.setInterval(() => void load(true), 5000);
     const clock = window.setInterval(() => setNow(Date.now()), 15000);
@@ -110,7 +112,7 @@ export function RealKitchenPage() {
     finally { setBusy(null); }
   };
   const toggleSound = () => {
-    const next = !sound; setSound(next); localStorage.setItem("sigr-kds-sound", next ? "on" : "off");
+    const next = !sound; soundEnabled.current = next; setSound(next);
     if (next) { beep(720, 0.1); toast.success("Alertas sonoras activadas"); }
   };
   const createStation = async () => {
@@ -122,16 +124,19 @@ export function RealKitchenPage() {
   };
 
   if (loading) return <LoadingState label="Conectando estaciones de preparación…"/>;
-  if (failure) return <ErrorState detail={failure.message} requestId={failure.requestId} retry={() => void load()}/>;
+  if (failure) return <ErrorState detail={"No se puede confirmar el estado actual de cocina. " + failure.message} requestId={failure.requestId} retry={() => void load()}/>;
   return <div>
     <div className="section-title">
       <div><p className="eyebrow">KDS · actualización cada 5 segundos</p><h1 className="page-title">Producción y despacho</h1></div>
       <div className="flex gap-2">
+        <button onClick={() => setCompact(!compact)} className="secondary h-11 w-auto px-4">{compact ? "Vista amplia" : "Vista compacta"}</button>
+        <button onClick={() => { const action = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); void action.catch(() => toast.error("El navegador no permite pantalla completa")); }} className="secondary h-11 w-auto px-4">Pantalla completa</button>
         {hasPermission("CONFIGURACION_GESTIONAR") && <button onClick={() => setStationForm(!stationForm)} className="secondary h-11 w-auto px-4">+ Estación</button>}
         <button onClick={toggleSound} className="secondary h-11 w-auto px-4">{sound ? <Volume2 size={17}/> : <VolumeX size={17}/>} {sound ? "Sonido activo" : "Sin sonido"}</button>
         <button onClick={() => void load()} aria-label="Actualizar comandas" className="secondary h-11 w-11 px-0"><RefreshCw size={17}/></button>
       </div>
     </div>
+    {unseen > 0 && <button className="mt-4 w-full rounded-xl bg-marigold p-4 text-left font-bold" aria-live="polite" onClick={() => setUnseen(0)}>🔔 {unseen} comanda(s) recibida(s). Toca para confirmar que las viste.</button>}
     {stationForm && <div className="card mt-4 grid gap-3 sm:grid-cols-[1fr_1.5fr_auto_auto]"><input className="input h-11" maxLength={40} placeholder="Código: POSTRES" value={newStation.codigo} onChange={(event) => setNewStation({ ...newStation, codigo: event.target.value })}/><input className="input h-11" maxLength={80} placeholder="Nombre de estación" value={newStation.nombre} onChange={(event) => setNewStation({ ...newStation, nombre: event.target.value })}/><input aria-label="Color de estación" className="h-11 w-full rounded-xl bg-white p-1" type="color" value={newStation.color} onChange={(event) => setNewStation({ ...newStation, color: event.target.value })}/><button className="primary h-11 px-5" onClick={() => void createStation()}>Crear</button></div>}
     <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
       <Kpi label="Por iniciar" value={counters.pending} tone="bg-denim"/>
@@ -147,7 +152,7 @@ export function RealKitchenPage() {
       {(["all","PENDIENTE","EN_PREPARACION","LISTA"] as const).map((value) => <button key={value} onClick={() => setState(value)} className={["rounded-lg px-3 py-2 text-[11px] font-black uppercase", state === value ? "bg-marigold text-steel" : "bg-white text-denim/55"].join(" ")}>{value === "all" ? "Todos los estados" : value.replaceAll("_"," ")}</button>)}
     </div>
     {visible.length === 0 ? <div className="empty"><ChefHat size={44}/><h2>Estación al día</h2><p>No hay comandas activas para los filtros seleccionados.</p></div> :
-      <div className="mt-6 grid items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3">{visible.map((command) =>
+      <div className={["mt-6 grid items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3", compact ? "kds-compact 2xl:grid-cols-4" : ""].join(" ")}>{visible.map((command) =>
         <CommandCard key={command.id} command={command} now={now} busy={busy === command.id} canEdit={hasPermission("COMANDAS_ACTUALIZAR_ESTADO")} advance={advance} prioritize={prioritize}/>
       )}</div>}
   </div>;
@@ -161,7 +166,7 @@ function CommandCard({ command, now, busy, canEdit, advance, prioritize }: { com
       <div><div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-denim/45">{command.estacion.codigo === "BAR" ? <Martini size={15}/> : <ChefHat size={15}/>} {command.estacion.nombre}</div><h2 className="mt-1 text-2xl font-black">{commandDestination(command)}</h2><small className="text-denim/45">Pedido #{command.pedido.id} · Comanda #{command.id}</small></div>
       <div className={["kds-timer", level].join(" ")}><Clock3 size={15}/>{minutes} min</div>
     </header>
-    <div className="flex min-h-[190px] flex-1 flex-col p-5"><div className="space-y-3">{command.detalles.map((detail) =>
+    <div className="kds-lines flex min-h-0 flex-1 flex-col overflow-y-auto p-5"><div className="space-y-3">{command.detalles.map((detail) =>
       <div className="flex gap-3" key={detail.id}><b className="text-lg text-marigold">{detail.cantidad}×</b><div><strong>{detail.detallePedido.producto.nombre}</strong>{detail.detallePedido.observaciones && <p className="mt-1 rounded-lg bg-amber-50 px-2 py-1 text-xs font-bold text-amber-800">{detail.detallePedido.observaciones}</p>}</div></div>
     )}</div></div>
     <footer className="border-t border-denim/8 p-4">

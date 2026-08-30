@@ -1,6 +1,5 @@
 import { spawnSync } from 'node:child_process';
 
-const permitidas = new Set(['prisma', '@prisma/config', 'deepmerge-ts']);
 const resultado =
   process.platform === 'win32'
     ? spawnSync(
@@ -25,10 +24,13 @@ try {
   throw new Error('npm audit no devolvió un informe JSON válido');
 }
 
+if (informe.error || !informe.metadata?.vulnerabilities) {
+  throw new Error('La auditoría no recibió un informe verificable del registro npm');
+}
 const vulnerabilidades = Object.entries(informe.vulnerabilities ?? {});
 const bloqueantes = vulnerabilidades.filter(
   ([nombre, dato]) =>
-    ['high', 'critical'].includes(dato.severity) && !permitidas.has(nombre),
+    ['high', 'critical'].includes(dato.severity),
 );
 const criticas = vulnerabilidades.filter(
   ([, dato]) => dato.severity === 'critical',
@@ -43,9 +45,6 @@ if (criticas.length || bloqueantes.length) {
   process.exit(1);
 }
 
-const aceptadas = vulnerabilidades.filter(([nombre]) => permitidas.has(nombre));
 process.stdout.write(
-  aceptadas.length
-    ? `Riesgo temporal controlado: ${aceptadas.map(([nombre]) => nombre).join(', ')}. Ver CERTIFICACION_BACKEND_V1.md.\n`
-    : 'Auditoría de dependencias sin vulnerabilidades altas o críticas.\n',
+  'Auditoría de dependencias sin vulnerabilidades altas o críticas.\n',
 );

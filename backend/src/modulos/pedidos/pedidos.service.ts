@@ -423,6 +423,7 @@ export class PedidosService {
           mesaId: contexto.mesaId,
 
           usuarioId: usuarioActual.id,
+          meseroId: usuarioActual.id,
 
           tipo: data.tipo,
 
@@ -437,6 +438,14 @@ export class PedidosService {
           detalles: {
             create: preparado.detalles,
           },
+
+          ...(contexto.mesaId
+            ? {
+                mesasVinculadas: {
+                  create: { mesaId: contexto.mesaId, principal: true },
+                },
+              }
+            : {}),
 
           ...(data.domicilio
             ? {
@@ -745,6 +754,22 @@ export class PedidosService {
             ocupadaManualPorId: null,
           },
         });
+        const vinculadas = await tx.pedidoMesa.findMany({
+          where: { pedidoId: pedido.id },
+          select: { mesaId: true },
+        });
+        await tx.mesa.updateMany({
+          where: {
+            id: { in: vinculadas.map((item) => item.mesaId) },
+            situacion: EstadoMesa.OCUPADA,
+          },
+          data: {
+            situacion: EstadoMesa.LIBRE,
+            ocupacionManual: false,
+            ocupadaManualEn: null,
+            ocupadaManualPorId: null,
+          },
+        });
       }
 
       /*
@@ -794,6 +819,203 @@ export class PedidosService {
     });
   }
 
+  private async pedidoMesaActivo(
+    tx: Prisma.TransactionClient,
+    pedidoId: number,
+    usuarioActual: UsuarioAutenticado,
+  ) {
+    const pedido = await tx.pedido.findFirst({
+      where: {
+        id: pedidoId,
+        tipo: TipoPedido.MESA,
+        estado: { notIn: [EstadoPedido.CANCELADO, EstadoPedido.FACTURADO] },
+        sucursal: this.filtroSucursal(usuarioActual),
+      },
+      include: { mesasVinculadas: true, sucursal: true },
+    });
+    if (!pedido)
+      throw new NotFoundException('Servicio de mesa activo no encontrado');
+    if (
+      pedido.mesaId &&
+      !pedido.mesasVinculadas.some((item) => item.mesaId === pedido.mesaId)
+    ) {
+      await tx.pedidoMesa.create({
+        data: { pedidoId, mesaId: pedido.mesaId, principal: true },
+      });
+      pedido.mesasVinculadas.push({
+        pedidoId,
+        mesaId: pedido.mesaId,
+        principal: true,
+        vinculadaEn: new Date(),
+      });
+    }
+    return pedido;
+  }
+
+  unirMesas(
+    pedidoId: number,
+    mesaIds: number[],
+    usuarioActual: UsuarioAutenticado,
+  ) {
+    this.validarCapacidadMesas(usuarioActual);
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const pedido = await this.pedidoMesaActivo(tx, pedidoId, usuarioActual);
+      const nuevas = [...new Set(mesaIds)].filter(
+        (id) => !pedido.mesasVinculadas.some((item) => item.mesaId === id),
+      );
+      if (!nuevas.length)
+        throw new BadRequestException('Las mesas ya están vinculadas');
+      const mesas = await tx.mesa.findMany({
+        where: {
+          id: { in: nuevas },
+          estado: true,
+          situacion: EstadoMesa.LIBRE,
+          zona: { sucursalId: pedido.sucursalId },
+        },
+      });
+      if (mesas.length !== nuevas.length)
+        throw new BadRequestException(
+          'Todas las mesas a unir deben estar libres y pertenecer a la sede',
+        );
+      await tx.mesa.updateMany({
+        where: { id: { in: nuevas }, situacion: EstadoMesa.LIBRE },
+        data: { situacion: EstadoMesa.OCUPADA, ocupacionManual: false },
+      });
+      await tx.pedidoMesa.createMany({
+        data: nuevas.map((mesaId) => ({ pedidoId, mesaId, principal: false })),
+      });
+      return tx.pedido.findUniqueOrThrow({
+        where: { id: pedidoId },
+        include: {
+          mesa: { include: { zona: true } },
+          mesasVinculadas: { include: { mesa: { include: { zona: true } } } },
+          mesero: { select: { id: true, nombres: true, apellidos: true } },
+        },
+      });
+    });
+  }
+
+  trasladarMesa(
+    pedidoId: number,
+    mesaDestinoId: number,
+    usuarioActual: UsuarioAutenticado,
+  ) {
+    this.validarCapacidadMesas(usuarioActual);
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const pedido = await this.pedidoMesaActivo(tx, pedidoId, usuarioActual);
+      if (!pedido.mesaId)
+        throw new BadRequestException('El pedido no tiene mesa principal');
+      if (pedido.mesaId === mesaDestinoId)
+        throw new BadRequestException('La mesa destino ya es la principal');
+      const destino = await tx.mesa.findFirst({
+        where: {
+          id: mesaDestinoId,
+          estado: true,
+          situacion: EstadoMesa.LIBRE,
+          zona: { sucursalId: pedido.sucursalId },
+        },
+      });
+      if (!destino)
+        throw new BadRequestException(
+          'La mesa destino no está libre o no pertenece a la sede',
+        );
+      const anteriorId = pedido.mesaId;
+      await tx.mesa.update({
+        where: { id: destino.id },
+        data: { situacion: EstadoMesa.OCUPADA, ocupacionManual: false },
+      });
+      await tx.mesa.update({
+        where: { id: anteriorId },
+        data: {
+          situacion: EstadoMesa.LIBRE,
+          ocupacionManual: false,
+          ocupadaManualEn: null,
+          ocupadaManualPorId: null,
+        },
+      });
+      await tx.pedidoMesa.deleteMany({
+        where: { pedidoId, mesaId: anteriorId },
+      });
+      await tx.pedidoMesa.upsert({
+        where: { pedidoId_mesaId: { pedidoId, mesaId: destino.id } },
+        create: { pedidoId, mesaId: destino.id, principal: true },
+        update: { principal: true },
+      });
+      await tx.pedidoMesa.updateMany({
+        where: { pedidoId, mesaId: { not: destino.id } },
+        data: { principal: false },
+      });
+      return tx.pedido.update({
+        where: { id: pedidoId },
+        data: { mesaId: destino.id },
+        include: {
+          mesa: { include: { zona: true } },
+          mesasVinculadas: { include: { mesa: true } },
+        },
+      });
+    });
+  }
+
+  separarMesa(
+    pedidoId: number,
+    mesaId: number,
+    usuarioActual: UsuarioAutenticado,
+  ) {
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const pedido = await this.pedidoMesaActivo(tx, pedidoId, usuarioActual);
+      if (pedido.mesaId === mesaId)
+        throw new BadRequestException(
+          'Traslada primero la mesa principal; sólo se separan mesas secundarias',
+        );
+      const vinculo = pedido.mesasVinculadas.find(
+        (item) => item.mesaId === mesaId,
+      );
+      if (!vinculo)
+        throw new NotFoundException('La mesa no está unida a este servicio');
+      await tx.pedidoMesa.delete({
+        where: { pedidoId_mesaId: { pedidoId, mesaId } },
+      });
+      await tx.mesa.update({
+        where: { id: mesaId },
+        data: {
+          situacion: EstadoMesa.LIBRE,
+          ocupacionManual: false,
+          ocupadaManualEn: null,
+          ocupadaManualPorId: null,
+        },
+      });
+      return { pedidoId, mesaId, separada: true };
+    });
+  }
+
+  cambiarMesero(
+    pedidoId: number,
+    meseroId: number,
+    usuarioActual: UsuarioAutenticado,
+  ) {
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const pedido = await this.pedidoMesaActivo(tx, pedidoId, usuarioActual);
+      const mesero = await tx.usuario.findFirst({
+        where: {
+          id: meseroId,
+          activo: true,
+          restauranteId: pedido.sucursal.restauranteId,
+          OR: [{ sucursalId: null }, { sucursalId: pedido.sucursalId }],
+        },
+        select: { id: true, nombres: true, apellidos: true },
+      });
+      if (!mesero)
+        throw new NotFoundException(
+          'Mesero activo no encontrado en el restaurante',
+        );
+      await tx.pedido.update({
+        where: { id: pedidoId },
+        data: { meseroId: mesero.id },
+      });
+      return { pedidoId, mesero };
+    });
+  }
+
   findAll(usuarioActual: UsuarioAutenticado, sucursalId?: number) {
     return this.prisma.pedido.findMany({
       where: {
@@ -818,6 +1040,8 @@ export class PedidosService {
             apellidos: true,
           },
         },
+        mesero: { select: { id: true, nombres: true, apellidos: true } },
+        mesasVinculadas: { include: { mesa: { include: { zona: true } } } },
 
         detalles: {
           include: {
@@ -853,7 +1077,11 @@ export class PedidosService {
     return this.prisma.transaccionSerializable(async (tx) => {
       const pedido = await tx.pedido.findFirst({
         where: { id: pedidoId, sucursal: this.filtroSucursal(usuarioActual) },
-        include: { venta: { select: { estado: true } }, mesa: true },
+        include: {
+          venta: { select: { estado: true } },
+          mesa: true,
+          mesasVinculadas: true,
+        },
       });
       if (!pedido) throw new NotFoundException('Pedido no encontrado');
       if (pedido.estado !== EstadoPedido.ENTREGADO) {
@@ -867,8 +1095,23 @@ export class PedidosService {
         );
       }
       if (pedido.mesaId !== null) {
-        await tx.mesa.update({
-          where: { id: pedido.mesaId },
+        const posterior = await tx.pedido.findFirst({
+          where: { mesaId: pedido.mesaId, id: { gt: pedido.id } },
+          select: { id: true },
+        });
+        if (posterior || pedido.mesa?.ocupacionManual) {
+          throw new BadRequestException(
+            'La mesa ya pertenece a otra ocupación',
+          );
+        }
+        const mesaIds = [
+          ...new Set([
+            pedido.mesaId,
+            ...pedido.mesasVinculadas.map((item) => item.mesaId),
+          ]),
+        ];
+        await tx.mesa.updateMany({
+          where: { id: { in: mesaIds } },
           data: {
             situacion: EstadoMesa.LIBRE,
             ocupacionManual: false,
@@ -1021,6 +1264,8 @@ export class PedidosService {
             email: true,
           },
         },
+        mesero: { select: { id: true, nombres: true, apellidos: true } },
+        mesasVinculadas: { include: { mesa: { include: { zona: true } } } },
 
         detalles: {
           include: {

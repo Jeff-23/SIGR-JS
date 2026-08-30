@@ -90,17 +90,26 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
             'PEDIDOS_VER',
             'PEDIDOS_CREAR',
             'PEDIDOS_EDITAR',
+            'PEDIDOS_CANCELAR',
             'PRODUCTOS_VER',
             'COMANDAS_ENVIAR',
             'COMANDAS_VER',
             'COMANDAS_ACTUALIZAR_ESTADO',
             'VENTAS_CREAR',
             'VENTAS_REGISTRAR_MANUAL',
+            'VENTAS_ANULAR',
             'PAGOS_REGISTRAR',
+            'CAJA_ABRIR',
+            'CAJA_VER',
+            'CAJA_MOVIMIENTOS',
+            'CAJA_CERRAR',
             'FACTURAS_EMITIR',
             'FACTURAS_VER',
             'CONFIGURACION_VER',
             'CONFIGURACION_GESTIONAR',
+            'CLIENTES_VER',
+            'CLIENTES_CREAR',
+            'CLIENTES_EDITAR',
           ],
         },
       },
@@ -167,7 +176,16 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
     await prisma.documentoElectronico.deleteMany({
       where: { id: { in: documentoIds } },
     });
+    await prisma.reversionVenta.deleteMany({
+      where: { ventaId: { in: ventaIds } },
+    });
+    await prisma.devolucionPago.deleteMany({
+      where: { pago: { ventaId: { in: ventaIds } } },
+    });
     await prisma.pago.deleteMany({ where: { ventaId: { in: ventaIds } } });
+    await prisma.divisionCuenta.deleteMany({
+      where: { ventaId: { in: ventaIds } },
+    });
     await prisma.factura.deleteMany({ where: { id: { in: facturaIds } } });
     await prisma.movimientoInventario.deleteMany({
       where: { ventaId: { in: ventaIds } },
@@ -176,6 +194,10 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       where: { ventaId: { in: ventaIds } },
     });
     await prisma.venta.deleteMany({ where: { id: { in: ventaIds } } });
+    await prisma.cupon.deleteMany({ where: { restauranteId } });
+    await prisma.promocion.deleteMany({ where: { restauranteId } });
+    await prisma.nivelFidelizacion.deleteMany({ where: { restauranteId } });
+    await prisma.cliente.deleteMany({ where: { restauranteId } });
     const pedidos = await prisma.pedido.findMany({
       where: { sucursalId },
       select: { id: true },
@@ -192,6 +214,8 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       where: { pedidoId: { in: pedidoIds } },
     });
     await prisma.pedido.deleteMany({ where: { id: { in: pedidoIds } } });
+    await prisma.reserva.deleteMany({ where: { sucursalId } });
+    await prisma.entradaListaEspera.deleteMany({ where: { sucursalId } });
     await prisma.resolucionNumeracionDian.deleteMany({
       where: { restauranteId },
     });
@@ -199,12 +223,13 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
     await prisma.configuracionRestaurante.deleteMany({
       where: { restauranteId },
     });
-    await prisma.caja.deleteMany({ where: { id: cajaId } });
+    await prisma.movimientoCaja.deleteMany({ where: { caja: { sucursalId } } });
+    await prisma.caja.deleteMany({ where: { sucursalId } });
     await prisma.producto.deleteMany({
       where: { id: { in: [productoId, productoBarId] } },
     });
     await prisma.categoria.deleteMany({ where: { id: categoriaId } });
-    await prisma.mesa.deleteMany({ where: { id: mesaId } });
+    await prisma.mesa.deleteMany({ where: { zonaId } });
     await prisma.zona.deleteMany({ where: { id: zonaId } });
     await prisma.usuario.deleteMany({ where: { id: usuarioId } });
     await prisma.rol.deleteMany({ where: { id: rolId } });
@@ -245,6 +270,157 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       .expect(200);
   });
 
+  it('gestiona reserva, espera, unión, traslado, separación y mesero', async () => {
+    const mesas = await Promise.all(
+      ['R', 'U', 'T'].map((prefijo) =>
+        prisma.mesa.create({
+          data: {
+            numero: `${prefijo}${sufijo.slice(-4)}`,
+            capacidad: 6,
+            zonaId,
+          },
+        }),
+      ),
+    );
+    const reserva = await request(app.getHttpServer())
+      .post('/reservas')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        sucursalId,
+        nombreCliente: 'Cliente reserva',
+        telefono: '3001234567',
+        personas: 4,
+        fechaHora: new Date(Date.now() + 3600000).toISOString(),
+        mesaId: mesas[0].id,
+      })
+      .expect(201);
+    await request(app.getHttpServer())
+      .patch(`/reservas/${reserva.body.id}/estado`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ estado: 'CONFIRMADA' })
+      .expect(200);
+    const espera = await request(app.getHttpServer())
+      .post('/reservas/espera')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ sucursalId, nombreCliente: 'Cliente espera', personas: 2 })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/reservas/espera/${espera.body.id}/sentar`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ mesaId: mesas[0].id })
+      .expect(201);
+    await request(app.getHttpServer())
+      .patch(`/mesas/${mesas[0].id}/liberar-sin-consumo`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ motivo: 'Continúa prueba' })
+      .expect(200);
+
+    const pedido = await request(app.getHttpServer())
+      .post('/pedidos')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `s32-pedido-${sufijo}`)
+      .send({
+        tipo: 'MESA',
+        mesaId: mesas[0].id,
+        detalles: [{ productoId, cantidad: 1 }],
+      })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/pedidos/${pedido.body.id}/mesas/unir`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ mesaIds: [mesas[1].id] })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/pedidos/${pedido.body.id}/mesas/trasladar`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ mesaDestinoId: mesas[2].id })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/pedidos/${pedido.body.id}/mesas/separar`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ mesaId: mesas[1].id })
+      .expect(201);
+    const mesero = await request(app.getHttpServer())
+      .patch(`/pedidos/${pedido.body.id}/mesero`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ meseroId: usuarioId })
+      .expect(200);
+    expect(mesero.body.mesero.id).toBe(usuarioId);
+    await request(app.getHttpServer())
+      .patch(`/pedidos/${pedido.body.id}/cancelar`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({})
+      .expect(200);
+  });
+
+  it('reintenta apertura, movimiento y cierre sin duplicar ni cambiar importes', async () => {
+    const apertura = {
+      sucursalId,
+      nombre: `Reintentos ${sufijo}`,
+      saldoInicial: 10000,
+    };
+    const abrir = () =>
+      request(app.getHttpServer())
+        .post('/cajas/abrir')
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', `abrir-${sufijo}`)
+        .send(apertura);
+    const respuestas = await Promise.all([abrir(), abrir()]);
+    expect(respuestas.map((respuesta) => respuesta.status)).toEqual([201, 201]);
+    const id = respuestas[0].body.id as number;
+    expect(respuestas[1].body.id).toBe(id);
+    expect(
+      await prisma.caja.count({
+        where: { sucursalId, aperturaClave: `abrir-${sufijo}` },
+      }),
+    ).toBe(1);
+    await request(app.getHttpServer())
+      .post('/cajas/abrir')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `abrir-${sufijo}`)
+      .send({ ...apertura, saldoInicial: 20000 })
+      .expect(409);
+    const movimiento = {
+      tipo: 'INGRESO',
+      monto: 5000,
+      concepto: 'Prueba de reintento',
+    };
+    const mover = () =>
+      request(app.getHttpServer())
+        .post(`/cajas/${id}/movimientos`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', `movimiento-${sufijo}`)
+        .send(movimiento);
+    const movimientos = await Promise.all([mover(), mover()]);
+    expect(movimientos.map((respuesta) => respuesta.status)).toEqual([
+      201, 201,
+    ]);
+    expect(movimientos[0].body.id).toBe(movimientos[1].body.id);
+    const cerrar = () =>
+      request(app.getHttpServer())
+        .post(`/cajas/${id}/cerrar`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', `cierre-${sufijo}`)
+        .send({ saldoContado: 15000 });
+    const cierres = await Promise.all([cerrar(), cerrar()]);
+    expect(cierres.map((respuesta) => respuesta.status)).toEqual([201, 201]);
+    expect(cierres[0].body).toMatchObject({
+      saldoEsperado: '15000',
+      diferencia: '0',
+    });
+    expect(cierres[0].body.fechaCierre).toBe(cierres[1].body.fechaCierre);
+    await mover().expect(201);
+    expect(await prisma.movimientoCaja.count({ where: { cajaId: id } })).toBe(
+      1,
+    );
+    await request(app.getHttpServer())
+      .post(`/cajas/${id}/cerrar`)
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `cierre-${sufijo}`)
+      .send({ saldoContado: 14000 })
+      .expect(409);
+  });
+
   it('no libera la mesa pagada hasta que cocina y servicio entregan', async () => {
     const pedido = await request(app.getHttpServer())
       .post('/pedidos')
@@ -271,7 +447,7 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
     ventaMesaId = venta.body.id as number;
     expect(venta.body.total).toBe('22000');
     const metodo = await prisma.metodoPago.findFirstOrThrow({
-      where: { activo: true },
+      where: { activo: true, tipo: 'EFECTIVO' },
     });
     await request(app.getHttpServer())
       .post(`/ventas/${ventaMesaId}/pagos`)
@@ -294,6 +470,48 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       (await prisma.mesa.findUniqueOrThrow({ where: { id: mesaId } }))
         .situacion,
     ).toBe('LIBRE');
+  });
+
+  it('devuelve pagos y revierte la venta con movimientos append-only', async () => {
+    const venta = await prisma.venta.findUniqueOrThrow({
+      where: { id: ventaMesaId },
+      include: { pagos: true },
+    });
+    const pago = venta.pagos[0];
+    const claveDevolucion = `s16-devolucion-${sufijo}`;
+    const devolver = () =>
+      request(app.getHttpServer())
+        .post(`/ventas/${venta.id}/pagos/${pago.id}/devoluciones`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', claveDevolucion)
+        .send({ monto: Number(pago.monto), motivo: 'Solicitud del cliente' });
+    const respuestas = await Promise.all([devolver(), devolver()]);
+    expect(respuestas.map((respuesta) => respuesta.status)).toEqual([201, 201]);
+    expect(respuestas[0].body.id).toBe(respuestas[1].body.id);
+    expect(
+      await prisma.devolucionPago.count({ where: { pagoId: pago.id } }),
+    ).toBe(1);
+    expect(
+      await prisma.movimientoCaja.count({
+        where: { cajaId, concepto: `Devolución pago #${pago.id}` },
+      }),
+    ).toBe(1);
+
+    const claveReversion = `s16-reversion-${sufijo}`;
+    const reversar = () =>
+      request(app.getHttpServer())
+        .post(`/ventas/${venta.id}/reversar`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', claveReversion)
+        .send({ motivo: 'Operación comercial revertida' });
+    const reversiones = await Promise.all([reversar(), reversar()]);
+    expect(reversiones.map((respuesta) => respuesta.status)).toEqual([
+      201, 201,
+    ]);
+    expect(reversiones[0].body.estado).toBe('ANULADA');
+    expect(
+      await prisma.reversionVenta.count({ where: { ventaId: venta.id } }),
+    ).toBe(1);
   });
 
   it('preserva soporte, precios e impuestos originales y bloquea duplicados', async () => {
@@ -343,6 +561,116 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       ),
     );
     expect(duplicadas.map((r) => r.status).sort()).toEqual([201, 409]);
+  });
+
+  it('divide una cuenta y cobra cada parte sin excederla', async () => {
+    const venta = await request(app.getHttpServer())
+      .post('/ventas/directa')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `s32-venta-${sufijo}`)
+      .send({
+        sucursalId,
+        detalles: [{ productoId, cantidad: 1 }],
+      })
+      .expect(201);
+    const totalCentavos = Math.round(Number(venta.body.total) * 100);
+    const primera = Math.floor(totalCentavos / 2) / 100;
+    const segunda = (totalCentavos - Math.floor(totalCentavos / 2)) / 100;
+    const division = await request(app.getHttpServer())
+      .post(`/ventas/${venta.body.id}/division-cuenta`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        modo: 'PERSONAS',
+        partes: [
+          { nombre: 'Persona 1', total: primera },
+          { nombre: 'Persona 2', total: segunda },
+        ],
+      })
+      .expect(201);
+    const metodo = await prisma.metodoPago.findFirstOrThrow({
+      where: { activo: true, tipo: 'EFECTIVO' },
+    });
+    await request(app.getHttpServer())
+      .post(`/ventas/${venta.body.id}/pagos`)
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `s32-pago-sin-parte-${sufijo}`)
+      .send({ metodoPagoId: metodo.id, monto: primera, cajaId })
+      .expect(400);
+    for (const [index, parte] of division.body.entries()) {
+      await request(app.getHttpServer())
+        .post(`/ventas/${venta.body.id}/pagos`)
+        .set('Authorization', `Bearer ${token}`)
+        .set('Idempotency-Key', `s32-pago-${index}-${sufijo}`)
+        .send({
+          metodoPagoId: metodo.id,
+          monto: Number(parte.total),
+          cajaId,
+          divisionCuentaId: parte.id,
+        })
+        .expect(201);
+    }
+    expect(
+      (await prisma.venta.findUniqueOrThrow({ where: { id: venta.body.id } }))
+        .estado,
+    ).toBe('PAGADA');
+  });
+
+  it('no permite que un pedido histórico libere una ocupación nueva', async () => {
+    const venta = await prisma.venta.findUniqueOrThrow({
+      where: { id: ventaMesaId },
+    });
+    await request(app.getHttpServer())
+      .patch(`/mesas/${mesaId}/ocupar-sin-pedido`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ motivo: 'Nueva visita' })
+      .expect(200);
+    await request(app.getHttpServer())
+      .patch(`/pedidos/${venta.pedidoId}/finalizar-servicio`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({})
+      .expect(400);
+    expect(
+      (await prisma.mesa.findUniqueOrThrow({ where: { id: mesaId } }))
+        .situacion,
+    ).toBe('OCUPADA');
+    await request(app.getHttpServer())
+      .patch(`/mesas/${mesaId}/liberar-sin-consumo`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ motivo: 'Fin prueba' })
+      .expect(200);
+  });
+
+  it('no amplía la sede del usuario mediante filtros ni al crear estaciones', async () => {
+    const otra = await prisma.sucursal.create({
+      data: { restauranteId, nombre: `Sede B ${sufijo}` },
+    });
+    try {
+      for (const ruta of ['/mesas', '/productos', '/estaciones-preparacion']) {
+        const respuesta = await request(app.getHttpServer())
+          .get(ruta)
+          .query({ sucursalId: otra.id })
+          .set('Authorization', `Bearer ${token}`)
+          .expect(200);
+        expect(respuesta.body).toEqual([]);
+      }
+      await request(app.getHttpServer())
+        .post('/estaciones-preparacion')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          sucursalId: otra.id,
+          codigo: 'BAR',
+          nombre: 'Bar',
+          color: '#123456',
+        })
+        .expect(404);
+      expect(
+        await prisma.estacionPreparacion.count({
+          where: { sucursalId: otra.id },
+        }),
+      ).toBe(0);
+    } finally {
+      await prisma.sucursal.delete({ where: { id: otra.id } });
+    }
   });
 
   it('gestiona domicilio desde cocina hasta entrega al cliente', async () => {
@@ -565,5 +893,77 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ ...base, numeroResolucion: `R2-${sufijo}`, rangoDesde: 50 })
       .expect(400);
+  });
+
+  it('aplica promociones y consolida fidelización y consentimientos', async () => {
+    const cliente = await prisma.cliente.create({
+      data: {
+        restauranteId,
+        nombres: 'Cliente',
+        apellidos: 'Fidelizado',
+        tipoDocumento: 'CC',
+        numeroDocumento: `F${sufijo}`,
+        telefono: '3000000000',
+        correo: `cliente-${sufijo}@test.local`,
+        direccion: 'Prueba',
+        fechaNacimiento: new Date('1990-01-01'),
+      },
+    });
+    await request(app.getHttpServer())
+      .post('/fidelizacion/niveles')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ nombre: `Oro ${sufijo}`, puntosMinimos: 0, multiplicador: 2 })
+      .expect(201);
+    const promocion = await request(app.getHttpServer())
+      .post('/fidelizacion/promociones')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        nombre: `Promo ${sufijo}`,
+        tipo: 'PORCENTAJE',
+        valor: 10,
+        fechaInicio: new Date(Date.now() - 60_000).toISOString(),
+        fechaFin: new Date(Date.now() + 86_400_000).toISOString(),
+        diasSemana: [0, 1, 2, 3, 4, 5, 6],
+        sucursalId,
+        requiereCupon: true,
+      })
+      .expect(201);
+    const codigo = `PROMO${sufijo}`.slice(0, 50);
+    await request(app.getHttpServer())
+      .post('/fidelizacion/cupones')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ codigo, promocionId: promocion.body.id, usosMaximos: 1 })
+      .expect(201);
+    const venta = await request(app.getHttpServer())
+      .post('/ventas/directa')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `s33-${sufijo}`)
+      .send({
+        sucursalId,
+        clienteId: cliente.id,
+        codigoPromocional: codigo,
+        detalles: [{ productoId, cantidad: 1 }],
+      })
+      .expect(201);
+    expect(Number(venta.body.descuentos)).toBe(2000);
+    await request(app.getHttpServer())
+      .post(`/fidelizacion/clientes/${cliente.id}/puntos/ajuste`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ puntos: 50, motivo: 'Bonificación de bienvenida' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .put(`/fidelizacion/clientes/${cliente.id}/consentimientos/WHATSAPP`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ otorgado: true, fuente: 'Prueba E2E' })
+      .expect(200);
+    const resumen = await request(app.getHttpServer())
+      .get(`/fidelizacion/clientes/${cliente.id}/resumen`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(resumen.body.cuentaFidelizacion.saldoPuntos).toBe(50);
+    expect(resumen.body.consentimientos[0].otorgado).toBe(true);
+    expect(resumen.body.ventas[0].aplicacionesDescuento[0].origen).toBe(
+      'CUPON',
+    );
   });
 });

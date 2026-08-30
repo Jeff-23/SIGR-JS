@@ -21,6 +21,9 @@ import {
 } from './dto/crear-venta.dto';
 
 import { RegistrarPagoDto } from './dto/registrar-pago.dto';
+import { DevolverPagoDto, ReversarVentaDto } from './dto/devolver-pago.dto';
+import { ListarVentasDto } from './dto/listar-ventas.dto';
+import { DividirCuentaDto } from './dto/dividir-cuenta.dto';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
@@ -99,8 +102,9 @@ export class VentasController {
   findAll(
     @Req()
     request: RequestAutenticada,
+    @Query() filtros: ListarVentasDto,
   ) {
-    return this.ventasService.findAll(request.user);
+    return this.ventasService.findAll(request.user, filtros);
   }
 
   /*
@@ -176,5 +180,44 @@ export class VentasController {
     request: RequestAutenticada,
   ) {
     return this.ventasService.anular(id, request.user);
+  }
+
+  @Post(':ventaId/pagos/:pagoId/devoluciones')
+  @Permisos('PAGOS_REGISTRAR')
+  devolverPago(
+    @Param('ventaId', ParseIntPipe) ventaId: number,
+    @Param('pagoId', ParseIntPipe) pagoId: number,
+    @Body() data: DevolverPagoDto,
+    @Headers('idempotency-key') clave: string | undefined,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.ventasService.devolverPago(
+      ventaId,
+      pagoId,
+      data,
+      request.user,
+      clave,
+    );
+  }
+
+  @Post(':id/reversar')
+  @Permisos('VENTAS_ANULAR')
+  reversar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: ReversarVentaDto,
+    @Headers('idempotency-key') clave: string | undefined,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.ventasService.reversar(id, data, request.user, clave);
+  }
+
+  @Post(':id/division-cuenta')
+  @Permisos('VENTAS_CREAR')
+  dividirCuenta(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: DividirCuentaDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.ventasService.dividirCuenta(id, data, request.user);
   }
 }

@@ -5,6 +5,11 @@
   "author": "",
   "private": true,
   "license": "UNLICENSED",
+  "overrides": {
+    "@prisma/config": {
+      "deepmerge-ts": "8.0.2"
+    }
+  },
   "packageManager": "npm@10.9.8",
   "engines": {
     "node": ">=22 <23",

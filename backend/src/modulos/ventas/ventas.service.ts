@@ -13,6 +13,9 @@ import {
   EstadoVenta,
   OrigenVenta,
   Prisma,
+  TipoMetodoPago,
+  TipoMovimientoCaja,
+  TipoMovimientoPuntos,
   Venta,
 } from '@prisma/client';
 
@@ -26,6 +29,9 @@ import {
 } from './dto/crear-venta.dto';
 
 import { RegistrarPagoDto } from './dto/registrar-pago.dto';
+import { DevolverPagoDto, ReversarVentaDto } from './dto/devolver-pago.dto';
+import { ListarVentasDto } from './dto/listar-ventas.dto';
+import { DividirCuentaDto } from './dto/dividir-cuenta.dto';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { InventarioService } from '../inventario/inventario.service';
@@ -142,8 +148,10 @@ export class VentasService {
     subtotal: Prisma.Decimal,
     data: AjustesVentaDto,
     usuarioActual: UsuarioAutenticado,
+    descuentoAutomatico = new Prisma.Decimal(0),
   ) {
-    const descuentos = dinero(data.descuentos ?? 0, 'descuentos');
+    const descuentoManual = dinero(data.descuentos ?? 0, 'descuentos');
+    const descuentos = descuentoManual.plus(descuentoAutomatico);
 
     const impuestos = dinero(data.impuestos ?? 0, 'impuestos');
 
@@ -152,7 +160,7 @@ export class VentasService {
     const propina = dinero(data.propina ?? 0, 'propina');
 
     if (
-      descuentos.gt(0) &&
+      descuentoManual.gt(0) &&
       !this.esSuperadmin(usuarioActual) &&
       !usuarioActual.permisos.includes('DESCUENTOS_APLICAR')
     ) {
@@ -184,6 +192,273 @@ export class VentasService {
       propina,
       total,
     };
+  }
+
+  private async descuentosAutomaticos(
+    tx: Prisma.TransactionClient,
+    data: AjustesVentaDto,
+    sucursalId: number,
+    clienteId: number | null,
+    fecha: Date,
+    subtotal: Prisma.Decimal,
+    lineas: { productoId: number; subtotal: Prisma.Decimal }[],
+  ) {
+    const sucursal = await tx.sucursal.findUniqueOrThrow({
+      where: { id: sucursalId },
+      select: { restauranteId: true },
+    });
+    const partes = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Bogota',
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(fecha);
+    const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(
+      partes.find((p) => p.type === 'weekday')?.value ?? '',
+    );
+    const hour = `${partes.find((p) => p.type === 'hour')?.value}:${partes.find((p) => p.type === 'minute')?.value}`;
+    let couponId: number | null = null;
+    let couponPromotionId: number | undefined;
+    if (data.codigoPromocional) {
+      const codigo = data.codigoPromocional.trim().toUpperCase();
+      const coupon = await tx.cupon.findUnique({
+        where: {
+          restauranteId_codigo: {
+            restauranteId: sucursal.restauranteId,
+            codigo,
+          },
+        },
+      });
+      if (
+        !coupon ||
+        !coupon.activo ||
+        (coupon.clienteId !== null && coupon.clienteId !== clienteId) ||
+        (coupon.usosMaximos !== null &&
+          coupon.usosActuales >= coupon.usosMaximos) ||
+        (coupon.validoDesde && fecha < coupon.validoDesde) ||
+        (coupon.validoHasta && fecha > coupon.validoHasta)
+      )
+        throw new BadRequestException(
+          'El cupón no existe, expiró o no está disponible',
+        );
+      couponId = coupon.id;
+      couponPromotionId = coupon.promocionId;
+    }
+    const promos = await tx.promocion.findMany({
+      where: {
+        restauranteId: sucursal.restauranteId,
+        activa: true,
+        fechaInicio: { lte: fecha },
+        fechaFin: { gte: fecha },
+        diasSemana: { has: weekday },
+        OR: [{ sucursalId: null }, { sucursalId }],
+        ...(couponPromotionId
+          ? { id: couponPromotionId }
+          : { requiereCupon: false }),
+      },
+      include: { productos: true },
+    });
+    const candidates = promos
+      .filter(
+        (p) =>
+          (!p.horaInicio ||
+            !p.horaFin ||
+            (p.horaInicio <= p.horaFin
+              ? p.horaInicio <= hour && p.horaFin >= hour
+              : p.horaInicio <= hour || p.horaFin >= hour)) &&
+          subtotal.gte(p.compraMinima),
+      )
+      .map((p) => {
+        const base = p.productos.length
+          ? lineas
+              .filter((l) =>
+                p.productos.some((x) => x.productoId === l.productoId),
+              )
+              .reduce((sum, l) => sum.plus(l.subtotal), new Prisma.Decimal(0))
+          : subtotal;
+        const monto =
+          p.tipo === 'PORCENTAJE' ? base.mul(p.valor).div(100) : p.valor;
+        return {
+          promo: p,
+          monto: Prisma.Decimal.min(base, monto).toDecimalPlaces(2),
+        };
+      })
+      .filter((x) => x.monto.gt(0));
+    const combinables = candidates.filter((x) => x.promo.combinable);
+    const independiente = candidates
+      .filter((x) => !x.promo.combinable)
+      .sort((a, b) => b.monto.comparedTo(a.monto))[0];
+    const elegidas = couponId
+      ? candidates.slice(0, 1)
+      : combinables
+            .reduce((s, x) => s.plus(x.monto), new Prisma.Decimal(0))
+            .gt(independiente?.monto ?? 0)
+        ? combinables
+        : independiente
+          ? [independiente]
+          : [];
+    const limite = subtotal.minus(data.descuentos ?? 0);
+    let restante = Prisma.Decimal.max(0, limite);
+    const aplicaciones = elegidas
+      .map(({ promo, monto }) => {
+        const aplicado = Prisma.Decimal.min(restante, monto);
+        restante = restante.minus(aplicado);
+        return {
+          origen: couponId ? 'CUPON' : 'PROMOCION',
+          nombre: promo.nombre,
+          monto: aplicado,
+          promocionId: promo.id,
+          cuponId: couponId,
+        };
+      })
+      .filter((x) => x.monto.gt(0));
+    if (couponId && aplicaciones.length === 0)
+      throw new BadRequestException('El cupón no aplica a esta venta');
+    let puntosUsados = 0;
+    let movimientoRedencionId: number | null = null;
+    if (data.usarPuntos) {
+      if (!clienteId)
+        throw new BadRequestException('Selecciona un cliente para usar puntos');
+      const cuenta = await tx.cuentaFidelizacion.findUnique({
+        where: { clienteId },
+      });
+      if (!cuenta || cuenta.saldoPuntos < data.usarPuntos)
+        throw new BadRequestException('El cliente no tiene puntos suficientes');
+      puntosUsados = Math.min(data.usarPuntos, Math.floor(restante.toNumber()));
+      if (puntosUsados > 0) {
+        const saldo = cuenta.saldoPuntos - puntosUsados;
+        await tx.cuentaFidelizacion.update({
+          where: { id: cuenta.id },
+          data: { saldoPuntos: saldo },
+        });
+        const movimiento = await tx.movimientoPuntos.create({
+          data: {
+            cuentaId: cuenta.id,
+            tipo: TipoMovimientoPuntos.REDENCION,
+            puntos: -puntosUsados,
+            saldoPosterior: saldo,
+            motivo: 'Redención en venta',
+          },
+        });
+        movimientoRedencionId = movimiento.id;
+        aplicaciones.push({
+          origen: 'PUNTOS',
+          nombre: 'Puntos de fidelización',
+          monto: new Prisma.Decimal(puntosUsados),
+          promocionId: null,
+          cuponId: null,
+        });
+      }
+    }
+    return {
+      aplicaciones,
+      total: aplicaciones.reduce(
+        (s, x) => s.plus(x.monto),
+        new Prisma.Decimal(0),
+      ),
+      couponId,
+      movimientoRedencionId,
+    };
+  }
+
+  private async acreditarPuntos(tx: Prisma.TransactionClient, venta: Venta) {
+    if (!venta.clienteId) return;
+    const existe = await tx.movimientoPuntos.count({
+      where: { ventaId: venta.id, tipo: TipoMovimientoPuntos.ACUMULACION },
+    });
+    if (existe) return;
+    const base = Math.floor(Number(venta.total) / 1000);
+    if (base < 1) return;
+    const cuenta = await tx.cuentaFidelizacion.upsert({
+      where: { clienteId: venta.clienteId },
+      create: { clienteId: venta.clienteId },
+      update: {},
+    });
+    const nivel = await tx.nivelFidelizacion.findFirst({
+      where: {
+        restaurante: { sucursales: { some: { id: venta.sucursalId } } },
+        activo: true,
+        puntosMinimos: { lte: cuenta.puntosHistoricos },
+      },
+      orderBy: { puntosMinimos: 'desc' },
+    });
+    const puntos = Math.max(
+      1,
+      Math.floor(base * Number(nivel?.multiplicador ?? 1)),
+    );
+    const saldo = cuenta.saldoPuntos + puntos;
+    const historicos = cuenta.puntosHistoricos + puntos;
+    const nivelNuevo = await tx.nivelFidelizacion.findFirst({
+      where: {
+        restaurante: { sucursales: { some: { id: venta.sucursalId } } },
+        activo: true,
+        puntosMinimos: { lte: historicos },
+      },
+      orderBy: { puntosMinimos: 'desc' },
+    });
+    await tx.cuentaFidelizacion.update({
+      where: { id: cuenta.id },
+      data: {
+        saldoPuntos: saldo,
+        puntosHistoricos: historicos,
+        nivelId: nivelNuevo?.id ?? null,
+      },
+    });
+    await tx.movimientoPuntos.create({
+      data: {
+        cuentaId: cuenta.id,
+        ventaId: venta.id,
+        tipo: TipoMovimientoPuntos.ACUMULACION,
+        puntos,
+        saldoPosterior: saldo,
+        motivo: 'Compra pagada',
+      },
+    });
+  }
+
+  private async revertirPuntos(tx: Prisma.TransactionClient, ventaId: number) {
+    const movimientos = await tx.movimientoPuntos.findMany({
+      where: { ventaId },
+    });
+    if (
+      movimientos.length === 0 ||
+      movimientos.some((item) => item.tipo === TipoMovimientoPuntos.REVERSO)
+    )
+      return;
+    const cuentaId = movimientos[0].cuentaId;
+    await tx.$queryRaw(
+      Prisma.sql`SELECT "id" FROM "CuentaFidelizacion" WHERE "id" = ${cuentaId} FOR UPDATE`,
+    );
+    const cuenta = await tx.cuentaFidelizacion.findUniqueOrThrow({
+      where: { id: cuentaId },
+    });
+    const neto = movimientos.reduce((sum, item) => sum + item.puntos, 0);
+    const acumulados = movimientos
+      .filter((item) => item.tipo === TipoMovimientoPuntos.ACUMULACION)
+      .reduce((sum, item) => sum + item.puntos, 0);
+    const saldo = cuenta.saldoPuntos - neto;
+    if (saldo < 0)
+      throw new BadRequestException(
+        'El cliente debe reintegrar puntos antes de reversar esta venta',
+      );
+    await tx.cuentaFidelizacion.update({
+      where: { id: cuentaId },
+      data: {
+        saldoPuntos: saldo,
+        puntosHistoricos: Math.max(0, cuenta.puntosHistoricos - acumulados),
+      },
+    });
+    await tx.movimientoPuntos.create({
+      data: {
+        cuentaId,
+        ventaId,
+        tipo: TipoMovimientoPuntos.REVERSO,
+        puntos: -neto,
+        saldoPosterior: saldo,
+        motivo: 'Reversión de venta',
+      },
+    });
   }
 
   async crearDesdePedido(
@@ -251,10 +526,23 @@ export class VentasService {
       const impuestos =
         data.impuestos ??
         (await this.impuestoConfigurado(tx, pedido.sucursalId, subtotal));
+      const automaticos = await this.descuentosAutomaticos(
+        tx,
+        data,
+        pedido.sucursalId,
+        clienteId,
+        new Date(),
+        subtotal,
+        pedido.detalles.map((detalle) => ({
+          productoId: detalle.productoId,
+          subtotal: detalle.subtotal,
+        })),
+      );
       const ajustes = this.validarYCalcularTotales(
         subtotal,
         { ...data, impuestos },
         usuarioActual,
+        automaticos.total,
       );
       const domicilioCosto = pedido.domicilio?.costo ?? new Prisma.Decimal(0);
       const totalVenta = ajustes.total.plus(domicilioCosto);
@@ -304,6 +592,23 @@ export class VentasService {
           subtotal: detalle.subtotal,
         })),
       });
+      if (automaticos.aplicaciones.length)
+        await tx.aplicacionDescuento.createMany({
+          data: automaticos.aplicaciones.map((item) => ({
+            ...item,
+            ventaId: ventaBase.id,
+          })),
+        });
+      if (automaticos.couponId)
+        await tx.cupon.update({
+          where: { id: automaticos.couponId },
+          data: { usosActuales: { increment: 1 } },
+        });
+      if (automaticos.movimientoRedencionId)
+        await tx.movimientoPuntos.update({
+          where: { id: automaticos.movimientoRedencionId },
+          data: { ventaId: ventaBase.id },
+        });
 
       await this.inventarioService.descontarPorVenta(tx, {
         ventaId: ventaBase.id,
@@ -424,6 +729,7 @@ export class VentasService {
         pagos: {
           include: {
             metodoPago: true,
+            devoluciones: true,
           },
         },
       },
@@ -677,10 +983,20 @@ export class VentasService {
           ? data.impuestos
           : (data.impuestos ??
             (await this.impuestoConfigurado(tx, sucursal.id, subtotal)));
+      const automaticos = await this.descuentosAutomaticos(
+        tx,
+        data,
+        sucursal.id,
+        clienteId,
+        fechaOperacion,
+        subtotal,
+        detallesPreparados,
+      );
       const ajustes = this.validarYCalcularTotales(
         subtotal,
         { ...data, impuestos },
         usuarioActual,
+        automaticos.total,
       );
 
       let ventaBase: Venta;
@@ -752,6 +1068,23 @@ export class VentasService {
           subtotal: detalle.subtotal,
         })),
       });
+      if (automaticos.aplicaciones.length)
+        await tx.aplicacionDescuento.createMany({
+          data: automaticos.aplicaciones.map((item) => ({
+            ...item,
+            ventaId: ventaBase.id,
+          })),
+        });
+      if (automaticos.couponId)
+        await tx.cupon.update({
+          where: { id: automaticos.couponId },
+          data: { usosActuales: { increment: 1 } },
+        });
+      if (automaticos.movimientoRedencionId)
+        await tx.movimientoPuntos.update({
+          where: { id: automaticos.movimientoRedencionId },
+          data: { ventaId: ventaBase.id },
+        });
 
       await this.inventarioService.descontarPorVenta(tx, {
         ventaId: ventaBase.id,
@@ -803,10 +1136,33 @@ export class VentasService {
     );
   }
 
-  findAll(usuarioActual: UsuarioAutenticado) {
+  findAll(
+    usuarioActual: UsuarioAutenticado,
+    filtros: ListarVentasDto = new ListarVentasDto(),
+  ) {
+    if (
+      filtros.desde &&
+      filtros.hasta &&
+      new Date(filtros.desde).getTime() > new Date(filtros.hasta).getTime()
+    ) {
+      throw new BadRequestException(
+        'La fecha desde no puede ser posterior a la fecha hasta',
+      );
+    }
     return this.prisma.venta.findMany({
       where: {
         sucursal: this.filtroSucursal(usuarioActual),
+        ...(filtros.sucursalId ? { sucursalId: filtros.sucursalId } : {}),
+        ...(filtros.estado ? { estado: filtros.estado } : {}),
+        ...(filtros.origen ? { origen: filtros.origen } : {}),
+        ...(filtros.desde || filtros.hasta
+          ? {
+              fechaOperacion: {
+                ...(filtros.desde ? { gte: new Date(filtros.desde) } : {}),
+                ...(filtros.hasta ? { lte: new Date(filtros.hasta) } : {}),
+              },
+            }
+          : {}),
       },
 
       include: {
@@ -819,17 +1175,21 @@ export class VentasService {
         pagos: {
           include: {
             metodoPago: true,
+            devoluciones: true,
           },
         },
 
         factura: true,
         cliente: true,
+        pedido: { include: { mesa: true } },
+        divisionesCuenta: { include: { pagos: true }, orderBy: { id: 'asc' } },
       },
 
       orderBy: {
         fechaOperacion: 'desc',
       },
-      take: 200,
+      skip: (filtros.pagina - 1) * filtros.limite,
+      take: filtros.limite,
     });
   }
 
@@ -851,12 +1211,14 @@ export class VentasService {
         pagos: {
           include: {
             metodoPago: true,
+            devoluciones: true,
           },
         },
 
         factura: true,
         pedido: true,
         cliente: true,
+        divisionesCuenta: { include: { pagos: true }, orderBy: { id: 'asc' } },
       },
     });
 
@@ -865,6 +1227,59 @@ export class VentasService {
     }
 
     return venta;
+  }
+
+  async dividirCuenta(
+    ventaId: number,
+    data: DividirCuentaDto,
+    usuarioActual: UsuarioAutenticado,
+  ) {
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const venta = await tx.venta.findFirst({
+        where: { id: ventaId, sucursal: this.filtroSucursal(usuarioActual) },
+        include: { pagos: true, divisionesCuenta: true },
+      });
+      if (!venta) throw new NotFoundException('Venta no encontrada');
+      if (venta.estado === EstadoVenta.ANULADA)
+        throw new BadRequestException('No se puede dividir una venta anulada');
+      if (venta.pagos.length > 0)
+        throw new BadRequestException(
+          'La cuenta debe dividirse antes de registrar pagos',
+        );
+      const nombres = data.partes.map((parte) =>
+        parte.nombre.trim().toLowerCase(),
+      );
+      if (new Set(nombres).size !== nombres.length)
+        throw new BadRequestException(
+          'Cada parte de la cuenta debe tener un nombre diferente',
+        );
+      const totalPartes = data.partes.reduce(
+        (total, parte) => total.plus(dinero(parte.total, 'total de parte')),
+        new Prisma.Decimal(0),
+      );
+      if (!totalPartes.eq(venta.total))
+        throw new BadRequestException(
+          'La suma de las partes debe coincidir exactamente con el total de la venta',
+        );
+      await tx.divisionCuenta.deleteMany({ where: { ventaId } });
+      await tx.divisionCuenta.createMany({
+        data: data.partes.map((parte) => ({
+          ventaId,
+          nombre: parte.nombre.trim(),
+          modo: data.modo,
+          total: dinero(parte.total, 'total de parte'),
+          detalles:
+            parte.detalles === undefined
+              ? Prisma.JsonNull
+              : (parte.detalles as Prisma.InputJsonValue),
+        })),
+      });
+      return tx.divisionCuenta.findMany({
+        where: { ventaId },
+        include: { pagos: true },
+        orderBy: { id: 'asc' },
+      });
+    });
   }
 
   async registrarPago(
@@ -938,6 +1353,33 @@ export class VentasService {
           throw new BadRequestException(
             'El método de pago no existe o está inactivo',
           );
+        }
+
+        const divisiones = await tx.divisionCuenta.findMany({
+          where: { ventaId: venta.id },
+          include: { pagos: true },
+        });
+        if (divisiones.length > 0 && data.divisionCuentaId === undefined) {
+          throw new BadRequestException(
+            'Esta venta tiene la cuenta dividida; selecciona la parte que estás cobrando',
+          );
+        }
+        if (data.divisionCuentaId !== undefined) {
+          const parte = divisiones.find(
+            (item) => item.id === data.divisionCuentaId,
+          );
+          if (!parte)
+            throw new BadRequestException(
+              'La parte seleccionada no pertenece a esta venta',
+            );
+          const pagadoParte = parte.pagos.reduce(
+            (total, pago) => total.plus(pago.monto),
+            new Prisma.Decimal(0),
+          );
+          if (pagadoParte.plus(dinero(data.monto, 'monto')).gt(parte.total))
+            throw new BadRequestException(
+              'El pago supera el saldo de la parte seleccionada',
+            );
         }
 
         /*
@@ -1055,6 +1497,7 @@ export class VentasService {
             cajaId: caja.id,
 
             usuarioId: usuarioActual.id,
+            divisionCuentaId: data.divisionCuentaId,
             idempotenciaClave: clave,
             idempotenciaHash: solicitudHash,
           },
@@ -1069,6 +1512,10 @@ export class VentasService {
             data: {
               estado: EstadoVenta.PAGADA,
             },
+          });
+          await this.acreditarPuntos(tx, {
+            ...venta,
+            estado: EstadoVenta.PAGADA,
           });
 
           /*
@@ -1111,11 +1558,245 @@ export class VentasService {
         pagos: {
           include: {
             metodoPago: true,
+            devoluciones: true,
             caja: { select: { id: true, nombre: true, estado: true } },
           },
         },
         factura: true,
         pedido: true,
+      },
+    });
+  }
+
+  async devolverPago(
+    ventaId: number,
+    pagoId: number,
+    data: DevolverPagoDto,
+    usuarioActual: UsuarioAutenticado,
+    claveRecibida: string | undefined,
+  ) {
+    const clave = normalizarClaveIdempotencia(claveRecibida);
+    const solicitudHash = hashSolicitud({ ventaId, pagoId, data });
+
+    let devolucionId: number;
+    try {
+      devolucionId = await this.prisma.transaccionSerializable(async (tx) => {
+        const pagoAlcanzable = await tx.pago.findFirst({
+          where: {
+            id: pagoId,
+            ventaId,
+            venta: { sucursal: this.filtroSucursal(usuarioActual) },
+          },
+          select: { id: true },
+        });
+        if (!pagoAlcanzable) {
+          throw new NotFoundException('Pago no encontrado para esta venta');
+        }
+
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "Pago" WHERE "id" = ${pagoId} FOR UPDATE`,
+        );
+        const pago = await tx.pago.findUniqueOrThrow({
+          where: { id: pagoId },
+          include: {
+            metodoPago: true,
+            devoluciones: true,
+            venta: { include: { factura: true } },
+          },
+        });
+        const replay = pago.devoluciones.find(
+          (item) => item.idempotenciaClave === clave,
+        );
+        if (replay) {
+          validarReplayIdempotente(replay.idempotenciaHash, solicitudHash);
+          return replay.id;
+        }
+        if (pago.venta?.factura) {
+          throw new BadRequestException(
+            'Una venta facturada requiere nota crédito o reversión fiscal antes de devolver el pago',
+          );
+        }
+
+        const monto = dinero(data.monto, 'monto');
+        const yaDevuelto = pago.devoluciones.reduce(
+          (total, item) => total.plus(item.monto),
+          new Prisma.Decimal(0),
+        );
+        if (yaDevuelto.plus(monto).gt(pago.monto)) {
+          throw new BadRequestException(
+            'La devolución supera el saldo disponible del pago',
+          );
+        }
+
+        let movimientoCajaId: number | null = null;
+        if (pago.metodoPago.tipo === TipoMetodoPago.EFECTIVO) {
+          if (!pago.cajaId) {
+            throw new BadRequestException(
+              'El pago en efectivo no tiene una caja asociada',
+            );
+          }
+          await tx.$queryRaw(
+            Prisma.sql`SELECT "id" FROM "Caja" WHERE "id" = ${pago.cajaId} FOR UPDATE`,
+          );
+          const caja = await tx.caja.findFirst({
+            where: {
+              id: pago.cajaId,
+              estado: EstadoCaja.ABIERTA,
+              sucursalId: pago.venta?.sucursalId,
+            },
+          });
+          if (!caja) {
+            throw new BadRequestException(
+              'La devolución en efectivo requiere la caja original abierta',
+            );
+          }
+          const movimiento = await tx.movimientoCaja.create({
+            data: {
+              cajaId: caja.id,
+              usuarioId: usuarioActual.id,
+              tipo: TipoMovimientoCaja.EGRESO,
+              monto,
+              concepto: `Devolución pago #${pago.id}`,
+              observacion: data.motivo.trim(),
+              idempotenciaClave: `dev:${clave}`,
+              idempotenciaHash: solicitudHash,
+            },
+          });
+          movimientoCajaId = movimiento.id;
+        }
+
+        const devolucion = await tx.devolucionPago.create({
+          data: {
+            pagoId,
+            usuarioId: usuarioActual.id,
+            monto,
+            motivo: data.motivo.trim(),
+            idempotenciaClave: clave,
+            idempotenciaHash: solicitudHash,
+            movimientoCajaId,
+          },
+        });
+        return devolucion.id;
+      });
+    } catch (error) {
+      if (
+        !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+        error.code !== 'P2002'
+      )
+        throw error;
+      const replay = await this.prisma.devolucionPago.findUnique({
+        where: {
+          pagoId_idempotenciaClave: { pagoId, idempotenciaClave: clave },
+        },
+      });
+      if (!replay) throw error;
+      validarReplayIdempotente(replay.idempotenciaHash, solicitudHash);
+      devolucionId = replay.id;
+    }
+
+    return this.prisma.devolucionPago.findUniqueOrThrow({
+      where: { id: devolucionId },
+      include: {
+        pago: { include: { metodoPago: true } },
+        movimientoCaja: true,
+      },
+    });
+  }
+
+  async reversar(
+    id: number,
+    data: ReversarVentaDto,
+    usuarioActual: UsuarioAutenticado,
+    claveRecibida: string | undefined,
+  ) {
+    const clave = normalizarClaveIdempotencia(claveRecibida);
+    const solicitudHash = hashSolicitud({ ventaId: id, data });
+
+    let ventaId: number;
+    try {
+      ventaId = await this.prisma.transaccionSerializable(async (tx) => {
+        const ventaAlcanzable = await tx.venta.findFirst({
+          where: { id, sucursal: this.filtroSucursal(usuarioActual) },
+          select: { id: true },
+        });
+        if (!ventaAlcanzable)
+          throw new NotFoundException('Venta no encontrada');
+        await tx.$queryRaw(
+          Prisma.sql`SELECT "id" FROM "Venta" WHERE "id" = ${id} FOR UPDATE`,
+        );
+        const venta = await tx.venta.findUniqueOrThrow({
+          where: { id },
+          include: {
+            factura: true,
+            reversion: true,
+            pagos: { include: { devoluciones: true } },
+          },
+        });
+        if (venta.reversion) {
+          validarReplayIdempotente(
+            venta.reversion.idempotenciaHash,
+            solicitudHash,
+          );
+          return venta.id;
+        }
+        if (venta.factura) {
+          throw new BadRequestException(
+            'Una venta facturada requiere nota crédito o reversión fiscal',
+          );
+        }
+        const saldoNoDevuelto = venta.pagos.reduce((total, pago) => {
+          const devuelto = pago.devoluciones.reduce(
+            (subtotal, item) => subtotal.plus(item.monto),
+            new Prisma.Decimal(0),
+          );
+          return total.plus(pago.monto.minus(devuelto));
+        }, new Prisma.Decimal(0));
+        if (!saldoNoDevuelto.isZero()) {
+          throw new BadRequestException(
+            'Debes devolver completamente todos los pagos antes de reversar la venta',
+          );
+        }
+        await this.inventarioService.revertirPorAnulacionVenta(tx, {
+          ventaId: venta.id,
+          sucursalId: venta.sucursalId,
+          usuarioActual,
+        });
+        await this.revertirPuntos(tx, venta.id);
+        await tx.reversionVenta.create({
+          data: {
+            ventaId: venta.id,
+            usuarioId: usuarioActual.id,
+            motivo: data.motivo.trim(),
+            idempotenciaClave: clave,
+            idempotenciaHash: solicitudHash,
+          },
+        });
+        await tx.venta.update({
+          where: { id: venta.id },
+          data: { estado: EstadoVenta.ANULADA },
+        });
+        return venta.id;
+      });
+    } catch (error) {
+      if (
+        !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+        error.code !== 'P2002'
+      )
+        throw error;
+      const replay = await this.prisma.reversionVenta.findUnique({
+        where: { ventaId: id },
+      });
+      if (!replay) throw error;
+      validarReplayIdempotente(replay.idempotenciaHash, solicitudHash);
+      ventaId = id;
+    }
+
+    return this.prisma.venta.findUniqueOrThrow({
+      where: { id: ventaId },
+      include: {
+        detalles: true,
+        pagos: { include: { devoluciones: true } },
+        reversion: true,
       },
     });
   }
@@ -1232,6 +1913,7 @@ export class VentasService {
         sucursalId: venta.sucursalId,
         usuarioActual,
       });
+      await this.revertirPuntos(tx, venta.id);
 
       const anulada = await tx.venta.update({
         where: {

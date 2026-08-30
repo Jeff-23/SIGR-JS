@@ -9,8 +9,13 @@ import type { LucideIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 import { money } from "../data/demo";
 import { useApp } from "../store/app";
+import { RealDashboardPage } from "./RealDashboardPage";
 
 export function DashboardPage() {
+  const { session, branchId } = useApp();
+  return session?.demo ? <DemoDashboardPage/> : <RealDashboardPage key={branchId}/>;
+}
+function DemoDashboardPage() {
   const { tables, orders, session } = useApp();
   const cards: Array<[string, string | number, LucideIcon, string]> = [
     [

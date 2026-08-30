@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsDateString, IsInt, IsOptional, Min } from 'class-validator';
+import { IsDateString, IsInt, IsOptional, Max, Min } from 'class-validator';
 
 export class ListarCajasDto {
   @Type(() => Number)
@@ -15,4 +15,17 @@ export class ListarCajasDto {
   @IsDateString()
   @IsOptional()
   hasta?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  pagina = 1;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  @IsOptional()
+  limite = 100;
 }

@@ -754,7 +754,7 @@ async function bootstrap() {
               codigo: estacion.codigo,
             },
           },
-          update: { ...estacion, estado: true },
+          update: {},
           create: { ...estacion, sucursalId: sucursal.id },
         });
       }

@@ -26,6 +26,12 @@ import { Permisos } from '../auth/permisos.decorator';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { ActualizarDomicilioDto } from './dto/actualizar-domicilio.dto';
+import {
+  CambiarMeseroDto,
+  SepararMesaDto,
+  TrasladarMesaDto,
+  UnirMesasDto,
+} from './dto/gestionar-servicio-mesa.dto';
 
 type RequestAutenticada = {
   user: UsuarioAutenticado;
@@ -88,6 +94,50 @@ export class PedidosController {
     @Req() request: RequestAutenticada,
   ) {
     return this.pedidosService.finalizarServicio(id, request.user);
+  }
+
+  @Post(':id/mesas/unir')
+  @Permisos('PEDIDOS_EDITAR', 'MESAS_EDITAR')
+  unirMesas(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: UnirMesasDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.pedidosService.unirMesas(id, data.mesaIds, request.user);
+  }
+
+  @Post(':id/mesas/trasladar')
+  @Permisos('PEDIDOS_EDITAR', 'MESAS_EDITAR')
+  trasladarMesa(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: TrasladarMesaDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.pedidosService.trasladarMesa(
+      id,
+      data.mesaDestinoId,
+      request.user,
+    );
+  }
+
+  @Post(':id/mesas/separar')
+  @Permisos('PEDIDOS_EDITAR', 'MESAS_EDITAR')
+  separarMesa(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: SepararMesaDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.pedidosService.separarMesa(id, data.mesaId, request.user);
+  }
+
+  @Patch(':id/mesero')
+  @Permisos('PEDIDOS_EDITAR')
+  cambiarMesero(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: CambiarMeseroDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.pedidosService.cambiarMesero(id, data.meseroId, request.user);
   }
 
   @Get()

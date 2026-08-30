@@ -2,9 +2,9 @@ export type OrderType = "MESA" | "MOSTRADOR" | "PARA_LLEVAR" | "DOMICILIO";
 
 export type ApiTable = {
   id: number;
-  numero: number;
+  numero: string;
   capacidad: number;
-  situacion: "LIBRE" | "OCUPADA" | "PENDIENTE_PAGO";
+  situacion: "LIBRE" | "OCUPADA" | "RESERVADA" | "PENDIENTE_PAGO" | "FUERA_SERVICIO";
   ocupacionManual: boolean;
   zona: { id: number; nombre: string; sucursalId: number };
 };
@@ -36,6 +36,8 @@ export type ApiOrder = {
   detalles: OrderDetail[];
   comandas: Array<{ id: number; estado: string; fechaEnvio: string }>;
   venta?: { id: number; estado: string; total: string | number } | null;
+  mesero?: { id: number; nombres: string; apellidos: string } | null;
+  mesasVinculadas?: Array<{ principal: boolean; mesa: ApiTable }>;
 };
 
 export type CartLine = {
@@ -58,5 +60,5 @@ export function pendingCommandDetails(order: ApiOrder) {
 }
 
 export function activeOrder(order: ApiOrder) {
-  return order.estado !== "CANCELADO" && order.estado !== "FACTURADO";
+  return order.estado !== "CANCELADO" && order.estado !== "FACTURADO" && !(order.estado === "ENTREGADO" && order.venta?.estado === "PAGADA");
 }

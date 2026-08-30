@@ -6,18 +6,88 @@ import {
   LogOut,
   Menu,
   Receipt,
+  QrCode,
+  HeartHandshake,
   Settings,
   UtensilsCrossed,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { Brand } from "../components/Brand";
 import { Connection } from "../components/Connection";
+import { OperationsNotice } from "../components/OperationsNotice";
 import { useApp } from "../store/app";
+import { api } from "../lib/api";
+import {
+  pendingCommandCount,
+  type Command,
+} from "../features/kds/contracts";
 
 const nav = [
-  { to: "/", label: "Resumen", icon: LayoutDashboard, permission: null, capability: null },
+  {
+    to: "/pedidos-qr",
+    label: "Pedidos QR",
+    icon: QrCode,
+    permission: "PEDIDOS_VER",
+    capability: "MESAS",
+  },
+  {
+    to: "/fidelizacion",
+    label: "Promociones y clientes",
+    icon: HeartHandshake,
+    permission: "CLIENTES_VER",
+    capability: "CLIENTES",
+  },
+  {
+    to: "/continuidad",
+    label: "Sincronización",
+    icon: ClipboardList,
+    permission: null,
+    capability: null,
+  },
+  {
+    to: "/fiscal",
+    label: "Facturación y DIAN",
+    icon: Receipt,
+    permission: null,
+    capability: null,
+  },
+  {
+    to: "/administracion",
+    label: "Administración",
+    icon: Settings,
+    permission: null,
+    capability: null,
+  },
+  {
+    to: "/inventario",
+    label: "Inventario",
+    icon: ClipboardList,
+    permission: "INVENTARIO_VER",
+    capability: "INVENTARIO",
+  },
+  {
+    to: "/domicilios",
+    label: "Domicilios",
+    icon: UtensilsCrossed,
+    permission: "PEDIDOS_VER",
+    capability: null,
+  },
+  {
+    to: "/catalogo",
+    label: "Catálogo y clientes",
+    icon: ClipboardList,
+    permission: null,
+    capability: null,
+  },
+  {
+    to: "/",
+    label: "Resumen",
+    icon: LayoutDashboard,
+    permission: null,
+    capability: null,
+  },
   {
     to: "/salon",
     label: "Salón",
@@ -32,7 +102,13 @@ const nav = [
     permission: "COMANDAS_VER",
     capability: "KDS",
   },
-  { to: "/caja", label: "Caja", icon: Receipt, permission: "CAJA_VER", capability: null },
+  {
+    to: "/caja",
+    label: "Caja",
+    icon: Receipt,
+    permission: "CAJA_VER",
+    capability: null,
+  },
   {
     to: "/facturas",
     label: "Facturas",
@@ -57,7 +133,65 @@ const nav = [
 ];
 export function AppShell() {
   const [open, setOpen] = useState(false);
-  const { session, logout, branchId, branches, branchesLoading, setBranch, serviceAvailable, hasPermission, hasCapability } = useApp();
+  const [pendingKitchenCommands, setPendingKitchenCommands] = useState(0);
+  const {
+    session,
+    logout,
+    branchId,
+    branches,
+    branchesLoading,
+    setBranch,
+    serviceAvailable,
+    hasPermission,
+    hasCapability,
+    orders,
+  } = useApp();
+  const demoKitchenPending = useMemo(
+    () =>
+      orders.filter(
+        (order) =>
+          order.status !== "PAGADO" &&
+          order.status !== "PENDIENTE_PAGO" &&
+          Object.values(order.stationStatus).some(
+            (state) => state === "PENDIENTE",
+          ),
+      ).length,
+    [orders],
+  );
+  useEffect(() => {
+    if (
+      session?.demo ||
+      !branchId ||
+      !hasPermission("COMANDAS_VER") ||
+      !hasCapability("KDS")
+    )
+      return;
+    const controller = new AbortController();
+    const load = async () => {
+      try {
+        const response = await api.get<Command[]>("/comandas", {
+          params: { sucursalId: branchId },
+          signal: controller.signal,
+        });
+        setPendingKitchenCommands(pendingCommandCount(response.data));
+      } catch {
+        if (!controller.signal.aborted) setPendingKitchenCommands(0);
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 5000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [branchId, hasCapability, hasPermission, session?.demo, session?.user.id]);
+  const kitchenBadge = session?.demo
+    ? demoKitchenPending
+    : branchId &&
+        hasPermission("COMANDAS_VER") &&
+        hasCapability("KDS")
+      ? pendingKitchenCommands
+      : 0;
   return (
     <div className="min-h-screen bg-[#f4f2ec] text-denim">
       <aside
@@ -65,15 +199,55 @@ export function AppShell() {
       >
         <div className="flex items-center justify-between">
           <Brand />
-          <button className="lg:hidden" onClick={() => setOpen(false)}>
+          <button
+            aria-label="Cerrar navegación"
+            className="lg:hidden"
+            onClick={() => setOpen(false)}
+          >
             <X />
           </button>
         </div>
-        <nav className="mt-10 space-y-1">
+        <nav className="mt-6 max-h-[calc(100dvh-240px)] space-y-1 overflow-y-auto">
           {nav
             .filter(
               (item) =>
-                hasPermission(item.permission) && hasCapability(item.capability),
+                hasPermission(item.permission) &&
+                hasCapability(item.capability),
+            )
+            .sort(
+              (a, b) =>
+                [
+                  "/",
+                  "/salon",
+                  "/pedidos-qr",
+                  "/cocina",
+                  "/caja",
+                  "/facturas",
+                  "/domicilios",
+                  "/catalogo",
+                  "/inventario",
+                  "/reportes",
+                  "/fiscal",
+                  "/administracion",
+                  "/configuracion",
+                  "/continuidad",
+                ].indexOf(a.to) -
+                [
+                  "/",
+                  "/salon",
+                  "/pedidos-qr",
+                  "/cocina",
+                  "/caja",
+                  "/facturas",
+                  "/domicilios",
+                  "/catalogo",
+                  "/inventario",
+                  "/reportes",
+                  "/fiscal",
+                  "/administracion",
+                  "/configuracion",
+                  "/continuidad",
+                ].indexOf(b.to),
             )
             .map(({ to, label, icon: Icon }) => (
               <NavLink
@@ -85,7 +259,16 @@ export function AppShell() {
                 }
               >
                 <Icon size={19} />
-                {label}
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                {to === "/cocina" && kitchenBadge > 0 && (
+                  <span
+                    className="grid min-w-6 place-items-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-black text-white shadow-sm"
+                    aria-label={`${kitchenBadge} comandas pendientes`}
+                    title={`${kitchenBadge} comandas pendientes por iniciar`}
+                  >
+                    {kitchenBadge > 99 ? "99+" : kitchenBadge}
+                  </span>
+                )}
               </NavLink>
             ))}
         </nav>
@@ -115,20 +298,34 @@ export function AppShell() {
       )}
       <div className="lg:pl-72">
         <header className="sticky top-0 z-20 flex h-20 items-center gap-4 border-b border-denim/8 bg-[#f4f2ec]/90 px-4 backdrop-blur sm:px-7">
-          <button onClick={() => setOpen(true)} className="lg:hidden">
+          <button
+            aria-label="Abrir navegación"
+            onClick={() => setOpen(true)}
+            className="lg:hidden"
+          >
             <Menu />
           </button>
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-bold uppercase tracking-[.14em] text-denim/38">
-              {session?.user.restauranteNombre ?? (session?.demo ? "Restaurante El Mono" : `Restaurante ${session?.user.restauranteId ?? "SIGR"}`)}
+              {session?.user.restauranteNombre ??
+                (session?.demo
+                  ? "Restaurante El Mono"
+                  : `Restaurante ${session?.user.restauranteId ?? "SIGR"}`)}
             </p>
             <select
+              aria-label="Sucursal activa"
               value={branchId ?? ""}
               onChange={(e) => setBranch(Number(e.target.value))}
               disabled={branchesLoading || branches.length <= 1}
               className="-ml-1 mt-1 bg-transparent text-lg font-black outline-none"
             >
-              {branches.length === 0 && <option value="">{branchesLoading ? "Consultando sucursales…" : "Sin sucursal asignada"}</option>}
+              {branches.length === 0 && (
+                <option value="">
+                  {branchesLoading
+                    ? "Consultando sucursales…"
+                    : "Sin sucursal asignada"}
+                </option>
+              )}
               {branches.map((branch) => (
                 <option key={branch.id} value={branch.id}>
                   {branch.name}
@@ -136,13 +333,18 @@ export function AppShell() {
               ))}
             </select>
           </div>
-          {!serviceAvailable && <span className="hidden rounded-full bg-orange-100 px-3 py-2 text-xs font-bold text-orange-800 md:block">Servidor sin respuesta</span>}
+          {!serviceAvailable && (
+            <span className="hidden rounded-full bg-orange-100 px-3 py-2 text-xs font-bold text-orange-800 md:block">
+              Servidor sin respuesta
+            </span>
+          )}
           <Connection />
           <button className="hidden rounded-xl border border-denim/10 p-2.5 text-denim/50 sm:block">
             <ClipboardList size={19} />
           </button>
         </header>
         <main className="p-4 sm:p-7">
+          <OperationsNotice />
           <Outlet />
         </main>
       </div>

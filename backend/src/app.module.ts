@@ -38,6 +38,9 @@ import { PlataformaModule } from './plataforma/plataforma.module';
 import { RespuestaSeguraInterceptor } from './plataforma/respuesta-segura.interceptor';
 import { FiscalModule } from './modulos/fiscal/fiscal.module';
 import { RegistrosFacturaModule } from './modulos/registros-factura/registros-factura.module';
+import { ReservasModule } from './modulos/reservas/reservas.module';
+import { FidelizacionModule } from './modulos/fidelizacion/fidelizacion.module';
+import { MenuQrModule } from './modulos/menu-qr/menu-qr.module';
 
 const entorno = obtenerEntorno();
 
@@ -77,6 +80,9 @@ const entorno = obtenerEntorno();
     PlataformaModule,
     FiscalModule,
     RegistrosFacturaModule,
+    ReservasModule,
+    FidelizacionModule,
+    MenuQrModule,
   ],
   controllers: [AppController],
   providers: [

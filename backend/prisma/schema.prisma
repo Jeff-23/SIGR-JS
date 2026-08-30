@@ -14,6 +14,41 @@ enum EstadoMesa {
   FUERA_SERVICIO
 }
 
+enum EstadoReserva {
+  PENDIENTE
+  CONFIRMADA
+  EN_ESPERA
+  SENTADA
+  CANCELADA
+  NO_ASISTIO
+  COMPLETADA
+}
+
+enum EstadoEspera {
+  ESPERANDO
+  AVISADO
+  SENTADO
+  CANCELADO
+}
+
+enum TipoBeneficioPromocion {
+  PORCENTAJE
+  VALOR_FIJO
+}
+
+enum TipoMovimientoPuntos {
+  ACUMULACION
+  REDENCION
+  AJUSTE
+  REVERSO
+}
+
+enum CanalComunicacion {
+  EMAIL
+  SMS
+  WHATSAPP
+}
+
 enum TipoPedido {
   MESA
   PARA_LLEVAR
@@ -156,6 +191,12 @@ enum OrigenRegistroFactura {
   IMPORTADO
 }
 
+enum EstadoSolicitudPedidoQr {
+  PENDIENTE
+  ACEPTADA
+  RECHAZADA
+}
+
 model Restaurante {
   id            Int      @id @default(autoincrement())
   nombre        String   @db.VarChar(100)
@@ -170,15 +211,18 @@ model Restaurante {
   planId Int?
   plan   Plan? @relation(fields: [planId], references: [id])
 
-  sucursales       Sucursal[]
-  usuarios         Usuario[]
-  roles            Rol[]
-  clientes         Cliente[]
-  configuraciones  ConfiguracionRestaurante[]
-  auditorias       EventoAuditoria[]
-  perfilFiscal     PerfilFiscal?
-  resolucionesDian ResolucionNumeracionDian[]
-  registrosFactura RegistroFacturaOperativa[]
+  sucursales          Sucursal[]
+  usuarios            Usuario[]
+  roles               Rol[]
+  clientes            Cliente[]
+  configuraciones     ConfiguracionRestaurante[]
+  auditorias          EventoAuditoria[]
+  perfilFiscal        PerfilFiscal?
+  resolucionesDian    ResolucionNumeracionDian[]
+  registrosFactura    RegistroFacturaOperativa[]
+  promociones         Promocion[]
+  cupones             Cupon[]
+  nivelesFidelizacion NivelFidelizacion[]
 
   @@index([planId])
 }
@@ -206,7 +250,10 @@ model Cliente {
   restauranteId Int
   restaurante   Restaurante @relation(fields: [restauranteId], references: [id], onDelete: Restrict)
 
-  ventas Venta[]
+  ventas             Venta[]
+  cuentaFidelizacion CuentaFidelizacion?
+  consentimientos    ConsentimientoCliente[]
+  cuponesAsignados   Cupon[]
 
   @@unique([restauranteId, numeroDocumento])
   @@index([restauranteId])
@@ -238,6 +285,10 @@ model Sucursal {
   auditorias            EventoAuditoria[]
   registrosFactura      RegistroFacturaOperativa[]
   estacionesPreparacion EstacionPreparacion[]
+  reservas              Reserva[]
+  listaEspera           EntradaListaEspera[]
+  promociones           Promocion[]
+  solicitudesPedidoQr   SolicitudPedidoQr[]
 }
 
 // ==========================================
@@ -309,18 +360,26 @@ model Usuario {
   restaurante Restaurante? @relation(fields: [restauranteId], references: [id])
   sucursal    Sucursal?    @relation(fields: [sucursalId], references: [id])
 
-  pedidos Pedido[]
-  ventas  Venta[]
+  pedidosCreados   Pedido[]             @relation("PedidoCreadoPor")
+  pedidosAtendidos Pedido[]             @relation("PedidoMesero")
+  reservasCreadas  Reserva[]
+  esperasCreadas   EntradaListaEspera[]
+  ventas           Venta[]
 
-  cajasAbiertas         Caja[]                     @relation("CajaAbiertaPor")
-  cajasCerradas         Caja[]                     @relation("CajaCerradaPor")
-  movimientosCaja       MovimientoCaja[]
-  pagosRegistrados      Pago[]
-  movimientosInventario MovimientoInventario[]
-  auditorias            EventoAuditoria[]          @relation("AuditoriaActor")
-  mesasOcupadasManual   Mesa[]                     @relation("MesaOcupadaManualPor")
-  domiciliosAsignados   Domicilio[]                @relation("DomicilioRepartidor")
-  registrosFactura      RegistroFacturaOperativa[]
+  cajasAbiertas                Caja[]                     @relation("CajaAbiertaPor")
+  cajasCerradas                Caja[]                     @relation("CajaCerradaPor")
+  movimientosCaja              MovimientoCaja[]
+  pagosRegistrados             Pago[]
+  devolucionesPago             DevolucionPago[]
+  reversionesVenta             ReversionVenta[]
+  movimientosInventario        MovimientoInventario[]
+  auditorias                   EventoAuditoria[]          @relation("AuditoriaActor")
+  mesasOcupadasManual          Mesa[]                     @relation("MesaOcupadaManualPor")
+  domiciliosAsignados          Domicilio[]                @relation("DomicilioRepartidor")
+  registrosFactura             RegistroFacturaOperativa[]
+  consentimientosRegistrados   ConsentimientoCliente[]
+  movimientosPuntosRegistrados MovimientoPuntos[]
+  solicitudesQrAceptadas       SolicitudPedidoQr[]        @relation("SolicitudQrAceptadaPor")
 
   @@index([restauranteId])
   @@index([sucursalId])
@@ -353,7 +412,71 @@ model Mesa {
   zona             Zona     @relation(fields: [zonaId], references: [id])
   ocupadaManualPor Usuario? @relation("MesaOcupadaManualPor", fields: [ocupadaManualPorId], references: [id], onDelete: SetNull)
 
-  pedidos Pedido[]
+  pedidos           Pedido[]
+  pedidosVinculados PedidoMesa[]
+  reservas          Reserva[]
+  esperas           EntradaListaEspera[]
+  accesoQr          AccesoMesaQr?
+  solicitudesQr     SolicitudPedidoQr[]
+}
+
+model AccesoMesaQr {
+  id            Int      @id @default(autoincrement())
+  token         String   @unique @db.VarChar(64)
+  activo        Boolean  @default(true)
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+  mesaId        Int      @unique
+  mesa          Mesa     @relation(fields: [mesaId], references: [id], onDelete: Cascade)
+}
+
+model Reserva {
+  id              Int           @id @default(autoincrement())
+  nombreCliente   String        @db.VarChar(160)
+  telefono        String        @db.VarChar(30)
+  correo          String?       @db.VarChar(150)
+  personas        Int
+  fechaHora       DateTime
+  duracionMinutos Int           @default(90)
+  estado          EstadoReserva @default(PENDIENTE)
+  observaciones   String?       @db.VarChar(500)
+  creadoEn        DateTime      @default(now())
+  actualizadoEn   DateTime      @updatedAt
+
+  sucursalId  Int
+  mesaId      Int?
+  creadoPorId Int
+
+  sucursal  Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  mesa      Mesa?    @relation(fields: [mesaId], references: [id], onDelete: SetNull)
+  creadoPor Usuario  @relation(fields: [creadoPorId], references: [id], onDelete: Restrict)
+
+  @@index([sucursalId, fechaHora])
+  @@index([mesaId, fechaHora])
+  @@index([estado])
+}
+
+model EntradaListaEspera {
+  id            Int          @id @default(autoincrement())
+  nombreCliente String       @db.VarChar(160)
+  telefono      String?      @db.VarChar(30)
+  personas      Int
+  estado        EstadoEspera @default(ESPERANDO)
+  llegadaEn     DateTime     @default(now())
+  avisadoEn     DateTime?
+  sentadoEn     DateTime?
+  observaciones String?      @db.VarChar(500)
+
+  sucursalId  Int
+  mesaId      Int?
+  creadoPorId Int
+
+  sucursal  Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  mesa      Mesa?    @relation(fields: [mesaId], references: [id], onDelete: SetNull)
+  creadoPor Usuario  @relation(fields: [creadoPorId], references: [id], onDelete: Restrict)
+
+  @@index([sucursalId, estado, llegadaEn])
+  @@index([mesaId])
 }
 
 model Categoria {
@@ -383,28 +506,30 @@ model Producto {
 
   categoriaId Int
   estacionId  Int?
-  categoria   Categoria @relation(fields: [categoriaId], references: [id])
+  categoria   Categoria            @relation(fields: [categoriaId], references: [id])
   estacion    EstacionPreparacion? @relation(fields: [estacionId], references: [id], onDelete: SetNull)
 
   detalles              DetallePedido[]
   detallesVenta         DetalleVenta[]
   recetas               Receta[]
   movimientosInventario MovimientoInventario[]
+  promociones           PromocionProducto[]
+  detallesSolicitudQr   DetalleSolicitudPedidoQr[]
 
   @@index([estacionId])
 }
 
 model EstacionPreparacion {
-  id        Int      @id @default(autoincrement())
-  codigo    String   @db.VarChar(40)
-  nombre    String   @db.VarChar(80)
-  color     String   @default("#F97316") @db.VarChar(7)
-  orden     Int      @default(0)
-  estado    Boolean  @default(true)
-  creadoEn  DateTime @default(now())
+  id       Int      @id @default(autoincrement())
+  codigo   String   @db.VarChar(40)
+  nombre   String   @db.VarChar(80)
+  color    String   @default("#F97316") @db.VarChar(7)
+  orden    Int      @default(0)
+  estado   Boolean  @default(true)
+  creadoEn DateTime @default(now())
 
   sucursalId Int
-  sucursal   Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Cascade)
+  sucursal   Sucursal   @relation(fields: [sucursalId], references: [id], onDelete: Cascade)
   productos  Producto[]
   comandas   Comanda[]
 
@@ -424,20 +549,76 @@ model Pedido {
 
   sucursalId Int
   mesaId     Int?
-  usuarioId  Int
+  usuarioId  Int?
+  meseroId   Int?
 
   sucursal Sucursal @relation(fields: [sucursalId], references: [id])
   mesa     Mesa?    @relation(fields: [mesaId], references: [id])
-  usuario  Usuario  @relation(fields: [usuarioId], references: [id])
+  usuario  Usuario? @relation("PedidoCreadoPor", fields: [usuarioId], references: [id], onDelete: SetNull)
+  mesero   Usuario? @relation("PedidoMesero", fields: [meseroId], references: [id], onDelete: SetNull)
 
-  detalles  DetallePedido[]
-  comandas  Comanda[]
-  factura   Factura?
-  venta     Venta?
-  domicilio Domicilio?
+  detalles        DetallePedido[]
+  comandas        Comanda[]
+  factura         Factura?
+  venta           Venta?
+  domicilio       Domicilio?
+  mesasVinculadas PedidoMesa[]
+  solicitudQr     SolicitudPedidoQr?
 
   @@unique([sucursalId, idempotenciaClave])
   @@index([sucursalId, creadoEn])
+}
+
+model SolicitudPedidoQr {
+  id            String                     @id @default(uuid()) @db.Uuid
+  claveCliente  String                     @db.VarChar(100)
+  estado        EstadoSolicitudPedidoQr    @default(PENDIENTE)
+  nombreCliente String?                    @db.VarChar(120)
+  observaciones String?                    @db.VarChar(300)
+  total         Decimal                    @db.Decimal(12, 2)
+  motivoRechazo String?                    @db.VarChar(300)
+  creadoEn      DateTime                   @default(now())
+  actualizadoEn DateTime                   @updatedAt
+  resueltoEn    DateTime?
+  sucursalId    Int
+  mesaId        Int
+  pedidoId      Int?                       @unique
+  aceptadoPorId Int?
+  sucursal      Sucursal                   @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  mesa          Mesa                       @relation(fields: [mesaId], references: [id], onDelete: Restrict)
+  pedido        Pedido?                    @relation(fields: [pedidoId], references: [id], onDelete: SetNull)
+  aceptadoPor   Usuario?                   @relation("SolicitudQrAceptadaPor", fields: [aceptadoPorId], references: [id], onDelete: SetNull)
+  detalles      DetalleSolicitudPedidoQr[]
+
+  @@unique([sucursalId, claveCliente])
+  @@index([sucursalId, estado, creadoEn])
+}
+
+model DetalleSolicitudPedidoQr {
+  id             Int               @id @default(autoincrement())
+  cantidad       Int
+  precioUnitario Decimal           @db.Decimal(10, 2)
+  subtotal       Decimal           @db.Decimal(10, 2)
+  observaciones  String?           @db.VarChar(300)
+  solicitudId    String            @db.Uuid
+  productoId     Int
+  solicitud      SolicitudPedidoQr @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  producto       Producto          @relation(fields: [productoId], references: [id], onDelete: Restrict)
+
+  @@index([solicitudId])
+}
+
+model PedidoMesa {
+  pedidoId    Int
+  mesaId      Int
+  principal   Boolean  @default(false)
+  vinculadaEn DateTime @default(now())
+
+  pedido Pedido @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  mesa   Mesa   @relation(fields: [mesaId], references: [id], onDelete: Restrict)
+
+  @@id([pedidoId, mesaId])
+  @@index([mesaId])
 }
 
 model Domicilio {
@@ -486,7 +667,7 @@ model DetallePedido {
 model Comanda {
   id Int @id @default(autoincrement())
 
-  estado EstadoComanda @default(PENDIENTE)
+  estado    EstadoComanda    @default(PENDIENTE)
   prioridad PrioridadComanda @default(NORMAL)
 
   fechaEnvio   DateTime  @default(now())
@@ -494,10 +675,10 @@ model Comanda {
   fechaLista   DateTime?
   fechaEntrega DateTime?
 
-  pedidoId Int
+  pedidoId   Int
   estacionId Int
 
-  pedido   Pedido           @relation(fields: [pedidoId], references: [id], onDelete: Restrict)
+  pedido   Pedido              @relation(fields: [pedidoId], references: [id], onDelete: Restrict)
   estacion EstacionPreparacion @relation(fields: [estacionId], references: [id], onDelete: Restrict)
   detalles DetalleComanda[]
 
@@ -565,6 +746,10 @@ model Venta {
   factura               Factura?
   registrosFactura      RegistroFacturaOperativa[]
   movimientosInventario MovimientoInventario[]
+  reversion             ReversionVenta?
+  divisionesCuenta      DivisionCuenta[]
+  aplicacionesDescuento AplicacionDescuento[]
+  movimientosPuntos     MovimientoPuntos[]
 
   @@unique([sucursalId, idempotenciaClave])
   @@unique([sucursalId, numeroComandaPapel])
@@ -735,6 +920,7 @@ model RegistroFacturaOperativa {
   soporteArchivoRef String?               @db.VarChar(500)
   observaciones     String?               @db.VarChar(500)
   idempotenciaClave String?               @db.VarChar(100)
+  idempotenciaHash  String?               @db.VarChar(64)
   creadoEn          DateTime              @default(now())
   actualizadoEn     DateTime              @updatedAt
 
@@ -790,14 +976,17 @@ model Pago {
    * Se mantienen opcionales para compatibilidad
    * con pagos creados antes de Caja.
    */
-  cajaId    Int?
-  usuarioId Int?
+  cajaId           Int?
+  usuarioId        Int?
+  divisionCuentaId Int?
 
-  factura    Factura?   @relation(fields: [facturaId], references: [id])
-  venta      Venta?     @relation(fields: [ventaId], references: [id])
-  metodoPago MetodoPago @relation(fields: [metodoPagoId], references: [id])
-  caja       Caja?      @relation(fields: [cajaId], references: [id], onDelete: Restrict)
-  usuario    Usuario?   @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  factura        Factura?         @relation(fields: [facturaId], references: [id])
+  venta          Venta?           @relation(fields: [ventaId], references: [id])
+  metodoPago     MetodoPago       @relation(fields: [metodoPagoId], references: [id])
+  caja           Caja?            @relation(fields: [cajaId], references: [id], onDelete: Restrict)
+  usuario        Usuario?         @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  devoluciones   DevolucionPago[]
+  divisionCuenta DivisionCuenta?  @relation(fields: [divisionCuentaId], references: [id], onDelete: Restrict)
 
   @@unique([ventaId, idempotenciaClave])
   @@index([facturaId])
@@ -805,6 +994,63 @@ model Pago {
   @@index([metodoPagoId])
   @@index([cajaId])
   @@index([usuarioId])
+  @@index([divisionCuentaId])
+}
+
+model DivisionCuenta {
+  id       Int      @id @default(autoincrement())
+  nombre   String   @db.VarChar(80)
+  modo     String   @db.VarChar(20)
+  total    Decimal  @db.Decimal(12, 2)
+  detalles Json?
+  creadoEn DateTime @default(now())
+
+  ventaId Int
+  venta   Venta  @relation(fields: [ventaId], references: [id], onDelete: Restrict)
+  pagos   Pago[]
+
+  @@unique([ventaId, nombre])
+  @@index([ventaId])
+}
+
+model DevolucionPago {
+  id                Int      @id @default(autoincrement())
+  monto             Decimal  @db.Decimal(12, 2)
+  motivo            String   @db.VarChar(250)
+  creadoEn          DateTime @default(now())
+  idempotenciaClave String   @db.VarChar(100)
+  idempotenciaHash  String   @db.VarChar(64)
+
+  pagoId           Int
+  usuarioId        Int
+  movimientoCajaId Int? @unique
+
+  pago           Pago            @relation(fields: [pagoId], references: [id], onDelete: Restrict)
+  usuario        Usuario         @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  movimientoCaja MovimientoCaja? @relation(fields: [movimientoCajaId], references: [id], onDelete: Restrict)
+
+  @@unique([pagoId, idempotenciaClave])
+  @@index([pagoId])
+  @@index([usuarioId])
+  @@index([creadoEn])
+}
+
+model ReversionVenta {
+  id                Int      @id @default(autoincrement())
+  motivo            String   @db.VarChar(250)
+  creadoEn          DateTime @default(now())
+  idempotenciaClave String   @db.VarChar(100)
+  idempotenciaHash  String   @db.VarChar(64)
+
+  ventaId   Int @unique
+  usuarioId Int
+
+  venta   Venta   @relation(fields: [ventaId], references: [id], onDelete: Restrict)
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+
+  @@index([usuarioId])
+  @@index([creadoEn])
+  @@index([idempotenciaClave])
 }
 
 // ==========================================
@@ -831,6 +1077,10 @@ model Caja {
 
   observacionApertura String? @db.VarChar(250)
   observacionCierre   String? @db.VarChar(250)
+  aperturaClave       String? @db.VarChar(100)
+  aperturaHash        String? @db.VarChar(64)
+  cierreClave         String? @db.VarChar(100)
+  cierreHash          String? @db.VarChar(64)
 
   sucursalId   Int
   abiertaPorId Int
@@ -843,6 +1093,7 @@ model Caja {
   movimientos MovimientoCaja[]
   pagos       Pago[]
 
+  @@unique([sucursalId, aperturaClave])
   @@index([sucursalId])
   @@index([estado])
   @@index([fechaApertura])
@@ -851,23 +1102,181 @@ model Caja {
 }
 
 model MovimientoCaja {
-  id          Int                @id @default(autoincrement())
-  tipo        TipoMovimientoCaja
-  monto       Decimal            @db.Decimal(12, 2)
-  concepto    String             @db.VarChar(120)
-  observacion String?            @db.VarChar(250)
-  creadoEn    DateTime           @default(now())
+  id                Int                @id @default(autoincrement())
+  tipo              TipoMovimientoCaja
+  monto             Decimal            @db.Decimal(12, 2)
+  concepto          String             @db.VarChar(120)
+  observacion       String?            @db.VarChar(250)
+  creadoEn          DateTime           @default(now())
+  idempotenciaClave String?            @db.VarChar(100)
+  idempotenciaHash  String?            @db.VarChar(64)
 
   cajaId    Int
   usuarioId Int
 
-  caja    Caja    @relation(fields: [cajaId], references: [id], onDelete: Restrict)
-  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  caja           Caja            @relation(fields: [cajaId], references: [id], onDelete: Restrict)
+  usuario        Usuario         @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  devolucionPago DevolucionPago?
 
+  @@unique([cajaId, idempotenciaClave])
   @@index([cajaId])
   @@index([usuarioId])
   @@index([tipo])
   @@index([creadoEn])
+}
+
+// ==========================================
+// SPRINT 33: PROMOCIONES Y FIDELIZACION
+// ==========================================
+
+model Promocion {
+  id            Int                    @id @default(autoincrement())
+  nombre        String                 @db.VarChar(120)
+  descripcion   String?                @db.VarChar(500)
+  tipo          TipoBeneficioPromocion
+  valor         Decimal                @db.Decimal(12, 2)
+  compraMinima  Decimal                @default(0) @db.Decimal(12, 2)
+  fechaInicio   DateTime
+  fechaFin      DateTime
+  diasSemana    Int[]
+  horaInicio    String?                @db.VarChar(5)
+  horaFin       String?                @db.VarChar(5)
+  requiereCupon Boolean                @default(false)
+  combinable    Boolean                @default(false)
+  activa        Boolean                @default(true)
+  creadoEn      DateTime               @default(now())
+  actualizadoEn DateTime               @updatedAt
+
+  restauranteId Int
+  sucursalId    Int?
+  restaurante   Restaurante           @relation(fields: [restauranteId], references: [id], onDelete: Restrict)
+  sucursal      Sucursal?             @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  productos     PromocionProducto[]
+  cupones       Cupon[]
+  aplicaciones  AplicacionDescuento[]
+
+  @@index([restauranteId, activa, fechaInicio, fechaFin])
+  @@index([sucursalId])
+}
+
+model PromocionProducto {
+  promocionId Int
+  productoId  Int
+  promocion   Promocion @relation(fields: [promocionId], references: [id], onDelete: Cascade)
+  producto    Producto  @relation(fields: [productoId], references: [id], onDelete: Restrict)
+
+  @@id([promocionId, productoId])
+  @@index([productoId])
+}
+
+model Cupon {
+  id           Int       @id @default(autoincrement())
+  codigo       String    @db.VarChar(50)
+  activo       Boolean   @default(true)
+  usosMaximos  Int?
+  usosActuales Int       @default(0)
+  validoDesde  DateTime?
+  validoHasta  DateTime?
+  creadoEn     DateTime  @default(now())
+
+  restauranteId Int
+  promocionId   Int
+  clienteId     Int?
+  restaurante   Restaurante           @relation(fields: [restauranteId], references: [id], onDelete: Restrict)
+  promocion     Promocion             @relation(fields: [promocionId], references: [id], onDelete: Restrict)
+  cliente       Cliente?              @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  aplicaciones  AplicacionDescuento[]
+
+  @@unique([restauranteId, codigo])
+  @@index([promocionId])
+  @@index([clienteId])
+}
+
+model AplicacionDescuento {
+  id       Int      @id @default(autoincrement())
+  origen   String   @db.VarChar(20)
+  nombre   String   @db.VarChar(120)
+  monto    Decimal  @db.Decimal(12, 2)
+  creadoEn DateTime @default(now())
+
+  ventaId     Int
+  promocionId Int?
+  cuponId     Int?
+  venta       Venta      @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  promocion   Promocion? @relation(fields: [promocionId], references: [id], onDelete: Restrict)
+  cupon       Cupon?     @relation(fields: [cuponId], references: [id], onDelete: Restrict)
+
+  @@index([ventaId])
+  @@index([promocionId])
+  @@index([cuponId])
+}
+
+model NivelFidelizacion {
+  id            Int      @id @default(autoincrement())
+  nombre        String   @db.VarChar(80)
+  puntosMinimos Int
+  multiplicador Decimal  @default(1) @db.Decimal(6, 2)
+  beneficios    Json?
+  activo        Boolean  @default(true)
+  creadoEn      DateTime @default(now())
+
+  restauranteId Int
+  restaurante   Restaurante          @relation(fields: [restauranteId], references: [id], onDelete: Restrict)
+  cuentas       CuentaFidelizacion[]
+
+  @@unique([restauranteId, nombre])
+  @@index([restauranteId, puntosMinimos])
+}
+
+model CuentaFidelizacion {
+  id               Int      @id @default(autoincrement())
+  saldoPuntos      Int      @default(0)
+  puntosHistoricos Int      @default(0)
+  actualizadoEn    DateTime @updatedAt
+
+  clienteId   Int                @unique
+  nivelId     Int?
+  cliente     Cliente            @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  nivel       NivelFidelizacion? @relation(fields: [nivelId], references: [id], onDelete: SetNull)
+  movimientos MovimientoPuntos[]
+
+  @@index([nivelId])
+}
+
+model MovimientoPuntos {
+  id             Int                  @id @default(autoincrement())
+  tipo           TipoMovimientoPuntos
+  puntos         Int
+  saldoPosterior Int
+  motivo         String               @db.VarChar(250)
+  creadoEn       DateTime             @default(now())
+
+  cuentaId  Int
+  ventaId   Int?
+  usuarioId Int?
+  cuenta    CuentaFidelizacion @relation(fields: [cuentaId], references: [id], onDelete: Cascade)
+  venta     Venta?             @relation(fields: [ventaId], references: [id], onDelete: SetNull)
+  usuario   Usuario?           @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+
+  @@index([cuentaId, creadoEn])
+  @@index([ventaId])
+}
+
+model ConsentimientoCliente {
+  id           Int               @id @default(autoincrement())
+  canal        CanalComunicacion
+  otorgado     Boolean
+  fuente       String            @db.VarChar(80)
+  registradoEn DateTime          @default(now())
+  revocadoEn   DateTime?
+
+  clienteId Int
+  usuarioId Int
+  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+
+  @@unique([clienteId, canal])
+  @@index([usuarioId])
 }
 
 // ==========================================

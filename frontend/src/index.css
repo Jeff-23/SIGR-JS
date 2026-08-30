@@ -88,8 +88,9 @@ button {
     @apply shrink-0 rounded-full bg-marigold/25 px-3 py-1 text-[10px] font-black uppercase tracking-wide;
   }
   .kds-card {
-    @apply relative flex min-h-[430px] flex-col overflow-hidden rounded-[24px] border border-denim/[.06] bg-white shadow-card;
+    @apply relative flex h-[500px] flex-col overflow-hidden rounded-[24px] border border-denim/[.06] bg-white shadow-card;
   }
+  .kds-compact .kds-card { @apply h-[390px]; }
   .kds-card.warning { @apply border-amber-300; }
   .kds-card.critical { @apply border-red-400 shadow-[0_12px_34px_rgba(220,38,38,.12)]; }
   .kds-header { @apply flex min-h-[112px] items-start justify-between gap-4 border-t-[6px] bg-denim/[.025] p-5; }
@@ -116,4 +117,10 @@ button {
     transition: none !important;
     animation: none !important;
   }
+}
+
+@media print {
+  body:has(.cash-receipt) * { visibility: hidden; }
+  body .cash-receipt, body .cash-receipt * { visibility: visible; }
+  .cash-receipt { position: absolute; inset: 0 auto auto 0; width: 100%; color: black; background: white; padding: 12mm; }
 }

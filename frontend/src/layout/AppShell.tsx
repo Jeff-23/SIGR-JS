@@ -11,6 +11,7 @@ import {
   CircleDollarSign,
   WalletCards,
   UsersRound,
+  BrainCircuit,
   HeartHandshake,
   Settings,
   UtensilsCrossed,
@@ -29,6 +30,13 @@ import {
 } from "../features/kds/contracts";
 
 const nav = [
+  {
+    to: "/inteligencia",
+    label: "Inteligencia y alertas",
+    icon: BrainCircuit,
+    permission: "REPORTES_VER",
+    capability: "ANALYTICS",
+  },
   {
     to: "/personal",
     label: "Personal y turnos",
@@ -262,6 +270,7 @@ export function AppShell() {
                   "/costos",
                   "/cuentas-pagar",
                   "/personal",
+                  "/inteligencia",
                   "/reportes",
                   "/fiscal",
                   "/administracion",
@@ -282,6 +291,7 @@ export function AppShell() {
                   "/costos",
                   "/cuentas-pagar",
                   "/personal",
+                  "/inteligencia",
                   "/reportes",
                   "/fiscal",
                   "/administracion",

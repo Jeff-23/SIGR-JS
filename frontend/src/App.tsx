@@ -28,6 +28,7 @@ import { SupplyPage } from "./pages/SupplyPage";
 import { CostsPage } from "./pages/CostsPage";
 import { PayablesPage } from "./pages/PayablesPage";
 import { StaffPage } from "./pages/StaffPage";
+import { IntelligencePage } from "./pages/IntelligencePage";
 import { useApp } from "./store/app";
 
 function ApplicationRoutes() {
@@ -157,6 +158,7 @@ function ApplicationRoutes() {
         />
         <Route path="cuentas-pagar" element={<RouteGuard permission="REPORTES_VER" capability="INVENTARIO" branchRequired><PayablesPage /></RouteGuard>} />
         <Route path="personal" element={<RouteGuard permission="USUARIOS_VER" branchRequired><StaffPage /></RouteGuard>} />
+        <Route path="inteligencia" element={<RouteGuard permission="REPORTES_VER" capability="ANALYTICS" branchRequired><IntelligencePage /></RouteGuard>} />
         <Route
           path="abastecimiento"
           element={<RouteGuard permission="INVENTARIO_VER" capability="INVENTARIO" branchRequired><SupplyPage /></RouteGuard>}

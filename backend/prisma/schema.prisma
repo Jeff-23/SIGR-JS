@@ -230,6 +230,12 @@ enum TipoMarcacionPersonal {
   SALIDA
 }
 
+enum IndicadorMetaOperativa {
+  VENTAS_MONTO
+  VENTAS_CANTIDAD
+  TICKET_PROMEDIO
+}
+
 model Restaurante {
   id            Int      @id @default(autoincrement())
   nombre        String   @db.VarChar(100)
@@ -332,6 +338,7 @@ model Sucursal {
   cierresAdministrativos CierreAdministrativo[]
   empleados              Empleado[]
   turnosPersonal         TurnoPersonal[]
+  metasOperativas        MetaOperativa[]
 }
 
 // ==========================================
@@ -942,13 +949,15 @@ model DetalleVenta {
 // ==========================================
 
 model Articulo {
-  id          Int              @id @default(autoincrement())
-  nombre      String           @db.VarChar(100)
-  unidad      UnidadInventario @default(UNIDAD)
-  costoUnidad Decimal          @db.Decimal(10, 2)
-  stock       Decimal          @db.Decimal(14, 4)
-  estado      Boolean          @default(true)
-  creadoEn    DateTime         @default(now())
+  id               Int              @id @default(autoincrement())
+  nombre           String           @db.VarChar(100)
+  unidad           UnidadInventario @default(UNIDAD)
+  costoUnidad      Decimal          @db.Decimal(10, 2)
+  stock            Decimal          @db.Decimal(14, 4)
+  stockMinimo      Decimal          @default(0) @db.Decimal(14, 4)
+  diasAnticipacion Int              @default(3)
+  estado           Boolean          @default(true)
+  creadoEn         DateTime         @default(now())
 
   sucursalId Int
   sucursal   Sucursal @relation(fields: [sucursalId], references: [id])
@@ -960,6 +969,20 @@ model Articulo {
   detallesOrden         DetalleOrdenCompra[]
   detallesRecepcion     DetalleRecepcionCompra[]
   historialCostos       HistorialCostoArticulo[]
+}
+
+model MetaOperativa {
+  id          Int                    @id @default(autoincrement())
+  indicador   IndicadorMetaOperativa
+  objetivo    Decimal                @db.Decimal(14, 2)
+  desde       DateTime               @db.Date
+  hasta       DateTime               @db.Date
+  descripcion String?                @db.VarChar(200)
+  creadoEn    DateTime               @default(now())
+  sucursalId  Int
+  sucursal    Sucursal               @relation(fields: [sucursalId], references: [id], onDelete: Cascade)
+
+  @@index([sucursalId, desde, hasta])
 }
 
 model HistorialCostoArticulo {

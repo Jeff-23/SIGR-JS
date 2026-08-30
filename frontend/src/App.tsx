@@ -24,6 +24,7 @@ import { ContinuityPage } from "./pages/ContinuityPage";
 import { LoyaltyPage } from "./pages/LoyaltyPage";
 import { PublicQrMenuPage } from "./pages/PublicQrMenuPage";
 import { QrOrdersPage } from "./pages/QrOrdersPage";
+import { SupplyPage } from "./pages/SupplyPage";
 import { useApp } from "./store/app";
 
 function ApplicationRoutes() {
@@ -146,6 +147,10 @@ function ApplicationRoutes() {
               <CatalogPage />
             </RouteGuard>
           }
+        />
+        <Route
+          path="abastecimiento"
+          element={<RouteGuard permission="INVENTARIO_VER" capability="INVENTARIO" branchRequired><SupplyPage /></RouteGuard>}
         />
         <Route
           path="inventario"

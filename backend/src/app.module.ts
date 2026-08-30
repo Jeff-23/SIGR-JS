@@ -41,6 +41,7 @@ import { RegistrosFacturaModule } from './modulos/registros-factura/registros-fa
 import { ReservasModule } from './modulos/reservas/reservas.module';
 import { FidelizacionModule } from './modulos/fidelizacion/fidelizacion.module';
 import { MenuQrModule } from './modulos/menu-qr/menu-qr.module';
+import { AbastecimientoModule } from './modulos/abastecimiento/abastecimiento.module';
 
 const entorno = obtenerEntorno();
 
@@ -83,6 +84,7 @@ const entorno = obtenerEntorno();
     ReservasModule,
     FidelizacionModule,
     MenuQrModule,
+    AbastecimientoModule,
   ],
   controllers: [AppController],
   providers: [

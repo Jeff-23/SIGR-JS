@@ -7,6 +7,7 @@ import {
   Menu,
   Receipt,
   QrCode,
+  Truck,
   HeartHandshake,
   Settings,
   UtensilsCrossed,
@@ -25,6 +26,13 @@ import {
 } from "../features/kds/contracts";
 
 const nav = [
+  {
+    to: "/abastecimiento",
+    label: "Proveedores y compras",
+    icon: Truck,
+    permission: "INVENTARIO_VER",
+    capability: "INVENTARIO",
+  },
   {
     to: "/pedidos-qr",
     label: "Pedidos QR",
@@ -226,6 +234,7 @@ export function AppShell() {
                   "/domicilios",
                   "/catalogo",
                   "/inventario",
+                  "/abastecimiento",
                   "/reportes",
                   "/fiscal",
                   "/administracion",
@@ -242,6 +251,7 @@ export function AppShell() {
                   "/domicilios",
                   "/catalogo",
                   "/inventario",
+                  "/abastecimiento",
                   "/reportes",
                   "/fiscal",
                   "/administracion",

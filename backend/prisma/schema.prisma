@@ -197,6 +197,19 @@ enum EstadoSolicitudPedidoQr {
   RECHAZADA
 }
 
+enum EstadoSolicitudCompra {
+  PENDIENTE
+  CONVERTIDA
+  CANCELADA
+}
+
+enum EstadoOrdenCompra {
+  ABIERTA
+  PARCIAL
+  RECIBIDA
+  CANCELADA
+}
+
 model Restaurante {
   id            Int      @id @default(autoincrement())
   nombre        String   @db.VarChar(100)
@@ -223,6 +236,7 @@ model Restaurante {
   promociones         Promocion[]
   cupones             Cupon[]
   nivelesFidelizacion NivelFidelizacion[]
+  proveedores         Proveedor[]
 
   @@index([planId])
 }
@@ -289,6 +303,9 @@ model Sucursal {
   listaEspera           EntradaListaEspera[]
   promociones           Promocion[]
   solicitudesPedidoQr   SolicitudPedidoQr[]
+  solicitudesCompra     SolicitudCompra[]
+  ordenesCompra         OrdenCompra[]
+  recepcionesCompra     RecepcionCompra[]
 }
 
 // ==========================================
@@ -380,6 +397,9 @@ model Usuario {
   consentimientosRegistrados   ConsentimientoCliente[]
   movimientosPuntosRegistrados MovimientoPuntos[]
   solicitudesQrAceptadas       SolicitudPedidoQr[]        @relation("SolicitudQrAceptadaPor")
+  solicitudesCompraCreadas     SolicitudCompra[]
+  ordenesCompraCreadas         OrdenCompra[]
+  recepcionesCompraRegistradas RecepcionCompra[]
 
   @@index([restauranteId])
   @@index([sucursalId])
@@ -796,6 +816,136 @@ model Articulo {
 
   recetas               Receta[]
   movimientosInventario MovimientoInventario[]
+  proveedores           ProveedorArticulo[]
+  detallesSolicitud     DetalleSolicitudCompra[]
+  detallesOrden         DetalleOrdenCompra[]
+  detallesRecepcion     DetalleRecepcionCompra[]
+}
+
+model Proveedor {
+  id             Int                 @id @default(autoincrement())
+  nombre         String              @db.VarChar(140)
+  identificacion String?             @db.VarChar(30)
+  contacto       String?             @db.VarChar(120)
+  telefono       String?             @db.VarChar(30)
+  correo         String?             @db.VarChar(150)
+  estado         Boolean             @default(true)
+  creadoEn       DateTime            @default(now())
+  restauranteId  Int
+  restaurante    Restaurante         @relation(fields: [restauranteId], references: [id], onDelete: Restrict)
+  articulos      ProveedorArticulo[]
+  solicitudes    SolicitudCompra[]
+  ordenes        OrdenCompra[]
+
+  @@unique([restauranteId, identificacion])
+  @@index([restauranteId, estado])
+}
+
+model ProveedorArticulo {
+  proveedorId   Int
+  articuloId    Int
+  precio        Decimal   @db.Decimal(12, 2)
+  codigo        String?   @db.VarChar(60)
+  actualizadoEn DateTime  @updatedAt
+  proveedor     Proveedor @relation(fields: [proveedorId], references: [id], onDelete: Cascade)
+  articulo      Articulo  @relation(fields: [articuloId], references: [id], onDelete: Restrict)
+
+  @@id([proveedorId, articuloId])
+  @@index([articuloId])
+}
+
+model SolicitudCompra {
+  id            Int                      @id @default(autoincrement())
+  estado        EstadoSolicitudCompra    @default(PENDIENTE)
+  observaciones String?                  @db.VarChar(300)
+  creadoEn      DateTime                 @default(now())
+  sucursalId    Int
+  proveedorId   Int?
+  creadoPorId   Int
+  sucursal      Sucursal                 @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  proveedor     Proveedor?               @relation(fields: [proveedorId], references: [id], onDelete: Restrict)
+  creadoPor     Usuario                  @relation(fields: [creadoPorId], references: [id], onDelete: Restrict)
+  detalles      DetalleSolicitudCompra[]
+  orden         OrdenCompra?
+
+  @@index([sucursalId, estado, creadoEn])
+}
+
+model DetalleSolicitudCompra {
+  id          Int             @id @default(autoincrement())
+  cantidad    Decimal         @db.Decimal(14, 4)
+  solicitudId Int
+  articuloId  Int
+  solicitud   SolicitudCompra @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  articulo    Articulo        @relation(fields: [articuloId], references: [id], onDelete: Restrict)
+
+  @@unique([solicitudId, articuloId])
+}
+
+model OrdenCompra {
+  id            Int                  @id @default(autoincrement())
+  estado        EstadoOrdenCompra    @default(ABIERTA)
+  observaciones String?              @db.VarChar(300)
+  totalEstimado Decimal              @db.Decimal(14, 2)
+  creadoEn      DateTime             @default(now())
+  actualizadoEn DateTime             @updatedAt
+  sucursalId    Int
+  proveedorId   Int
+  solicitudId   Int?                 @unique
+  creadoPorId   Int
+  sucursal      Sucursal             @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  proveedor     Proveedor            @relation(fields: [proveedorId], references: [id], onDelete: Restrict)
+  solicitud     SolicitudCompra?     @relation(fields: [solicitudId], references: [id], onDelete: Restrict)
+  creadoPor     Usuario              @relation(fields: [creadoPorId], references: [id], onDelete: Restrict)
+  detalles      DetalleOrdenCompra[]
+  recepciones   RecepcionCompra[]
+
+  @@index([sucursalId, estado, creadoEn])
+}
+
+model DetalleOrdenCompra {
+  id               Int                      @id @default(autoincrement())
+  cantidadPedida   Decimal                  @db.Decimal(14, 4)
+  cantidadRecibida Decimal                  @default(0) @db.Decimal(14, 4)
+  precioUnitario   Decimal                  @db.Decimal(12, 2)
+  ordenId          Int
+  articuloId       Int
+  orden            OrdenCompra              @relation(fields: [ordenId], references: [id], onDelete: Cascade)
+  articulo         Articulo                 @relation(fields: [articuloId], references: [id], onDelete: Restrict)
+  recepciones      DetalleRecepcionCompra[]
+
+  @@unique([ordenId, articuloId])
+}
+
+model RecepcionCompra {
+  id            Int                      @id @default(autoincrement())
+  documento     String?                  @db.VarChar(80)
+  observaciones String?                  @db.VarChar(300)
+  creadoEn      DateTime                 @default(now())
+  ordenId       Int
+  sucursalId    Int
+  recibidoPorId Int
+  orden         OrdenCompra              @relation(fields: [ordenId], references: [id], onDelete: Restrict)
+  sucursal      Sucursal                 @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  recibidoPor   Usuario                  @relation(fields: [recibidoPorId], references: [id], onDelete: Restrict)
+  detalles      DetalleRecepcionCompra[]
+  movimientos   MovimientoInventario[]
+
+  @@index([ordenId, creadoEn])
+}
+
+model DetalleRecepcionCompra {
+  id             Int                @id @default(autoincrement())
+  cantidad       Decimal            @db.Decimal(14, 4)
+  diferencia     Decimal            @db.Decimal(14, 4)
+  recepcionId    Int
+  detalleOrdenId Int
+  articuloId     Int
+  recepcion      RecepcionCompra    @relation(fields: [recepcionId], references: [id], onDelete: Cascade)
+  detalleOrden   DetalleOrdenCompra @relation(fields: [detalleOrdenId], references: [id], onDelete: Restrict)
+  articulo       Articulo           @relation(fields: [articuloId], references: [id], onDelete: Restrict)
+
+  @@unique([recepcionId, detalleOrdenId])
 }
 
 model Receta {
@@ -825,19 +975,21 @@ model MovimientoInventario {
   motivo   String?  @db.VarChar(250)
   creadoEn DateTime @default(now())
 
-  sucursalId Int
-  usuarioId  Int
-  ventaId    Int?
-  productoId Int?
-  articuloId Int?
+  sucursalId        Int
+  usuarioId         Int
+  ventaId           Int?
+  productoId        Int?
+  articuloId        Int?
+  recepcionCompraId Int?
 
   movimientoOrigenId Int? @unique
 
-  sucursal Sucursal  @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
-  usuario  Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
-  venta    Venta?    @relation(fields: [ventaId], references: [id], onDelete: Restrict)
-  producto Producto? @relation(fields: [productoId], references: [id], onDelete: Restrict)
-  articulo Articulo? @relation(fields: [articuloId], references: [id], onDelete: Restrict)
+  sucursal        Sucursal         @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  usuario         Usuario          @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  venta           Venta?           @relation(fields: [ventaId], references: [id], onDelete: Restrict)
+  producto        Producto?        @relation(fields: [productoId], references: [id], onDelete: Restrict)
+  articulo        Articulo?        @relation(fields: [articuloId], references: [id], onDelete: Restrict)
+  recepcionCompra RecepcionCompra? @relation(fields: [recepcionCompraId], references: [id], onDelete: Restrict)
 
   movimientoOrigen    MovimientoInventario?  @relation("ReversionMovimientoInventario", fields: [movimientoOrigenId], references: [id], onDelete: Restrict)
   movimientosReversos MovimientoInventario[] @relation("ReversionMovimientoInventario")
@@ -847,6 +999,7 @@ model MovimientoInventario {
   @@index([ventaId])
   @@index([productoId])
   @@index([articuloId])
+  @@index([recepcionCompraId])
   @@index([tipo])
   @@index([creadoEn])
 }

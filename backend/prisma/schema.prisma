@@ -210,6 +210,14 @@ enum EstadoOrdenCompra {
   CANCELADA
 }
 
+enum EstadoCuentaPorPagar {
+  PENDIENTE
+  PARCIAL
+  PAGADA
+  VENCIDA
+  CANCELADA
+}
+
 model Restaurante {
   id            Int      @id @default(autoincrement())
   nombre        String   @db.VarChar(100)
@@ -287,25 +295,27 @@ model Sucursal {
   restaurante      Restaurante                @relation(fields: [restauranteId], references: [id])
   resolucionesDian ResolucionNumeracionDian[]
 
-  usuarios              Usuario[]
-  zonas                 Zona[]
-  categorias            Categoria[]
-  articulos             Articulo[]
-  pedidos               Pedido[]
-  ventas                Venta[]
-  cajas                 Caja[]
-  movimientosInventario MovimientoInventario[]
-  configuraciones       ConfiguracionSucursal[]
-  auditorias            EventoAuditoria[]
-  registrosFactura      RegistroFacturaOperativa[]
-  estacionesPreparacion EstacionPreparacion[]
-  reservas              Reserva[]
-  listaEspera           EntradaListaEspera[]
-  promociones           Promocion[]
-  solicitudesPedidoQr   SolicitudPedidoQr[]
-  solicitudesCompra     SolicitudCompra[]
-  ordenesCompra         OrdenCompra[]
-  recepcionesCompra     RecepcionCompra[]
+  usuarios               Usuario[]
+  zonas                  Zona[]
+  categorias             Categoria[]
+  articulos              Articulo[]
+  pedidos                Pedido[]
+  ventas                 Venta[]
+  cajas                  Caja[]
+  movimientosInventario  MovimientoInventario[]
+  configuraciones        ConfiguracionSucursal[]
+  auditorias             EventoAuditoria[]
+  registrosFactura       RegistroFacturaOperativa[]
+  estacionesPreparacion  EstacionPreparacion[]
+  reservas               Reserva[]
+  listaEspera            EntradaListaEspera[]
+  promociones            Promocion[]
+  solicitudesPedidoQr    SolicitudPedidoQr[]
+  solicitudesCompra      SolicitudCompra[]
+  ordenesCompra          OrdenCompra[]
+  recepcionesCompra      RecepcionCompra[]
+  facturasProveedor      FacturaProveedor[]
+  cierresAdministrativos CierreAdministrativo[]
 }
 
 // ==========================================
@@ -400,6 +410,9 @@ model Usuario {
   solicitudesCompraCreadas     SolicitudCompra[]
   ordenesCompraCreadas         OrdenCompra[]
   recepcionesCompraRegistradas RecepcionCompra[]
+  facturasProveedorRegistradas FacturaProveedor[]
+  abonosProveedorRegistrados   AbonoFacturaProveedor[]
+  cierresAdministrativos       CierreAdministrativo[]
 
   @@index([restauranteId])
   @@index([sucursalId])
@@ -853,6 +866,7 @@ model Proveedor {
   articulos      ProveedorArticulo[]
   solicitudes    SolicitudCompra[]
   ordenes        OrdenCompra[]
+  facturas       FacturaProveedor[]
 
   @@unique([restauranteId, identificacion])
   @@index([restauranteId, estado])
@@ -916,6 +930,7 @@ model OrdenCompra {
   creadoPor     Usuario              @relation(fields: [creadoPorId], references: [id], onDelete: Restrict)
   detalles      DetalleOrdenCompra[]
   recepciones   RecepcionCompra[]
+  facturas      FacturaProveedor[]
 
   @@index([sucursalId, estado, creadoEn])
 }
@@ -964,6 +979,69 @@ model DetalleRecepcionCompra {
   articulo       Articulo           @relation(fields: [articuloId], references: [id], onDelete: Restrict)
 
   @@unique([recepcionId, detalleOrdenId])
+}
+
+model FacturaProveedor {
+  id               Int                     @id @default(autoincrement())
+  numero           String                  @db.VarChar(80)
+  fechaEmision     DateTime                @db.Date
+  fechaVencimiento DateTime                @db.Date
+  total            Decimal                 @db.Decimal(14, 2)
+  saldo            Decimal                 @db.Decimal(14, 2)
+  estado           EstadoCuentaPorPagar    @default(PENDIENTE)
+  observaciones    String?                 @db.VarChar(300)
+  creadoEn         DateTime                @default(now())
+  sucursalId       Int
+  proveedorId      Int
+  ordenCompraId    Int?
+  registradoPorId  Int
+  sucursal         Sucursal                @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  proveedor        Proveedor               @relation(fields: [proveedorId], references: [id], onDelete: Restrict)
+  ordenCompra      OrdenCompra?            @relation(fields: [ordenCompraId], references: [id], onDelete: Restrict)
+  registradoPor    Usuario                 @relation(fields: [registradoPorId], references: [id], onDelete: Restrict)
+  abonos           AbonoFacturaProveedor[]
+
+  @@unique([proveedorId, numero])
+  @@index([sucursalId, estado, fechaVencimiento])
+  @@index([ordenCompraId])
+}
+
+model AbonoFacturaProveedor {
+  id                Int              @id @default(autoincrement())
+  monto             Decimal          @db.Decimal(14, 2)
+  fecha             DateTime         @default(now())
+  metodo            String           @db.VarChar(40)
+  referencia        String?          @db.VarChar(100)
+  observaciones     String?          @db.VarChar(250)
+  idempotenciaClave String?          @db.VarChar(100)
+  idempotenciaHash  String?          @db.VarChar(64)
+  facturaId         Int
+  registradoPorId   Int
+  factura           FacturaProveedor @relation(fields: [facturaId], references: [id], onDelete: Restrict)
+  registradoPor     Usuario          @relation(fields: [registradoPorId], references: [id], onDelete: Restrict)
+
+  @@unique([facturaId, idempotenciaClave])
+  @@index([fecha])
+}
+
+model CierreAdministrativo {
+  id                 Int      @id @default(autoincrement())
+  fecha              DateTime @db.Date
+  totalVentas        Decimal  @db.Decimal(14, 2)
+  totalCobrado       Decimal  @db.Decimal(14, 2)
+  nuevasObligaciones Decimal  @db.Decimal(14, 2)
+  abonosProveedores  Decimal  @db.Decimal(14, 2)
+  saldoProveedores   Decimal  @db.Decimal(14, 2)
+  diferenciaCajas    Decimal  @db.Decimal(14, 2)
+  observaciones      String?  @db.VarChar(300)
+  creadoEn           DateTime @default(now())
+  sucursalId         Int
+  cerradoPorId       Int
+  sucursal           Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  cerradoPor         Usuario  @relation(fields: [cerradoPorId], references: [id], onDelete: Restrict)
+
+  @@unique([sucursalId, fecha])
+  @@index([fecha])
 }
 
 model Receta {

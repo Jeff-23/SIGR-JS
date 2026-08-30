@@ -9,6 +9,7 @@ import {
   QrCode,
   Truck,
   CircleDollarSign,
+  WalletCards,
   HeartHandshake,
   Settings,
   UtensilsCrossed,
@@ -27,6 +28,13 @@ import {
 } from "../features/kds/contracts";
 
 const nav = [
+  {
+    to: "/cuentas-pagar",
+    label: "Cuentas por pagar",
+    icon: WalletCards,
+    permission: "REPORTES_VER",
+    capability: "INVENTARIO",
+  },
   {
     to: "/costos",
     label: "Costos y rentabilidad",
@@ -244,6 +252,7 @@ export function AppShell() {
                   "/inventario",
                   "/abastecimiento",
                   "/costos",
+                  "/cuentas-pagar",
                   "/reportes",
                   "/fiscal",
                   "/administracion",
@@ -262,6 +271,7 @@ export function AppShell() {
                   "/inventario",
                   "/abastecimiento",
                   "/costos",
+                  "/cuentas-pagar",
                   "/reportes",
                   "/fiscal",
                   "/administracion",

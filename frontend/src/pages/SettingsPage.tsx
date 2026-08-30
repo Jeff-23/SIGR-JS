@@ -4,7 +4,7 @@ import { useApp } from "../store/app";
 import { useResource } from "../hooks/useResource";
 import { api, errorMessage } from "../lib/api";
 type Config = {
-  valores: Record<string, string | number>;
+  valores: Record<string, string | number | boolean>;
   origenes: Record<string, string>;
 };
 export function SettingsPage() {
@@ -17,7 +17,7 @@ function Settings() {
     valores: {},
     origenes: {},
   });
-  const [changes, setChanges] = useState<Record<string, string | number>>({}),
+  const [changes, setChanges] = useState<Record<string, string | number | boolean>>({}),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
   return (
@@ -68,6 +68,17 @@ function Settings() {
           {Object.entries(query.data.valores).map(([key, value]) => (
             <label key={key}>
               {key.replaceAll("_", " ")}
+              {typeof value === "boolean" ? (
+                <select
+                  className="input mt-1"
+                  disabled={!hasPermission("CONFIGURACION_GESTIONAR") || busy}
+                  value={String(changes[key] ?? value)}
+                  onChange={(e) => setChanges((current) => ({ ...current, [key]: e.target.value === "true" }))}
+                >
+                  <option value="true">Sí</option>
+                  <option value="false">No</option>
+                </select>
+              ) : (
               <input
                 className="input mt-1"
                 disabled={!hasPermission("CONFIGURACION_GESTIONAR") || busy}
@@ -75,7 +86,7 @@ function Settings() {
                 min={typeof value === "number" ? 0 : undefined}
                 max={key === "PORCENTAJE_IMPUESTO" ? 100 : undefined}
                 step="0.01"
-                value={changes[key] ?? value}
+                value={String(changes[key] ?? value)}
                 onChange={(e) =>
                   setChanges((current) => ({
                     ...current,
@@ -86,6 +97,7 @@ function Settings() {
                   }))
                 }
               />
+              )}
               <small>Origen: {query.data.origenes[key]}</small>
             </label>
           ))}

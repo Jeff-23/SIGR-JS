@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import toast, { Toaster } from "react-hot-toast";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AccessDenied, ServiceUnavailable } from "./components/AsyncState";
 import { RouteGuard } from "./components/RouteGuard";
 import { useBranches } from "./hooks/useBranches";
@@ -22,9 +22,12 @@ import { AdminPage } from "./pages/AdminPage";
 import { FiscalPage } from "./pages/FiscalPage";
 import { ContinuityPage } from "./pages/ContinuityPage";
 import { LoyaltyPage } from "./pages/LoyaltyPage";
+import { PublicQrMenuPage } from "./pages/PublicQrMenuPage";
+import { QrOrdersPage } from "./pages/QrOrdersPage";
 import { useApp } from "./store/app";
 
 function ApplicationRoutes() {
+  const location = useLocation();
   const { session, logout, setOnline, setPendingCount, setServiceAvailable } =
     useApp();
   useBranches();
@@ -62,6 +65,7 @@ function ApplicationRoutes() {
       window.removeEventListener("offline", refresh);
     };
   }, [logout, session, setOnline, setPendingCount, setServiceAvailable]);
+  if (location.pathname.startsWith("/menu/")) return <Routes><Route path="/menu/:token" element={<PublicQrMenuPage />} /></Routes>;
   if (!session) return <LoginPage />;
   return (
     <Routes>
@@ -78,6 +82,10 @@ function ApplicationRoutes() {
               <SalonRouterPage />
             </RouteGuard>
           }
+        />
+        <Route
+          path="pedidos-qr"
+          element={<RouteGuard permission="PEDIDOS_VER" capability="MESAS" branchRequired><QrOrdersPage /></RouteGuard>}
         />
         <Route
           path="cocina"

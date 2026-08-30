@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 type DefinicionConfiguracion = {
-  valorPredeterminado: string | number;
+  valorPredeterminado: string | number | boolean;
   validar: (valor: unknown) => boolean;
 };
 
@@ -42,6 +42,10 @@ export const CATALOGO_CONFIGURACION = {
   PREFIJO_FACTURA: {
     valorPredeterminado: 'FAC',
     validar: validarPrefijo,
+  },
+  QR_REQUIERE_ACEPTACION: {
+    valorPredeterminado: true,
+    validar: (valor) => typeof valor === 'boolean',
   },
 } satisfies Record<string, DefinicionConfiguracion>;
 

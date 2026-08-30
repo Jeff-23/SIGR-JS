@@ -191,6 +191,12 @@ enum OrigenRegistroFactura {
   IMPORTADO
 }
 
+enum EstadoSolicitudPedidoQr {
+  PENDIENTE
+  ACEPTADA
+  RECHAZADA
+}
+
 model Restaurante {
   id            Int      @id @default(autoincrement())
   nombre        String   @db.VarChar(100)
@@ -282,6 +288,7 @@ model Sucursal {
   reservas              Reserva[]
   listaEspera           EntradaListaEspera[]
   promociones           Promocion[]
+  solicitudesPedidoQr   SolicitudPedidoQr[]
 }
 
 // ==========================================
@@ -372,6 +379,7 @@ model Usuario {
   registrosFactura             RegistroFacturaOperativa[]
   consentimientosRegistrados   ConsentimientoCliente[]
   movimientosPuntosRegistrados MovimientoPuntos[]
+  solicitudesQrAceptadas       SolicitudPedidoQr[]        @relation("SolicitudQrAceptadaPor")
 
   @@index([restauranteId])
   @@index([sucursalId])
@@ -408,6 +416,18 @@ model Mesa {
   pedidosVinculados PedidoMesa[]
   reservas          Reserva[]
   esperas           EntradaListaEspera[]
+  accesoQr          AccesoMesaQr?
+  solicitudesQr     SolicitudPedidoQr[]
+}
+
+model AccesoMesaQr {
+  id            Int      @id @default(autoincrement())
+  token         String   @unique @db.VarChar(64)
+  activo        Boolean  @default(true)
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+  mesaId        Int      @unique
+  mesa          Mesa     @relation(fields: [mesaId], references: [id], onDelete: Cascade)
 }
 
 model Reserva {
@@ -494,6 +514,7 @@ model Producto {
   recetas               Receta[]
   movimientosInventario MovimientoInventario[]
   promociones           PromocionProducto[]
+  detallesSolicitudQr   DetalleSolicitudPedidoQr[]
 
   @@index([estacionId])
 }
@@ -528,12 +549,12 @@ model Pedido {
 
   sucursalId Int
   mesaId     Int?
-  usuarioId  Int
+  usuarioId  Int?
   meseroId   Int?
 
   sucursal Sucursal @relation(fields: [sucursalId], references: [id])
   mesa     Mesa?    @relation(fields: [mesaId], references: [id])
-  usuario  Usuario  @relation("PedidoCreadoPor", fields: [usuarioId], references: [id])
+  usuario  Usuario? @relation("PedidoCreadoPor", fields: [usuarioId], references: [id], onDelete: SetNull)
   mesero   Usuario? @relation("PedidoMesero", fields: [meseroId], references: [id], onDelete: SetNull)
 
   detalles        DetallePedido[]
@@ -542,9 +563,49 @@ model Pedido {
   venta           Venta?
   domicilio       Domicilio?
   mesasVinculadas PedidoMesa[]
+  solicitudQr     SolicitudPedidoQr?
 
   @@unique([sucursalId, idempotenciaClave])
   @@index([sucursalId, creadoEn])
+}
+
+model SolicitudPedidoQr {
+  id            String                     @id @default(uuid()) @db.Uuid
+  claveCliente  String                     @db.VarChar(100)
+  estado        EstadoSolicitudPedidoQr    @default(PENDIENTE)
+  nombreCliente String?                    @db.VarChar(120)
+  observaciones String?                    @db.VarChar(300)
+  total         Decimal                    @db.Decimal(12, 2)
+  motivoRechazo String?                    @db.VarChar(300)
+  creadoEn      DateTime                   @default(now())
+  actualizadoEn DateTime                   @updatedAt
+  resueltoEn    DateTime?
+  sucursalId    Int
+  mesaId        Int
+  pedidoId      Int?                       @unique
+  aceptadoPorId Int?
+  sucursal      Sucursal                   @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  mesa          Mesa                       @relation(fields: [mesaId], references: [id], onDelete: Restrict)
+  pedido        Pedido?                    @relation(fields: [pedidoId], references: [id], onDelete: SetNull)
+  aceptadoPor   Usuario?                   @relation("SolicitudQrAceptadaPor", fields: [aceptadoPorId], references: [id], onDelete: SetNull)
+  detalles      DetalleSolicitudPedidoQr[]
+
+  @@unique([sucursalId, claveCliente])
+  @@index([sucursalId, estado, creadoEn])
+}
+
+model DetalleSolicitudPedidoQr {
+  id             Int               @id @default(autoincrement())
+  cantidad       Int
+  precioUnitario Decimal           @db.Decimal(10, 2)
+  subtotal       Decimal           @db.Decimal(10, 2)
+  observaciones  String?           @db.VarChar(300)
+  solicitudId    String            @db.Uuid
+  productoId     Int
+  solicitud      SolicitudPedidoQr @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  producto       Producto          @relation(fields: [productoId], references: [id], onDelete: Restrict)
+
+  @@index([solicitudId])
 }
 
 model PedidoMesa {

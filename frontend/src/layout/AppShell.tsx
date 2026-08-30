@@ -6,6 +6,7 @@ import {
   LogOut,
   Menu,
   Receipt,
+  QrCode,
   HeartHandshake,
   Settings,
   UtensilsCrossed,
@@ -24,6 +25,13 @@ import {
 } from "../features/kds/contracts";
 
 const nav = [
+  {
+    to: "/pedidos-qr",
+    label: "Pedidos QR",
+    icon: QrCode,
+    permission: "PEDIDOS_VER",
+    capability: "MESAS",
+  },
   {
     to: "/fidelizacion",
     label: "Promociones y clientes",
@@ -211,6 +219,7 @@ export function AppShell() {
                 [
                   "/",
                   "/salon",
+                  "/pedidos-qr",
                   "/cocina",
                   "/caja",
                   "/facturas",
@@ -226,6 +235,7 @@ export function AppShell() {
                 [
                   "/",
                   "/salon",
+                  "/pedidos-qr",
                   "/cocina",
                   "/caja",
                   "/facturas",

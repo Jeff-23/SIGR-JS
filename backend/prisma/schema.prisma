@@ -218,6 +218,18 @@ enum EstadoCuentaPorPagar {
   CANCELADA
 }
 
+enum EstadoTurnoPersonal {
+  PROGRAMADO
+  ABIERTO
+  CERRADO
+  CANCELADO
+}
+
+enum TipoMarcacionPersonal {
+  ENTRADA
+  SALIDA
+}
+
 model Restaurante {
   id            Int      @id @default(autoincrement())
   nombre        String   @db.VarChar(100)
@@ -245,6 +257,8 @@ model Restaurante {
   cupones             Cupon[]
   nivelesFidelizacion NivelFidelizacion[]
   proveedores         Proveedor[]
+  empleados           Empleado[]
+  funcionesPersonal   FuncionPersonal[]
 
   @@index([planId])
 }
@@ -316,6 +330,8 @@ model Sucursal {
   recepcionesCompra      RecepcionCompra[]
   facturasProveedor      FacturaProveedor[]
   cierresAdministrativos CierreAdministrativo[]
+  empleados              Empleado[]
+  turnosPersonal         TurnoPersonal[]
 }
 
 // ==========================================
@@ -413,9 +429,118 @@ model Usuario {
   facturasProveedorRegistradas FacturaProveedor[]
   abonosProveedorRegistrados   AbonoFacturaProveedor[]
   cierresAdministrativos       CierreAdministrativo[]
+  empleado                     Empleado?
+  marcacionesPersonal          MarcacionPersonal[]
+  novedadesPersonalRegistradas NovedadPersonal[]
 
   @@index([restauranteId])
   @@index([sucursalId])
+}
+
+model Empleado {
+  id            Int               @id @default(autoincrement())
+  codigo        String            @db.VarChar(30)
+  nombres       String            @db.VarChar(100)
+  apellidos     String            @db.VarChar(100)
+  documento     String?           @db.VarChar(40)
+  cargo         String            @db.VarChar(80)
+  activo        Boolean           @default(true)
+  creadoEn      DateTime          @default(now())
+  restauranteId Int
+  sucursalId    Int
+  usuarioId     Int?              @unique
+  restaurante   Restaurante       @relation(fields: [restauranteId], references: [id], onDelete: Restrict)
+  sucursal      Sucursal          @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  usuario       Usuario?          @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+  funciones     EmpleadoFuncion[]
+  horarios      HorarioEmpleado[]
+  turnos        TurnoPersonal[]
+  novedades     NovedadPersonal[]
+
+  @@unique([restauranteId, codigo])
+  @@index([sucursalId, activo])
+}
+
+model FuncionPersonal {
+  id            Int               @id @default(autoincrement())
+  nombre        String            @db.VarChar(80)
+  descripcion   String?           @db.VarChar(250)
+  activo        Boolean           @default(true)
+  restauranteId Int
+  restaurante   Restaurante       @relation(fields: [restauranteId], references: [id], onDelete: Cascade)
+  empleados     EmpleadoFuncion[]
+
+  @@unique([restauranteId, nombre])
+}
+
+model EmpleadoFuncion {
+  empleadoId Int
+  funcionId  Int
+  empleado   Empleado        @relation(fields: [empleadoId], references: [id], onDelete: Cascade)
+  funcion    FuncionPersonal @relation(fields: [funcionId], references: [id], onDelete: Cascade)
+
+  @@id([empleadoId, funcionId])
+}
+
+model HorarioEmpleado {
+  id         Int      @id @default(autoincrement())
+  diaSemana  Int
+  horaInicio String   @db.VarChar(5)
+  horaFin    String   @db.VarChar(5)
+  activo     Boolean  @default(true)
+  empleadoId Int
+  empleado   Empleado @relation(fields: [empleadoId], references: [id], onDelete: Cascade)
+
+  @@unique([empleadoId, diaSemana, horaInicio])
+  @@index([empleadoId, diaSemana])
+}
+
+model TurnoPersonal {
+  id               Int                 @id @default(autoincrement())
+  inicioProgramado DateTime
+  finProgramado    DateTime
+  entradaEn        DateTime?
+  salidaEn         DateTime?
+  estado           EstadoTurnoPersonal @default(PROGRAMADO)
+  observaciones    String?             @db.VarChar(300)
+  empleadoId       Int
+  sucursalId       Int
+  empleado         Empleado            @relation(fields: [empleadoId], references: [id], onDelete: Restrict)
+  sucursal         Sucursal            @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  marcaciones      MarcacionPersonal[]
+  novedades        NovedadPersonal[]
+
+  @@index([sucursalId, estado, inicioProgramado])
+  @@index([empleadoId, inicioProgramado])
+}
+
+model MarcacionPersonal {
+  id              Int                   @id @default(autoincrement())
+  tipo            TipoMarcacionPersonal
+  fecha           DateTime              @default(now())
+  observaciones   String?               @db.VarChar(250)
+  turnoId         Int
+  registradoPorId Int
+  turno           TurnoPersonal         @relation(fields: [turnoId], references: [id], onDelete: Restrict)
+  registradoPor   Usuario               @relation(fields: [registradoPorId], references: [id], onDelete: Restrict)
+
+  @@index([turnoId, fecha])
+}
+
+model NovedadPersonal {
+  id              Int            @id @default(autoincrement())
+  tipo            String         @db.VarChar(60)
+  descripcion     String         @db.VarChar(500)
+  fecha           DateTime       @default(now())
+  empleadoId      Int
+  turnoId         Int?
+  registradoPorId Int
+  empleado        Empleado       @relation(fields: [empleadoId], references: [id], onDelete: Restrict)
+  turno           TurnoPersonal? @relation(fields: [turnoId], references: [id], onDelete: SetNull)
+  registradoPor   Usuario        @relation(fields: [registradoPorId], references: [id], onDelete: Restrict)
+
+  @@index([empleadoId, fecha])
+  @@index([turnoId])
 }
 
 model Zona {

@@ -44,6 +44,7 @@ import { MenuQrModule } from './modulos/menu-qr/menu-qr.module';
 import { AbastecimientoModule } from './modulos/abastecimiento/abastecimiento.module';
 import { CostosModule } from './modulos/costos/costos.module';
 import { CuentasPagarModule } from './modulos/cuentas-pagar/cuentas-pagar.module';
+import { PersonalModule } from './modulos/personal/personal.module';
 
 const entorno = obtenerEntorno();
 
@@ -89,6 +90,7 @@ const entorno = obtenerEntorno();
     AbastecimientoModule,
     CostosModule,
     CuentasPagarModule,
+    PersonalModule,
   ],
   controllers: [AppController],
   providers: [

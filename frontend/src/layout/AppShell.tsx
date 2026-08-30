@@ -10,6 +10,7 @@ import {
   Truck,
   CircleDollarSign,
   WalletCards,
+  UsersRound,
   HeartHandshake,
   Settings,
   UtensilsCrossed,
@@ -28,6 +29,13 @@ import {
 } from "../features/kds/contracts";
 
 const nav = [
+  {
+    to: "/personal",
+    label: "Personal y turnos",
+    icon: UsersRound,
+    permission: "USUARIOS_VER",
+    capability: null,
+  },
   {
     to: "/cuentas-pagar",
     label: "Cuentas por pagar",
@@ -253,6 +261,7 @@ export function AppShell() {
                   "/abastecimiento",
                   "/costos",
                   "/cuentas-pagar",
+                  "/personal",
                   "/reportes",
                   "/fiscal",
                   "/administracion",
@@ -272,6 +281,7 @@ export function AppShell() {
                   "/abastecimiento",
                   "/costos",
                   "/cuentas-pagar",
+                  "/personal",
                   "/reportes",
                   "/fiscal",
                   "/administracion",

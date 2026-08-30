@@ -27,6 +27,7 @@ import { QrOrdersPage } from "./pages/QrOrdersPage";
 import { SupplyPage } from "./pages/SupplyPage";
 import { CostsPage } from "./pages/CostsPage";
 import { PayablesPage } from "./pages/PayablesPage";
+import { StaffPage } from "./pages/StaffPage";
 import { useApp } from "./store/app";
 
 function ApplicationRoutes() {
@@ -155,6 +156,7 @@ function ApplicationRoutes() {
           element={<RouteGuard permission="REPORTES_VER" capability="INVENTARIO" branchRequired><CostsPage /></RouteGuard>}
         />
         <Route path="cuentas-pagar" element={<RouteGuard permission="REPORTES_VER" capability="INVENTARIO" branchRequired><PayablesPage /></RouteGuard>} />
+        <Route path="personal" element={<RouteGuard permission="USUARIOS_VER" branchRequired><StaffPage /></RouteGuard>} />
         <Route
           path="abastecimiento"
           element={<RouteGuard permission="INVENTARIO_VER" capability="INVENTARIO" branchRequired><SupplyPage /></RouteGuard>}

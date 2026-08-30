@@ -2,12 +2,18 @@ import { Minus, Plus, ShoppingCart, UtensilsCrossed } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, errorMessage } from "../lib/api";
+import { menu as demoProducts } from "../data/demo";
 
 type Product = { id: number; nombre: string; descripcion?: string; precio: number };
 type Menu = { restaurante: string; sucursal: string; mesa: { numero: string }; requiereAceptacion: boolean; categorias: { id: number; nombre: string; productos: Product[] }[] };
 type RequestStatus = { id: string; estado: "PENDIENTE" | "ACEPTADA" | "RECHAZADA"; pedidoId?: number; motivoRechazo?: string };
 
 const money = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
+const demoCategories = [...new Set(demoProducts.map((product) => product.category))].map((nombre, index) => ({
+  id: index + 1,
+  nombre,
+  productos: demoProducts.filter((product) => product.category === nombre).map((product) => ({ id: product.id, nombre: product.name, precio: product.price })),
+}));
 
 export function PublicQrMenuPage() {
   const { token = "" } = useParams();
@@ -20,13 +26,21 @@ export function PublicQrMenuPage() {
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
+    if (token.startsWith("demo-mesa-")) {
+      const timer = window.setTimeout(() => setMenu({ restaurante: "Restaurante El Mono", sucursal: "La Carolina", mesa: { numero: token.replace("demo-mesa-", "") }, requiereAceptacion: true, categorias: demoCategories }), 0);
+      return () => window.clearTimeout(timer);
+    }
     api.get<Menu>(`/publico/menu-qr/${token}`).then((response) => setMenu(response.data)).catch((error) => setFailure(errorMessage(error)));
   }, [token]);
   useEffect(() => {
     if (!request || request.estado !== "PENDIENTE") return;
+    if (token.startsWith("demo-mesa-")) {
+      const timer = window.setTimeout(() => setRequest((current) => current ? { ...current, estado: "ACEPTADA", pedidoId: 9001 } : current), 2500);
+      return () => window.clearTimeout(timer);
+    }
     const timer = window.setInterval(() => api.get<RequestStatus>(`/publico/pedidos-qr/${request.id}`).then((response) => setRequest(response.data)).catch(() => undefined), 4000);
     return () => window.clearInterval(timer);
-  }, [request]);
+  }, [request, token]);
 
   const products = useMemo(() => menu?.categorias.flatMap((category) => category.productos) ?? [], [menu]);
   const total = products.reduce((sum, product) => sum + Number(product.precio) * (cart[product.id] ?? 0), 0);
@@ -35,6 +49,11 @@ export function PublicQrMenuPage() {
   const send = async () => {
     if (!quantity) return;
     setSending(true); setFailure("");
+    if (token.startsWith("demo-mesa-")) {
+      setRequest({ id: crypto.randomUUID(), estado: "PENDIENTE" });
+      setSending(false);
+      return;
+    }
     try {
       const response = await api.post<RequestStatus>(`/publico/menu-qr/${token}/solicitudes`, {
         claveCliente: crypto.randomUUID(), nombreCliente: name || undefined, observaciones: notes || undefined,

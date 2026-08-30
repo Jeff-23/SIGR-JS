@@ -34,6 +34,8 @@ export function LoginPage() {
         sucursalId: null,
         permisos: [
           "PEDIDOS_CREAR",
+          "PEDIDOS_VER",
+          "MESAS_EDITAR",
           "MESAS_VER",
           "COMANDAS_VER",
           "COMANDAS_ACTUALIZAR_ESTADO",

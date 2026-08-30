@@ -247,6 +247,7 @@ export class AbastecimientoService {
       });
       for (const item of recibidos) {
         const stockAnterior = item.detalle.articulo.stock;
+        const costoAnterior = item.detalle.articulo.costoUnidad;
         const articulo = await tx.articulo.update({
           where: { id: item.detalle.articuloId },
           data: {
@@ -258,6 +259,17 @@ export class AbastecimientoService {
           where: { id: item.detalle.id },
           data: { cantidadRecibida: item.acumulado },
         });
+        if (!costoAnterior.equals(item.detalle.precioUnitario)) {
+          await tx.historialCostoArticulo.create({
+            data: {
+              articuloId: item.detalle.articuloId,
+              recepcionId: recepcion.id,
+              costoAnterior,
+              costoNuevo: item.detalle.precioUnitario,
+              motivo: `Recepción orden de compra #${orden.id}`,
+            },
+          });
+        }
         await tx.movimientoInventario.create({
           data: {
             tipo: TipoMovimientoInventario.ENTRADA,

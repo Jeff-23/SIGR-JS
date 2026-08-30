@@ -8,6 +8,7 @@ import {
   Receipt,
   QrCode,
   Truck,
+  CircleDollarSign,
   HeartHandshake,
   Settings,
   UtensilsCrossed,
@@ -26,6 +27,13 @@ import {
 } from "../features/kds/contracts";
 
 const nav = [
+  {
+    to: "/costos",
+    label: "Costos y rentabilidad",
+    icon: CircleDollarSign,
+    permission: "REPORTES_VER",
+    capability: "INVENTARIO",
+  },
   {
     to: "/abastecimiento",
     label: "Proveedores y compras",
@@ -235,6 +243,7 @@ export function AppShell() {
                   "/catalogo",
                   "/inventario",
                   "/abastecimiento",
+                  "/costos",
                   "/reportes",
                   "/fiscal",
                   "/administracion",
@@ -252,6 +261,7 @@ export function AppShell() {
                   "/catalogo",
                   "/inventario",
                   "/abastecimiento",
+                  "/costos",
                   "/reportes",
                   "/fiscal",
                   "/administracion",

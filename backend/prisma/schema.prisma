@@ -517,9 +517,10 @@ model Producto {
   descripcion String? @db.Text
   precio      Decimal @db.Decimal(10, 2)
 
-  estrategiaInventario EstrategiaInventario @default(NO_CONTROLAR)
-  unidadInventario     UnidadInventario     @default(UNIDAD)
-  stock                Decimal              @default(0) @db.Decimal(14, 4)
+  estrategiaInventario  EstrategiaInventario @default(NO_CONTROLAR)
+  unidadInventario      UnidadInventario     @default(UNIDAD)
+  stock                 Decimal              @default(0) @db.Decimal(14, 4)
+  rendimientoPorcentaje Decimal              @default(100) @db.Decimal(5, 2)
 
   estado   Boolean  @default(true)
   creadoEn DateTime @default(now())
@@ -820,6 +821,22 @@ model Articulo {
   detallesSolicitud     DetalleSolicitudCompra[]
   detallesOrden         DetalleOrdenCompra[]
   detallesRecepcion     DetalleRecepcionCompra[]
+  historialCostos       HistorialCostoArticulo[]
+}
+
+model HistorialCostoArticulo {
+  id            Int              @id @default(autoincrement())
+  costoAnterior Decimal          @db.Decimal(12, 2)
+  costoNuevo    Decimal          @db.Decimal(12, 2)
+  motivo        String           @db.VarChar(160)
+  creadoEn      DateTime         @default(now())
+  articuloId    Int
+  recepcionId   Int?
+  articulo      Articulo         @relation(fields: [articuloId], references: [id], onDelete: Restrict)
+  recepcion     RecepcionCompra? @relation(fields: [recepcionId], references: [id], onDelete: Restrict)
+
+  @@index([articuloId, creadoEn])
+  @@index([recepcionId])
 }
 
 model Proveedor {
@@ -930,6 +947,7 @@ model RecepcionCompra {
   recibidoPor   Usuario                  @relation(fields: [recibidoPorId], references: [id], onDelete: Restrict)
   detalles      DetalleRecepcionCompra[]
   movimientos   MovimientoInventario[]
+  cambiosCosto  HistorialCostoArticulo[]
 
   @@index([ordenId, creadoEn])
 }

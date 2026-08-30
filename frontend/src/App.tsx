@@ -25,6 +25,7 @@ import { LoyaltyPage } from "./pages/LoyaltyPage";
 import { PublicQrMenuPage } from "./pages/PublicQrMenuPage";
 import { QrOrdersPage } from "./pages/QrOrdersPage";
 import { SupplyPage } from "./pages/SupplyPage";
+import { CostsPage } from "./pages/CostsPage";
 import { useApp } from "./store/app";
 
 function ApplicationRoutes() {
@@ -147,6 +148,10 @@ function ApplicationRoutes() {
               <CatalogPage />
             </RouteGuard>
           }
+        />
+        <Route
+          path="costos"
+          element={<RouteGuard permission="REPORTES_VER" capability="INVENTARIO" branchRequired><CostsPage /></RouteGuard>}
         />
         <Route
           path="abastecimiento"

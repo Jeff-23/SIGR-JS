@@ -48,8 +48,12 @@ export function LoginPage() {
           "CONFIGURACION_VER",
           "INVENTARIO_VER",
           "INVENTARIO_AJUSTAR",
+          "USUARIOS_VER",
+          "USUARIOS_CREAR",
+          "USUARIOS_EDITAR",
+          "CONFIGURACION_GESTIONAR",
         ],
-        capacidades: ["MESAS", "KDS", "INVENTARIO", "FACTURACION"],
+        capacidades: ["MESAS", "KDS", "INVENTARIO", "FACTURACION", "ANALYTICS"],
         restauranteNombre: "Restaurante El Mono",
       },
     });

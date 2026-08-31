@@ -14,7 +14,13 @@ function readSession(): Session | null {
       sessionStorage.removeItem(SESSION_KEY);
       return null;
     }
-    return { ...value, createdAt: value.createdAt ?? new Date().toISOString() } as Session;
+    const session = { ...value, createdAt: value.createdAt ?? new Date().toISOString() } as Session;
+    if (session.demo) {
+      session.user.permisos = [...new Set([...session.user.permisos, "USUARIOS_VER", "USUARIOS_CREAR", "USUARIOS_EDITAR", "CONFIGURACION_GESTIONAR"])];
+      session.user.capacidades = [...new Set([...session.user.capacidades, "ANALYTICS"])];
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    }
+    return session;
   } catch {
     sessionStorage.removeItem(SESSION_KEY);
     return null;

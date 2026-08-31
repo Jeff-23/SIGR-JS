@@ -1,6 +1,12 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import toast, { Toaster } from "react-hot-toast";
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router-dom";
 import { AccessDenied, ServiceUnavailable } from "./components/AsyncState";
 import { RouteGuard } from "./components/RouteGuard";
 import { useBranches } from "./hooks/useBranches";
@@ -9,7 +15,6 @@ import { AppShell } from "./layout/AppShell";
 import { ownedPending, synchronize } from "./lib/api";
 import { CashPage } from "./pages/CashPage";
 import { DashboardPage } from "./pages/DashboardPage";
-import { InvoicesPage } from "./pages/InvoicesPage";
 import { KitchenRouterPage } from "./pages/KitchenRouterPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ReportsPage } from "./pages/ReportsPage";
@@ -18,18 +23,47 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { CatalogPage } from "./pages/CatalogPage";
 import { InventoryPage } from "./pages/InventoryPage";
 import { DeliveryPage } from "./pages/DeliveryPage";
-import { AdminPage } from "./pages/AdminPage";
 import { FiscalPage } from "./pages/FiscalPage";
 import { ContinuityPage } from "./pages/ContinuityPage";
 import { LoyaltyPage } from "./pages/LoyaltyPage";
 import { PublicQrMenuPage } from "./pages/PublicQrMenuPage";
 import { QrOrdersPage } from "./pages/QrOrdersPage";
-import { SupplyPage } from "./pages/SupplyPage";
-import { CostsPage } from "./pages/CostsPage";
-import { PayablesPage } from "./pages/PayablesPage";
-import { StaffPage } from "./pages/StaffPage";
-import { IntelligencePage } from "./pages/IntelligencePage";
 import { useApp } from "./store/app";
+
+const InvoicesPage = lazy(() =>
+  import("./pages/InvoicesPage").then((module) => ({
+    default: module.InvoicesPage,
+  })),
+);
+const AdminPage = lazy(() =>
+  import("./pages/AdminPage").then((module) => ({ default: module.AdminPage })),
+);
+const SupplyPage = lazy(() =>
+  import("./pages/SupplyPage").then((module) => ({
+    default: module.SupplyPage,
+  })),
+);
+const CostsPage = lazy(() =>
+  import("./pages/CostsPage").then((module) => ({ default: module.CostsPage })),
+);
+const PayablesPage = lazy(() =>
+  import("./pages/PayablesPage").then((module) => ({
+    default: module.PayablesPage,
+  })),
+);
+const StaffPage = lazy(() =>
+  import("./pages/StaffPage").then((module) => ({ default: module.StaffPage })),
+);
+const IntelligencePage = lazy(() =>
+  import("./pages/IntelligencePage").then((module) => ({
+    default: module.IntelligencePage,
+  })),
+);
+const CommercialPresentationPage = lazy(() =>
+  import("./pages/CommercialPresentationPage").then((module) => ({
+    default: module.CommercialPresentationPage,
+  })),
+);
 
 function ApplicationRoutes() {
   const location = useLocation();
@@ -70,7 +104,12 @@ function ApplicationRoutes() {
       window.removeEventListener("offline", refresh);
     };
   }, [logout, session, setOnline, setPendingCount, setServiceAvailable]);
-  if (location.pathname.startsWith("/menu/")) return <Routes><Route path="/menu/:token" element={<PublicQrMenuPage />} /></Routes>;
+  if (location.pathname.startsWith("/menu/"))
+    return (
+      <Routes>
+        <Route path="/menu/:token" element={<PublicQrMenuPage />} />
+      </Routes>
+    );
   if (!session) return <LoginPage />;
   return (
     <Routes>
@@ -90,7 +129,15 @@ function ApplicationRoutes() {
         />
         <Route
           path="pedidos-qr"
-          element={<RouteGuard permission="PEDIDOS_VER" capability="MESAS" branchRequired><QrOrdersPage /></RouteGuard>}
+          element={
+            <RouteGuard
+              permission="PEDIDOS_VER"
+              capability="MESAS"
+              branchRequired
+            >
+              <QrOrdersPage />
+            </RouteGuard>
+          }
         />
         <Route
           path="cocina"
@@ -154,14 +201,60 @@ function ApplicationRoutes() {
         />
         <Route
           path="costos"
-          element={<RouteGuard permission="REPORTES_VER" capability="INVENTARIO" branchRequired><CostsPage /></RouteGuard>}
+          element={
+            <RouteGuard
+              permission="REPORTES_VER"
+              capability="INVENTARIO"
+              branchRequired
+            >
+              <CostsPage />
+            </RouteGuard>
+          }
         />
-        <Route path="cuentas-pagar" element={<RouteGuard permission="REPORTES_VER" capability="INVENTARIO" branchRequired><PayablesPage /></RouteGuard>} />
-        <Route path="personal" element={<RouteGuard permission="USUARIOS_VER" branchRequired><StaffPage /></RouteGuard>} />
-        <Route path="inteligencia" element={<RouteGuard permission="REPORTES_VER" capability="ANALYTICS" branchRequired><IntelligencePage /></RouteGuard>} />
+        <Route
+          path="cuentas-pagar"
+          element={
+            <RouteGuard
+              permission="REPORTES_VER"
+              capability="INVENTARIO"
+              branchRequired
+            >
+              <PayablesPage />
+            </RouteGuard>
+          }
+        />
+        <Route
+          path="personal"
+          element={
+            <RouteGuard permission="USUARIOS_VER" branchRequired>
+              <StaffPage />
+            </RouteGuard>
+          }
+        />
+        <Route
+          path="inteligencia"
+          element={
+            <RouteGuard
+              permission="REPORTES_VER"
+              capability="ANALYTICS"
+              branchRequired
+            >
+              <IntelligencePage />
+            </RouteGuard>
+          }
+        />
+        <Route path="presentacion" element={<CommercialPresentationPage />} />
         <Route
           path="abastecimiento"
-          element={<RouteGuard permission="INVENTARIO_VER" capability="INVENTARIO" branchRequired><SupplyPage /></RouteGuard>}
+          element={
+            <RouteGuard
+              permission="INVENTARIO_VER"
+              capability="INVENTARIO"
+              branchRequired
+            >
+              <SupplyPage />
+            </RouteGuard>
+          }
         />
         <Route
           path="inventario"
@@ -186,7 +279,14 @@ function ApplicationRoutes() {
         <Route path="administracion" element={<AdminPage />} />
         <Route path="fiscal" element={<FiscalPage />} />
         <Route path="continuidad" element={<ContinuityPage />} />
-        <Route path="fidelizacion" element={<RouteGuard permission="CLIENTES_VER" capability="CLIENTES"><LoyaltyPage /></RouteGuard>} />
+        <Route
+          path="fidelizacion"
+          element={
+            <RouteGuard permission="CLIENTES_VER" capability="CLIENTES">
+              <LoyaltyPage />
+            </RouteGuard>
+          }
+        />
         <Route path="acceso-denegado" element={<AccessDenied />} />
         <Route path="servicio-no-disponible" element={<ServiceUnavailable />} />
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -198,7 +298,15 @@ function ApplicationRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      <ApplicationRoutes />
+      <Suspense
+        fallback={
+          <main className="grid min-h-screen place-items-center bg-[#f4f2ec] font-bold">
+            Preparando módulo…
+          </main>
+        }
+      >
+        <ApplicationRoutes />
+      </Suspense>
       <Toaster position="top-right" toastOptions={{ duration: 4500 }} />
     </BrowserRouter>
   );

@@ -12,6 +12,7 @@ import {
   WalletCards,
   UsersRound,
   BrainCircuit,
+  Presentation,
   HeartHandshake,
   Settings,
   UtensilsCrossed,
@@ -24,12 +25,17 @@ import { Connection } from "../components/Connection";
 import { OperationsNotice } from "../components/OperationsNotice";
 import { useApp } from "../store/app";
 import { api } from "../lib/api";
-import {
-  pendingCommandCount,
-  type Command,
-} from "../features/kds/contracts";
+import { GuidedTour } from "../components/GuidedTour";
+import { pendingCommandCount, type Command } from "../features/kds/contracts";
 
 const nav = [
+  {
+    to: "/presentacion",
+    label: "Presentación comercial",
+    icon: Presentation,
+    permission: null,
+    capability: null,
+  },
   {
     to: "/inteligencia",
     label: "Inteligencia y alertas",
@@ -173,6 +179,7 @@ const nav = [
 ];
 export function AppShell() {
   const [open, setOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
   const [pendingKitchenCommands, setPendingKitchenCommands] = useState(0);
   const {
     session,
@@ -227,13 +234,14 @@ export function AppShell() {
   }, [branchId, hasCapability, hasPermission, session?.demo, session?.user.id]);
   const kitchenBadge = session?.demo
     ? demoKitchenPending
-    : branchId &&
-        hasPermission("COMANDAS_VER") &&
-        hasCapability("KDS")
+    : branchId && hasPermission("COMANDAS_VER") && hasCapability("KDS")
       ? pendingKitchenCommands
       : 0;
   return (
     <div className="min-h-screen bg-[#f4f2ec] text-denim">
+      <a href="#contenido-principal" className="skip-link">
+        Saltar al contenido principal
+      </a>
       <aside
         className={`fixed inset-y-0 left-0 z-40 w-72 bg-steel p-5 text-white transition-transform lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}
       >
@@ -271,6 +279,7 @@ export function AppShell() {
                   "/cuentas-pagar",
                   "/personal",
                   "/inteligencia",
+                  "/presentacion",
                   "/reportes",
                   "/fiscal",
                   "/administracion",
@@ -292,6 +301,7 @@ export function AppShell() {
                   "/cuentas-pagar",
                   "/personal",
                   "/inteligencia",
+                  "/presentacion",
                   "/reportes",
                   "/fiscal",
                   "/administracion",
@@ -389,15 +399,21 @@ export function AppShell() {
             </span>
           )}
           <Connection />
-          <button className="hidden rounded-xl border border-denim/10 p-2.5 text-denim/50 sm:block">
+          <button
+            aria-label="Iniciar recorrido guiado"
+            title="Recorrido guiado"
+            onClick={() => setTourOpen(true)}
+            className="hidden rounded-xl border border-denim/10 p-2.5 text-denim/50 sm:block"
+          >
             <ClipboardList size={19} />
           </button>
         </header>
-        <main className="p-4 sm:p-7">
+        <main id="contenido-principal" tabIndex={-1} className="p-4 sm:p-7">
           <OperationsNotice />
           <Outlet />
         </main>
       </div>
+      <GuidedTour open={tourOpen} onClose={() => setTourOpen(false)} />
     </div>
   );
 }

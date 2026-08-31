@@ -13,7 +13,11 @@ import { RealDashboardPage } from "./RealDashboardPage";
 
 export function DashboardPage() {
   const { session, branchId } = useApp();
-  return session?.demo ? <DemoDashboardPage/> : <RealDashboardPage key={branchId}/>;
+  return session?.demo ? (
+    <DemoDashboardPage />
+  ) : (
+    <RealDashboardPage key={branchId} />
+  );
 }
 function DemoDashboardPage() {
   const { tables, orders, session } = useApp();
@@ -68,6 +72,22 @@ function DemoDashboardPage() {
           </article>
         ))}
       </section>
+      <nav
+        aria-label="Operaciones rápidas"
+        className="card grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+      >
+        {[
+          ["/salon", "Abrir mesa y pedido"],
+          ["/cocina", "Ver comandas"],
+          ["/caja", "Cobrar pedido"],
+          ["/facturas", "Consultar comprobantes"],
+        ].map(([to, label]) => (
+          <Link key={to} to={to} className="secondary justify-center">
+            {label}
+            <ArrowUpRight size={17} />
+          </Link>
+        ))}
+      </nav>
       <section className="grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
         <article className="card">
           <div className="section-title">

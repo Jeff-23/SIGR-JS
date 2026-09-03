@@ -92,6 +92,12 @@ enum PrioridadComanda {
   URGENTE
 }
 
+enum EstadoDetalleComanda {
+  PENDIENTE
+  EN_PREPARACION
+  LISTA
+}
+
 enum EstadoDomicilio {
   PENDIENTE_ASIGNACION
   ASIGNADO
@@ -430,6 +436,7 @@ model Usuario {
   consentimientosRegistrados   ConsentimientoCliente[]
   movimientosPuntosRegistrados MovimientoPuntos[]
   solicitudesQrAceptadas       SolicitudPedidoQr[]        @relation("SolicitudQrAceptadaPor")
+  comandasVistas               Comanda[]                   @relation("ComandaVistaPor")
   solicitudesCompraCreadas     SolicitudCompra[]
   ordenesCompraCreadas         OrdenCompra[]
   recepcionesCompraRegistradas RecepcionCompra[]
@@ -661,6 +668,8 @@ model Producto {
   nombre      String  @db.VarChar(100)
   descripcion String? @db.Text
   precio      Decimal @db.Decimal(10, 2)
+  favorito    Boolean @default(false)
+  disponible  Boolean @default(true)
 
   estrategiaInventario  EstrategiaInventario @default(NO_CONTROLAR)
   unidadInventario      UnidadInventario     @default(UNIDAD)
@@ -676,6 +685,7 @@ model Producto {
   estacion    EstacionPreparacion? @relation(fields: [estacionId], references: [id], onDelete: SetNull)
 
   detalles              DetallePedido[]
+  modificadores         ProductoModificador[]
   detallesVenta         DetalleVenta[]
   recetas               Receta[]
   movimientosInventario MovimientoInventario[]
@@ -685,13 +695,30 @@ model Producto {
   @@index([estacionId])
 }
 
+model ProductoModificador {
+  id        Int      @id @default(autoincrement())
+  nombre    String   @db.VarChar(100)
+  precio    Decimal  @default(0) @db.Decimal(10, 2)
+  activo    Boolean  @default(true)
+  orden     Int      @default(0)
+  creadoEn  DateTime @default(now())
+
+  productoId Int
+  producto   Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  detalles   DetallePedidoModificador[]
+
+  @@unique([productoId, nombre])
+  @@index([productoId, activo, orden])
+}
+
 model EstacionPreparacion {
   id       Int      @id @default(autoincrement())
   codigo   String   @db.VarChar(40)
   nombre   String   @db.VarChar(80)
   color    String   @default("#F97316") @db.VarChar(7)
-  orden    Int      @default(0)
-  estado   Boolean  @default(true)
+  orden                   Int      @default(0)
+  objetivoPreparacionMin Int      @default(15)
+  estado                  Boolean  @default(true)
   creadoEn DateTime @default(now())
 
   sucursalId Int
@@ -704,11 +731,13 @@ model EstacionPreparacion {
 }
 
 model Pedido {
-  id       Int          @id @default(autoincrement())
-  total    Decimal      @db.Decimal(12, 2)
-  tipo     TipoPedido   @default(MESA)
-  estado   EstadoPedido @default(PENDIENTE)
-  creadoEn DateTime     @default(now())
+  id            Int          @id @default(autoincrement())
+  total         Decimal      @db.Decimal(12, 2)
+  tipo          TipoPedido   @default(MESA)
+  estado        EstadoPedido @default(PENDIENTE)
+  personas      Int?
+  observaciones String?      @db.VarChar(500)
+  creadoEn      DateTime     @default(now())
 
   idempotenciaClave String? @db.VarChar(100)
   idempotenciaHash  String? @db.VarChar(64)
@@ -824,10 +853,27 @@ model DetallePedido {
   pedido   Pedido   @relation(fields: [pedidoId], references: [id])
   producto Producto @relation(fields: [productoId], references: [id])
 
-  comandas DetalleComanda[]
+  comandas     DetalleComanda[]
+  modificadores DetallePedidoModificador[]
 
   @@index([pedidoId])
   @@index([productoId])
+}
+
+model DetallePedidoModificador {
+  id             Int     @id @default(autoincrement())
+  nombre         String  @db.VarChar(100)
+  precioUnitario Decimal @default(0) @db.Decimal(10, 2)
+  cantidad       Int     @default(1)
+  subtotal       Decimal @default(0) @db.Decimal(10, 2)
+
+  detallePedidoId Int
+  modificadorId   Int?
+  detallePedido   DetallePedido       @relation(fields: [detallePedidoId], references: [id], onDelete: Cascade)
+  modificador     ProductoModificador? @relation(fields: [modificadorId], references: [id], onDelete: SetNull)
+
+  @@index([detallePedidoId])
+  @@index([modificadorId])
 }
 
 model Comanda {
@@ -837,27 +883,37 @@ model Comanda {
   prioridad PrioridadComanda @default(NORMAL)
 
   fechaEnvio   DateTime  @default(now())
+  fechaVista   DateTime?
   fechaInicio  DateTime?
   fechaLista   DateTime?
   fechaEntrega DateTime?
 
+  metaPreparacionMin Int @default(15)
+
   pedidoId   Int
   estacionId Int
+  vistoPorId Int?
 
   pedido   Pedido              @relation(fields: [pedidoId], references: [id], onDelete: Restrict)
   estacion EstacionPreparacion @relation(fields: [estacionId], references: [id], onDelete: Restrict)
+  vistoPor  Usuario?           @relation("ComandaVistaPor", fields: [vistoPorId], references: [id], onDelete: SetNull)
   detalles DetalleComanda[]
 
   @@index([pedidoId])
   @@index([estacionId, estado, prioridad])
   @@index([estado])
   @@index([fechaEnvio])
+  @@index([vistoPorId])
 }
 
 model DetalleComanda {
   id Int @id @default(autoincrement())
 
   cantidad Int
+  estado   EstadoDetalleComanda @default(PENDIENTE)
+
+  fechaInicio DateTime?
+  fechaLista  DateTime?
 
   comandaId       Int
   detallePedidoId Int
@@ -868,6 +924,7 @@ model DetalleComanda {
   @@unique([comandaId, detallePedidoId])
   @@index([comandaId])
   @@index([detallePedidoId])
+  @@index([estado])
 }
 
 model Venta {

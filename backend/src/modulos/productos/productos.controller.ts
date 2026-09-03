@@ -14,6 +14,7 @@
 import { ProductosService } from './productos.service';
 import { CreateProductoDto } from './dto/create-producto.dto';
 import { UpdateProductoDto } from './dto/update-producto.dto';
+import { GestionarModificadoresDto } from './dto/gestionar-modificadores.dto';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
@@ -46,6 +47,16 @@ export class ProductosController {
     sucursalId?: number,
   ) {
     return this.productosService.findAll(request.user, sucursalId);
+  }
+
+  @Post(':id/modificadores')
+  @Permisos('PRODUCTOS_EDITAR')
+  gestionarModificadores(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: GestionarModificadoresDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.productosService.gestionarModificadores(id, data.modificadores, request.user);
   }
 
   @Patch(':id')

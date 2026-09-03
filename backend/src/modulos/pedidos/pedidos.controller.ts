@@ -26,6 +26,8 @@ import { Permisos } from '../auth/permisos.decorator';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { ActualizarDomicilioDto } from './dto/actualizar-domicilio.dto';
+import { ActualizarContextoPedidoDto } from './dto/actualizar-contexto-pedido.dto';
+import { ActualizarDetallePedidoDto } from './dto/actualizar-detalle-pedido.dto';
 import {
   CambiarMeseroDto,
   SepararMesaDto,
@@ -75,6 +77,27 @@ export class PedidosController {
     return this.pedidosService.agregarDetalles(id, data, request.user);
   }
 
+  @Patch(':id/contexto')
+  @Permisos('PEDIDOS_EDITAR')
+  actualizarContexto(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: ActualizarContextoPedidoDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.pedidosService.actualizarContexto(id, data, request.user);
+  }
+
+  @Patch(':id/detalles/:detalleId')
+  @Permisos('PEDIDOS_EDITAR')
+  actualizarDetalle(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('detalleId', ParseIntPipe) detalleId: number,
+    @Body() data: ActualizarDetallePedidoDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.pedidosService.actualizarDetalle(id, detalleId, data, request.user);
+  }
+
   @Patch(':id/cancelar')
   @Permisos('PEDIDOS_CANCELAR')
   cancelar(
@@ -85,6 +108,15 @@ export class PedidosController {
     request: RequestAutenticada,
   ) {
     return this.pedidosService.cancelar(id, request.user);
+  }
+
+  @Post(':id/solicitar-cuenta')
+  @Permisos('PEDIDOS_EDITAR', 'VENTAS_CREAR')
+  solicitarCuenta(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.pedidosService.solicitarCuenta(id, request.user);
   }
 
   @Patch(':id/finalizar-servicio')

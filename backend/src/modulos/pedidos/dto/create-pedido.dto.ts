@@ -9,6 +9,7 @@ import {
   IsNumber,
   IsString,
   MaxLength,
+  ArrayMaxSize,
 } from 'class-validator';
 
 import { Type } from 'class-transformer';
@@ -28,6 +29,13 @@ export class DetallePedidoDto {
   @IsString()
   @MaxLength(300)
   observaciones?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  modificadorIds?: number[];
 }
 
 export class DomicilioPedidoDto {
@@ -81,6 +89,16 @@ export class CreatePedidoDto {
   @IsInt()
   @Min(1)
   sucursalId?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  personas?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  observaciones?: string;
 
   @IsArray()
   @ArrayMinSize(1)

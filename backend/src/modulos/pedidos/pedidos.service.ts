@@ -22,6 +22,8 @@ import { AgregarDetallesPedidoDto } from './dto/agregar-detalles-pedido.dto';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { ActualizarDomicilioDto } from './dto/actualizar-domicilio.dto';
+import { ActualizarContextoPedidoDto } from './dto/actualizar-contexto-pedido.dto';
+import { ActualizarDetallePedidoDto } from './dto/actualizar-detalle-pedido.dto';
 import {
   hashSolicitud,
   normalizarClaveIdempotencia,
@@ -32,6 +34,7 @@ type DetalleEntrada = {
   productoId: number;
   cantidad: number;
   observaciones?: string;
+  modificadorIds?: number[];
 };
 
 type DetallePreparado = {
@@ -40,6 +43,15 @@ type DetallePreparado = {
   precioUnitario: Prisma.Decimal;
   subtotal: Prisma.Decimal;
   observaciones: string | null;
+  modificadores?: {
+    create: Array<{
+      modificadorId: number;
+      nombre: string;
+      precioUnitario: Prisma.Decimal;
+      cantidad: number;
+      subtotal: Prisma.Decimal;
+    }>;
+  };
 };
 
 @Injectable()
@@ -93,12 +105,14 @@ export class PedidosService {
 
     for (const detalle of detalles) {
       const observaciones = detalle.observaciones?.trim() || undefined;
-      const clave = `${detalle.productoId}:${observaciones ?? ''}`;
+      const modificadorIds = [...new Set(detalle.modificadorIds ?? [])].sort((a, b) => a - b);
+      const clave = `${detalle.productoId}:${observaciones ?? ''}:${modificadorIds.join(',')}`;
       const existente = cantidades.get(clave);
       cantidades.set(clave, {
         productoId: detalle.productoId,
         cantidad: (existente?.cantidad ?? 0) + detalle.cantidad,
         observaciones,
+        modificadorIds,
       });
     }
 
@@ -140,6 +154,7 @@ export class PedidosService {
           },
         },
       },
+      include: { modificadores: { where: { activo: true }, orderBy: { orden: 'asc' } } },
     });
 
     if (productos.length !== productosIds.length) {
@@ -166,7 +181,17 @@ export class PedidosService {
         );
       }
 
-      const subtotal = producto.precio.mul(cantidad);
+      if (!producto.disponible) {
+        throw new BadRequestException(`El producto ${producto.nombre} está agotado temporalmente`);
+      }
+      const seleccionados = [...new Set(detalle.modificadorIds ?? [])];
+      const modificadores = producto.modificadores.filter((item) => seleccionados.includes(item.id));
+      if (modificadores.length !== seleccionados.length) {
+        throw new BadRequestException(`Uno o más modificadores no pertenecen al producto ${producto.nombre}`);
+      }
+      const adicionalUnitario = modificadores.reduce((acc, item) => acc.plus(item.precio), new Prisma.Decimal(0));
+      const precioUnitario = producto.precio.plus(adicionalUnitario);
+      const subtotal = precioUnitario.mul(cantidad);
 
       total = total.plus(subtotal);
 
@@ -175,11 +200,22 @@ export class PedidosService {
 
         cantidad,
 
-        precioUnitario: producto.precio,
+        precioUnitario,
 
         subtotal,
 
         observaciones: detalle.observaciones ?? null,
+        ...(modificadores.length ? {
+          modificadores: {
+            create: modificadores.map((item) => ({
+              modificadorId: item.id,
+              nombre: item.nombre,
+              precioUnitario: item.precio,
+              cantidad,
+              subtotal: item.precio.mul(cantidad),
+            })),
+          },
+        } : {}),
       });
     }
 
@@ -428,6 +464,8 @@ export class PedidosService {
           tipo: data.tipo,
 
           estado: EstadoPedido.PENDIENTE,
+          personas: data.personas ?? null,
+          observaciones: data.observaciones?.trim() || null,
 
           idempotenciaClave: clave,
 
@@ -465,7 +503,8 @@ export class PedidosService {
         include: {
           detalles: {
             include: {
-              producto: true,
+              producto: { include: { modificadores: { where: { activo: true }, orderBy: { orden: 'asc' } } } },
+              modificadores: true,
             },
           },
 
@@ -564,7 +603,8 @@ export class PedidosService {
         include: {
           detalles: {
             include: {
-              producto: true,
+              producto: { include: { modificadores: { where: { activo: true }, orderBy: { orden: 'asc' } } } },
+              modificadores: true,
             },
 
             orderBy: {
@@ -617,6 +657,91 @@ export class PedidosService {
    * La afectacion de existencias corresponde
    * exclusivamente a Venta.
    */
+  async actualizarDetalle(
+    pedidoId: number,
+    detalleId: number,
+    data: ActualizarDetallePedidoDto,
+    usuarioActual: UsuarioAutenticado,
+  ) {
+    if (data.cantidad === undefined && data.observaciones === undefined) {
+      throw new BadRequestException('No hay cambios para aplicar');
+    }
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const pedido = await tx.pedido.findFirst({
+        where: { id: pedidoId, sucursal: this.filtroSucursal(usuarioActual) },
+        include: { venta: { select: { id: true } }, factura: { select: { id: true } } },
+      });
+      if (!pedido) throw new NotFoundException('Pedido no encontrado');
+      if (
+        pedido.venta ||
+        pedido.factura ||
+        pedido.estado === EstadoPedido.CANCELADO ||
+        pedido.estado === EstadoPedido.FACTURADO
+) {
+        throw new BadRequestException('La cuenta ya no admite cambios en sus líneas');
+      }
+      const detalle = await tx.detallePedido.findFirst({
+        where: { id: detalleId, pedidoId },
+        include: {
+          comandas: { include: { comanda: true } },
+          modificadores: true,
+        },
+      });
+      if (!detalle) throw new NotFoundException('Línea de pedido no encontrada');
+      if (detalle.comandas.some((item) => item.comanda.estado !== EstadoComanda.CANCELADA)) {
+        throw new BadRequestException('Una línea enviada a preparación no se modifica; agrega una nueva línea o gestiona la corrección en cocina');
+      }
+      const cantidad = data.cantidad ?? detalle.cantidad;
+      const subtotalAnterior = detalle.subtotal;
+      const subtotalNuevo = detalle.precioUnitario.mul(cantidad);
+      await tx.detallePedido.update({
+        where: { id: detalle.id },
+        data: {
+          cantidad,
+          subtotal: subtotalNuevo,
+          ...(data.observaciones !== undefined ? { observaciones: data.observaciones.trim() || null } : {}),
+        },
+      });
+      for (const modificador of detalle.modificadores) {
+        await tx.detallePedidoModificador.update({
+          where: { id: modificador.id },
+          data: { cantidad, subtotal: modificador.precioUnitario.mul(cantidad) },
+        });
+      }
+      await tx.pedido.update({
+        where: { id: pedido.id },
+        data: { total: { increment: subtotalNuevo.minus(subtotalAnterior) } },
+      });
+      return { pedidoId, detalleId, cantidad, subtotal: subtotalNuevo };
+    });
+  }
+
+  async actualizarContexto(
+    pedidoId: number,
+    data: ActualizarContextoPedidoDto,
+    usuarioActual: UsuarioAutenticado,
+  ) {
+    const pedido = await this.prisma.pedido.findFirst({
+      where: { id: pedidoId, sucursal: this.filtroSucursal(usuarioActual) },
+      select: { id: true, estado: true },
+    });
+    if (!pedido) throw new NotFoundException('Pedido no encontrado');
+    if (
+      pedido.estado === EstadoPedido.CANCELADO ||
+      pedido.estado === EstadoPedido.FACTURADO
+) {
+      throw new BadRequestException('El pedido ya no admite cambios de contexto');
+    }
+    return this.prisma.pedido.update({
+      where: { id: pedido.id },
+      data: {
+        ...(data.personas !== undefined ? { personas: data.personas } : {}),
+        ...(data.observaciones !== undefined ? { observaciones: data.observaciones.trim() || null } : {}),
+      },
+      select: { id: true, personas: true, observaciones: true },
+    });
+  }
+
   async cancelar(
     pedidoId: number,
 
@@ -797,7 +922,8 @@ export class PedidosService {
 
           detalles: {
             include: {
-              producto: true,
+              producto: { include: { modificadores: { where: { activo: true }, orderBy: { orden: 'asc' } } } },
+              modificadores: true,
             },
 
             orderBy: {
@@ -1045,16 +1171,18 @@ export class PedidosService {
 
         detalles: {
           include: {
-            producto: true,
+            producto: { include: { modificadores: { where: { activo: true }, orderBy: { orden: 'asc' } } } },
+            modificadores: true,
+            comandas: { include: { comanda: { include: { estacion: true } } } },
           },
         },
 
         comandas: {
-          select: {
-            id: true,
-            estado: true,
-            fechaEnvio: true,
+          include: {
+            estacion: true,
+            detalles: { include: { detallePedido: { include: { producto: true } } } },
           },
+          orderBy: { fechaEnvio: 'asc' },
         },
 
         venta: {
@@ -1070,6 +1198,26 @@ export class PedidosService {
         creadoEn: 'desc',
       },
       take: 200,
+    });
+  }
+
+  async solicitarCuenta(pedidoId: number, usuarioActual: UsuarioAutenticado) {
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const pedido = await tx.pedido.findFirst({
+        where: { id: pedidoId, sucursal: this.filtroSucursal(usuarioActual) },
+        include: { venta: { select: { id: true, estado: true } }, mesasVinculadas: true },
+      });
+      if (!pedido) throw new NotFoundException('Pedido no encontrado');
+      if (!pedido.venta) throw new BadRequestException('Genera primero la venta preliminar del pedido');
+      if (pedido.venta.estado === 'ANULADA') throw new BadRequestException('La venta asociada está anulada');
+      const mesaIds = [...new Set([pedido.mesaId, ...pedido.mesasVinculadas.map((item) => item.mesaId)].filter((id): id is number => id !== null))];
+      if (mesaIds.length) {
+        await tx.mesa.updateMany({
+          where: { id: { in: mesaIds }, situacion: { in: [EstadoMesa.OCUPADA, EstadoMesa.PENDIENTE_PAGO] } },
+          data: { situacion: EstadoMesa.PENDIENTE_PAGO },
+        });
+      }
+      return { pedidoId, ventaId: pedido.venta.id, mesas: mesaIds, cuentaSolicitada: true };
     });
   }
 
@@ -1269,7 +1417,8 @@ export class PedidosService {
 
         detalles: {
           include: {
-            producto: true,
+            producto: { include: { modificadores: { where: { activo: true }, orderBy: { orden: 'asc' } } } },
+            modificadores: true,
 
             comandas: {
               include: {

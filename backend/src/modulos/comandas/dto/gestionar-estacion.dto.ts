@@ -28,6 +28,11 @@ export class CrearEstacionDto {
   @IsOptional()
   @IsInt()
   orden?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  objetivoPreparacionMin?: number;
 }
 
 export class ActualizarEstacionDto {
@@ -43,6 +48,11 @@ export class ActualizarEstacionDto {
   @IsOptional()
   @IsInt()
   orden?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  objetivoPreparacionMin?: number;
 
   @IsOptional()
   @IsBoolean()

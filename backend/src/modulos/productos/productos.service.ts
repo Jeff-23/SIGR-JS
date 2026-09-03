@@ -186,12 +186,43 @@ export class ProductosService {
         recetas: true,
         categoria: true,
         estacion: true,
+        modificadores: { where: { activo: true }, orderBy: { orden: 'asc' } },
       },
 
       orderBy: {
         id: 'asc',
       },
       take: 500,
+    });
+  }
+
+  async gestionarModificadores(
+    id: number,
+    modificadores: Array<{ nombre: string; precio: number; activo?: boolean; orden?: number }>,
+    usuarioActual: UsuarioAutenticado,
+  ) {
+    await this.buscarProductoDentroDelAlcance(id, usuarioActual);
+    const nombres = modificadores.map((item) => item.nombre.trim().toLowerCase());
+    if (new Set(nombres).size !== nombres.length) {
+      throw new BadRequestException('Los modificadores no pueden repetir nombre');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      await tx.productoModificador.deleteMany({ where: { productoId: id, detalles: { none: {} } } });
+      const existentes = await tx.productoModificador.findMany({ where: { productoId: id }, select: { id: true, nombre: true } });
+      const porNombre = new Map(existentes.map((item) => [item.nombre.toLowerCase(), item]));
+      for (const [index, item] of modificadores.entries()) {
+        const nombre = item.nombre.trim();
+        const existente = porNombre.get(nombre.toLowerCase());
+        if (existente) {
+          await tx.productoModificador.update({ where: { id: existente.id }, data: { nombre, precio: item.precio, activo: item.activo ?? true, orden: item.orden ?? index } });
+        } else {
+          await tx.productoModificador.create({ data: { productoId: id, nombre, precio: item.precio, activo: item.activo ?? true, orden: item.orden ?? index } });
+        }
+      }
+      const deseados = new Set(nombres);
+      await tx.productoModificador.updateMany({ where: { productoId: id, nombre: { notIn: modificadores.map((item) => item.nombre.trim()) } }, data: { activo: false } });
+      void deseados;
+      return tx.productoModificador.findMany({ where: { productoId: id, activo: true }, orderBy: { orden: 'asc' } });
     });
   }
 

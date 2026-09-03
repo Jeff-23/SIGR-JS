@@ -117,6 +117,9 @@ export const catalogResources: Resource[] = [
         options: ["NO_CONTROLAR", "STOCK_DIRECTO", "POR_RECETA"],
       }),
       field("unidadInventario", "Unidad", { options: units }),
+      field("favorito", "Favorito en POS", { type: "checkbox" }),
+      field("disponible", "Disponible para venta", { type: "checkbox" }),
+
     ],
   },
   {

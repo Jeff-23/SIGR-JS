@@ -16,6 +16,7 @@ import { ComandasService } from './comandas.service';
 import { CrearComandaDto } from './dto/crear-comanda.dto';
 import { ActualizarEstadoComandaDto } from './dto/actualizar-estado-comanda.dto';
 import { ActualizarPrioridadComandaDto } from './dto/actualizar-prioridad-comanda.dto';
+import { ActualizarEstadoDetalleComandaDto } from './dto/actualizar-estado-detalle-comanda.dto';
 import {
   ActualizarEstacionDto,
   CrearEstacionDto,
@@ -110,6 +111,40 @@ export class ComandasController {
     request: RequestAutenticada,
   ) {
     return this.comandasService.actualizarEstado(id, data.estado, request.user);
+  }
+
+  @Patch('comandas/:id/visto')
+  @Permisos('COMANDAS_ACTUALIZAR_ESTADO')
+  marcarVista(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.comandasService.marcarVista(id, request.user);
+  }
+
+  @Patch('comandas/:id/iniciar-todos')
+  @Permisos('COMANDAS_ACTUALIZAR_ESTADO')
+  iniciarTodos(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.comandasService.iniciarTodos(id, request.user);
+  }
+
+  @Patch('comandas/:id/detalles/:detalleId/estado')
+  @Permisos('COMANDAS_ACTUALIZAR_ESTADO')
+  actualizarEstadoDetalle(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('detalleId', ParseIntPipe) detalleId: number,
+    @Body() data: ActualizarEstadoDetalleComandaDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.comandasService.actualizarEstadoDetalle(
+      id,
+      detalleId,
+      data.estado,
+      request.user,
+    );
   }
 
   @Patch('comandas/:id/prioridad')

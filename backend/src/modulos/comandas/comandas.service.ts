@@ -6,6 +6,7 @@ import {
 
 import {
   EstadoComanda,
+  EstadoDetalleComanda,
   EstadoMesa,
   EstadoPedido,
   EstadoVenta,
@@ -183,7 +184,7 @@ export class ComandasService {
           color: '#F97316',
           orden: 10,
         },
-        select: { id: true, estado: true },
+        select: { id: true, estado: true, objetivoPreparacionMin: true },
       });
 
       for (const [detallePedidoId, cantidadSolicitada] of solicitados) {
@@ -222,21 +223,33 @@ export class ComandasService {
 
       const comandas = [];
       for (const [estacionId, detalles] of detallesPorEstacion) {
+        const estacion = await tx.estacionPreparacion.findUnique({
+          where: { id: estacionId },
+          select: { objetivoPreparacionMin: true },
+        });
+        if (!estacion) {
+          throw new BadRequestException(
+            'Estación de preparación no encontrada',
+          );
+        }
         comandas.push(
           await tx.comanda.create({
             data: {
               pedidoId: pedido.id,
               estacionId,
+              metaPreparacionMin: estacion.objetivoPreparacionMin,
               detalles: { create: detalles },
             },
             include: {
               estacion: true,
               detalles: {
                 include: {
-                  detallePedido: { include: { producto: true } },
+                  detallePedido: {
+                    include: { producto: true, modificadores: true },
+                  },
                 },
               },
-              pedido: { include: { mesa: true } },
+              pedido: { include: { mesa: true, mesero: true } },
             },
           }),
         );
@@ -276,6 +289,9 @@ export class ComandasService {
                 zona: true,
               },
             },
+            mesero: {
+              select: { id: true, nombres: true, apellidos: true },
+            },
           },
         },
 
@@ -284,6 +300,7 @@ export class ComandasService {
             detallePedido: {
               include: {
                 producto: true,
+                modificadores: true,
               },
             },
           },
@@ -341,6 +358,188 @@ export class ComandasService {
     });
   }
 
+  async marcarVista(id: number, usuario: UsuarioAutenticado) {
+    const comanda = await this.prisma.comanda.findFirst({
+      where: { id, pedido: this.filtroPedido(usuario) },
+      select: { id: true, fechaVista: true },
+    });
+    if (!comanda) throw new NotFoundException('Comanda no encontrada');
+    if (comanda.fechaVista) {
+      return this.prisma.comanda.findUnique({
+        where: { id },
+        include: { estacion: true },
+      });
+    }
+    return this.prisma.comanda.update({
+      where: { id },
+      data: {
+        fechaVista: new Date(),
+        vistoPorId: usuario.id,
+      },
+      include: { estacion: true },
+    });
+  }
+
+  async iniciarTodos(id: number, usuario: UsuarioAutenticado) {
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const comanda = await tx.comanda.findFirst({
+        where: { id, pedido: this.filtroPedido(usuario) },
+        include: { detalles: true },
+      });
+      if (!comanda) throw new NotFoundException('Comanda no encontrada');
+      if (
+        comanda.estado === EstadoComanda.LISTA ||
+        comanda.estado === EstadoComanda.ENTREGADA ||
+        comanda.estado === EstadoComanda.CANCELADA
+      ) {
+        throw new BadRequestException(
+          'La comanda ya no admite iniciar preparación',
+        );
+      }
+      const ahora = new Date();
+      await tx.detalleComanda.updateMany({
+        where: { comandaId: id, estado: EstadoDetalleComanda.PENDIENTE },
+        data: {
+          estado: EstadoDetalleComanda.EN_PREPARACION,
+          fechaInicio: ahora,
+        },
+      });
+      await tx.comanda.update({
+        where: { id },
+        data: {
+          estado: EstadoComanda.EN_PREPARACION,
+          fechaInicio: comanda.fechaInicio ?? ahora,
+          fechaVista: comanda.fechaVista ?? ahora,
+          vistoPorId: comanda.fechaVista ? undefined : usuario.id,
+        },
+      });
+      await this.sincronizarPedido(tx, comanda.pedidoId);
+      return tx.comanda.findUnique({
+        where: { id },
+        include: {
+          estacion: true,
+          pedido: {
+            include: { mesa: { include: { zona: true } }, mesero: true },
+          },
+          detalles: {
+            include: {
+              detallePedido: {
+                include: { producto: true, modificadores: true },
+              },
+            },
+          },
+        },
+      });
+    });
+  }
+
+  async actualizarEstadoDetalle(
+    id: number,
+    detalleId: number,
+    nuevoEstado: EstadoDetalleComanda,
+    usuario: UsuarioAutenticado,
+  ) {
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const comanda = await tx.comanda.findFirst({
+        where: { id, pedido: this.filtroPedido(usuario) },
+        include: { detalles: true },
+      });
+      if (!comanda) throw new NotFoundException('Comanda no encontrada');
+      if (
+        comanda.estado === EstadoComanda.ENTREGADA ||
+        comanda.estado === EstadoComanda.CANCELADA
+      ) {
+        throw new BadRequestException(
+          'La comanda ya no admite cambios de preparación',
+        );
+      }
+      const detalle = comanda.detalles.find((item) => item.id === detalleId);
+      if (!detalle)
+        throw new NotFoundException('Línea de comanda no encontrada');
+      const permitidas: Record<EstadoDetalleComanda, EstadoDetalleComanda[]> = {
+        PENDIENTE: [EstadoDetalleComanda.EN_PREPARACION],
+        EN_PREPARACION: [EstadoDetalleComanda.LISTA],
+        LISTA: [],
+      };
+      if (
+        detalle.estado !== nuevoEstado &&
+        !permitidas[detalle.estado].includes(nuevoEstado)
+      ) {
+        throw new BadRequestException(
+          `Transición de línea no permitida: ${detalle.estado} -> ${nuevoEstado}`,
+        );
+      }
+      if (detalle.estado !== nuevoEstado) {
+        const ahora = new Date();
+        await tx.detalleComanda.update({
+          where: { id: detalleId },
+          data: {
+            estado: nuevoEstado,
+            ...(nuevoEstado === EstadoDetalleComanda.EN_PREPARACION
+              ? { fechaInicio: ahora }
+              : {}),
+            ...(nuevoEstado === EstadoDetalleComanda.LISTA
+              ? { fechaLista: ahora }
+              : {}),
+          },
+        });
+      }
+      await this.sincronizarComandaDesdeLineas(tx, id, usuario);
+      await this.sincronizarPedido(tx, comanda.pedidoId);
+      return tx.comanda.findUnique({
+        where: { id },
+        include: {
+          estacion: true,
+          pedido: {
+            include: { mesa: { include: { zona: true } }, mesero: true },
+          },
+          detalles: {
+            include: {
+              detallePedido: {
+                include: { producto: true, modificadores: true },
+              },
+            },
+          },
+        },
+      });
+    });
+  }
+
+  private async sincronizarComandaDesdeLineas(
+    tx: Prisma.TransactionClient,
+    id: number,
+    usuario: UsuarioAutenticado,
+  ) {
+    const comanda = await tx.comanda.findUnique({
+      where: { id },
+      include: { detalles: true },
+    });
+    if (!comanda || comanda.detalles.length === 0) return;
+    const ahora = new Date();
+    const todasListas = comanda.detalles.every(
+      (item) => item.estado === EstadoDetalleComanda.LISTA,
+    );
+    const algunaIniciada = comanda.detalles.some(
+      (item) => item.estado !== EstadoDetalleComanda.PENDIENTE,
+    );
+    const estado = todasListas
+      ? EstadoComanda.LISTA
+      : algunaIniciada
+        ? EstadoComanda.EN_PREPARACION
+        : EstadoComanda.PENDIENTE;
+    await tx.comanda.update({
+      where: { id },
+      data: {
+        estado,
+        fechaVista: comanda.fechaVista ?? (algunaIniciada ? ahora : null),
+        vistoPorId:
+          comanda.fechaVista || !algunaIniciada ? undefined : usuario.id,
+        fechaInicio: comanda.fechaInicio ?? (algunaIniciada ? ahora : null),
+        fechaLista: todasListas ? (comanda.fechaLista ?? ahora) : null,
+      },
+    });
+  }
+
   async actualizarPrioridad(
     id: number,
     prioridad: PrioridadComanda,
@@ -387,11 +586,26 @@ export class ComandasService {
       };
 
       if (nuevoEstado === EstadoComanda.EN_PREPARACION) {
-        data.fechaInicio = ahora;
+        data.fechaInicio = comanda.fechaInicio ?? ahora;
+        data.fechaVista = comanda.fechaVista ?? ahora;
+        data.vistoPor = comanda.fechaVista
+          ? undefined
+          : { connect: { id: usuario.id } };
+        await tx.detalleComanda.updateMany({
+          where: { comandaId: id, estado: EstadoDetalleComanda.PENDIENTE },
+          data: {
+            estado: EstadoDetalleComanda.EN_PREPARACION,
+            fechaInicio: ahora,
+          },
+        });
       }
 
       if (nuevoEstado === EstadoComanda.LISTA) {
         data.fechaLista = ahora;
+        await tx.detalleComanda.updateMany({
+          where: { comandaId: id, estado: { not: EstadoDetalleComanda.LISTA } },
+          data: { estado: EstadoDetalleComanda.LISTA, fechaLista: ahora },
+        });
       }
 
       if (nuevoEstado === EstadoComanda.ENTREGADA) {
@@ -412,6 +626,7 @@ export class ComandasService {
               detallePedido: {
                 include: {
                   producto: true,
+                  modificadores: true,
                 },
               },
             },

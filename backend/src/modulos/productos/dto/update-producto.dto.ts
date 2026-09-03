@@ -1,5 +1,6 @@
 import { EstrategiaInventario, UnidadInventario } from '@prisma/client';
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNumber,
@@ -25,6 +26,15 @@ export class UpdateProductoDto {
   @IsOptional()
   @Min(0)
   precio?: number;
+
+
+  @IsBoolean()
+  @IsOptional()
+  favorito?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  disponible?: boolean;
 
   @IsEnum(EstrategiaInventario)
   @IsOptional()

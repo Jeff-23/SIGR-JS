@@ -446,6 +446,13 @@ const PERMISOS = [
     modulo: 'CLIENTES',
   },
 
+  // Centro Operativo
+  {
+    codigo: 'CENTRO_OPERATIVO_VER',
+    nombre: 'Ver Centro Operativo',
+    modulo: 'OPERACION',
+  },
+
   // Reportes
   {
     codigo: 'REPORTES_VER',

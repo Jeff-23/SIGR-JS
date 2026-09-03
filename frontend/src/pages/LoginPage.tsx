@@ -41,6 +41,7 @@ export function LoginPage() {
           "COMANDAS_ACTUALIZAR_ESTADO",
           "CAJA_VER",
           "REPORTES_VER",
+          "CENTRO_OPERATIVO_VER",
           "REGISTROS_FACTURA_VER",
           "REGISTROS_FACTURA_CREAR",
           "REGISTROS_FACTURA_EXPORTAR",

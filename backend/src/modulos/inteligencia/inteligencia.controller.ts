@@ -40,6 +40,15 @@ export class InteligenciaController {
     return this.service.operacionEnVivo(sucursalId, req.user);
   }
 
+  @Get('centro-operativo')
+  @Permisos('CENTRO_OPERATIVO_VER')
+  centroOperativo(
+    @Query('sucursalId', ParseIntPipe) sucursalId: number,
+    @Req() req: AuthRequest,
+  ) {
+    return this.service.centroOperativo(sucursalId, req.user);
+  }
+
   @Patch('articulos/:id/minimo') @Permisos('INVENTARIO_AJUSTAR') minimo(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ConfigurarMinimoDto,

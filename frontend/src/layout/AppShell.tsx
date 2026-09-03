@@ -12,6 +12,7 @@ import {
   WalletCards,
   UsersRound,
   BrainCircuit,
+  Radar,
   Presentation,
   HeartHandshake,
   Settings,
@@ -29,6 +30,13 @@ import { GuidedTour } from "../components/GuidedTour";
 import { pendingCommandCount, type Command } from "../features/kds/contracts";
 
 const nav = [
+  {
+    to: "/centro-operativo",
+    label: "Centro Operativo",
+    icon: Radar,
+    permission: "CENTRO_OPERATIVO_VER",
+    capability: "ANALYTICS",
+  },
   {
     to: "/presentacion",
     label: "Presentación comercial",
@@ -266,6 +274,7 @@ export function AppShell() {
               (a, b) =>
                 [
                   "/",
+                  "/centro-operativo",
                   "/salon",
                   "/pedidos-qr",
                   "/cocina",
@@ -288,6 +297,7 @@ export function AppShell() {
                 ].indexOf(a.to) -
                 [
                   "/",
+                  "/centro-operativo",
                   "/salon",
                   "/pedidos-qr",
                   "/cocina",

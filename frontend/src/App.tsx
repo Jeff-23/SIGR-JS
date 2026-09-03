@@ -54,6 +54,11 @@ const PayablesPage = lazy(() =>
 const StaffPage = lazy(() =>
   import("./pages/StaffPage").then((module) => ({ default: module.StaffPage })),
 );
+const OperationalCenterPage = lazy(() =>
+  import("./pages/OperationalCenterPage").then((module) => ({
+    default: module.OperationalCenterPage,
+  })),
+);
 const IntelligencePage = lazy(() =>
   import("./pages/IntelligencePage").then((module) => ({
     default: module.IntelligencePage,
@@ -228,6 +233,18 @@ function ApplicationRoutes() {
           element={
             <RouteGuard permission="USUARIOS_VER" branchRequired>
               <StaffPage />
+            </RouteGuard>
+          }
+        />
+        <Route
+          path="centro-operativo"
+          element={
+            <RouteGuard
+              permission="CENTRO_OPERATIVO_VER"
+              capability="ANALYTICS"
+              branchRequired
+            >
+              <OperationalCenterPage />
             </RouteGuard>
           }
         />

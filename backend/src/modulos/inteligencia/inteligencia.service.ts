@@ -366,6 +366,370 @@ export class InteligenciaService {
     };
   }
 
+  async centroOperativo(sucursalId: number, usuario: UsuarioAutenticado) {
+    await this.sucursal(sucursalId, usuario);
+    const ahora = new Date();
+    const desde = new Date(ahora.getTime() - 24 * 60 * 60 * 1000);
+    const base = await this.operacionEnVivo(sucursalId, usuario);
+    const [configuracion, pedidos] = await Promise.all([
+      this.prisma.configuracionSucursal.findUnique({
+        where: {
+          sucursalId_clave: {
+            sucursalId,
+            clave: 'CENTRO_OPERATIVO_UMBRALES',
+          },
+        },
+      }),
+      this.prisma.pedido.findMany({
+        where: {
+          sucursalId,
+          creadoEn: { gte: desde },
+          estado: { notIn: [EstadoPedido.CANCELADO, EstadoPedido.FACTURADO] },
+        },
+        include: {
+          mesa: { select: { id: true, numero: true, situacion: true } },
+          mesero: { select: { id: true, nombres: true, apellidos: true } },
+          venta: { select: { id: true, estado: true, total: true } },
+          comandas: {
+            include: {
+              estacion: { select: { id: true, codigo: true, nombre: true } },
+              detalles: { select: { cantidad: true, estado: true } },
+            },
+            orderBy: { fechaEnvio: 'asc' },
+          },
+          eventosOperacionales: {
+            where: { ocurridoEn: { gte: desde } },
+            orderBy: { ocurridoEn: 'asc' },
+          },
+        },
+        orderBy: { creadoEn: 'asc' },
+        take: 200,
+      }),
+    ]);
+
+    const cfg = (configuracion?.valor ?? {}) as {
+      esperaEstacionMin?: number;
+      retiroMin?: number;
+      entregaMin?: number;
+      cuentaMin?: number;
+      pagoMin?: number;
+      criticoMultiplicador?: number;
+    };
+    const umbrales = {
+      esperaEstacionMin: cfg.esperaEstacionMin ?? 5,
+      retiroMin: cfg.retiroMin ?? 5,
+      entregaMin: cfg.entregaMin ?? 4,
+      cuentaMin: cfg.cuentaMin ?? 20,
+      pagoMin: cfg.pagoMin ?? 8,
+      criticoMultiplicador: cfg.criticoMultiplicador ?? 1.5,
+    };
+
+    const prioridad = (minutos: number, objetivo: number | null) => {
+      if (!objetivo || objetivo <= 0) return 'NORMAL' as const;
+      if (
+        minutos >=
+        Math.max(objetivo * umbrales.criticoMultiplicador, objetivo + 10)
+      )
+        return 'CRITICO' as const;
+      if (minutos > objetivo) return 'URGENTE' as const;
+      if (minutos >= Math.max(1, Math.floor(objetivo * 0.75)))
+        return 'ATENCION' as const;
+      return 'NORMAL' as const;
+    };
+    const minutosDesde = (fecha: Date) =>
+      Math.max(0, Math.floor((ahora.getTime() - fecha.getTime()) / 60000));
+    const etiquetas: Record<TipoEventoOperacional, string> = {
+      PEDIDO_CREADO: 'Pedido tomado',
+      ENVIADO_ESTACION: 'Enviado a estación',
+      PREPARACION_INICIADA: 'Preparación iniciada',
+      LISTO_ESTACION: 'Estación lista',
+      RETIRADO_ESTACION: 'Retirado para servicio',
+      ENTREGADO_CLIENTE: 'Entregado',
+      CUENTA_SOLICITADA: 'Cuenta solicitada',
+      PAGO_COMPLETADO: 'Pago completado',
+    };
+
+    const casos = pedidos
+      .map((pedido) => {
+        const eventos = pedido.eventosOperacionales;
+        const ultimo = eventos.length ? eventos[eventos.length - 1] : undefined;
+        const minutos = minutosDesde(ultimo?.ocurridoEn ?? pedido.creadoEn);
+        const metaPreparacion = pedido.comandas.length
+          ? Math.max(...pedido.comandas.map((item) => item.metaPreparacionMin))
+          : 15;
+        let etapa = 'Pedido creado esperando estación';
+        let area: 'COCINA' | 'BAR' | 'SALON' | 'CAJA' = 'SALON';
+        let objetivoMin: number | null = umbrales.esperaEstacionMin;
+        let accion: 'COCINA' | 'BAR' | 'SALON' | 'CAJA' = 'SALON';
+        let estacion: string | null = null;
+        switch (ultimo?.tipo) {
+          case TipoEventoOperacional.ENVIADO_ESTACION:
+            etapa = 'Esperando inicio de preparación';
+            objetivoMin = umbrales.esperaEstacionMin;
+            area = (
+              (ultimo.metadata as { estacion?: string } | null)?.estacion ?? ''
+            )
+              .toUpperCase()
+              .includes('BAR')
+              ? 'BAR'
+              : 'COCINA';
+            accion = area;
+            break;
+          case TipoEventoOperacional.PREPARACION_INICIADA:
+            etapa = 'Pedido en preparación';
+            objetivoMin =
+              (ultimo.metadata as { metaPreparacionMin?: number } | null)
+                ?.metaPreparacionMin ?? metaPreparacion;
+            estacion =
+              (ultimo.metadata as { estacion?: string } | null)?.estacion ??
+              null;
+            area = estacion?.toUpperCase().includes('BAR') ? 'BAR' : 'COCINA';
+            accion = area;
+            break;
+          case TipoEventoOperacional.LISTO_ESTACION:
+            etapa = 'Comida o bebida lista sin retirar';
+            objetivoMin = umbrales.retiroMin;
+            estacion =
+              (ultimo.metadata as { estacion?: string } | null)?.estacion ??
+              null;
+            area = estacion?.toUpperCase().includes('BAR') ? 'BAR' : 'COCINA';
+            accion = area;
+            break;
+          case TipoEventoOperacional.RETIRADO_ESTACION:
+            etapa = 'Retirado esperando entrega';
+            objetivoMin = umbrales.entregaMin;
+            area = 'SALON';
+            accion = 'SALON';
+            break;
+          case TipoEventoOperacional.ENTREGADO_CLIENTE:
+            etapa = 'Mesa atendida';
+            objetivoMin = umbrales.cuentaMin;
+            area = 'SALON';
+            accion = 'SALON';
+            break;
+          case TipoEventoOperacional.CUENTA_SOLICITADA:
+            etapa = 'Cuenta solicitada esperando pago';
+            objetivoMin = umbrales.pagoMin;
+            area = 'CAJA';
+            accion = 'CAJA';
+            break;
+          case TipoEventoOperacional.PAGO_COMPLETADO:
+            etapa = 'Pagado';
+            objetivoMin = null;
+            area = 'CAJA';
+            accion = 'CAJA';
+            break;
+          case TipoEventoOperacional.PEDIDO_CREADO:
+          default:
+            break;
+        }
+
+        const cocina = pedido.comandas.filter((item) =>
+          item.estacion.codigo.toUpperCase().includes('COCINA'),
+        );
+        const bar = pedido.comandas.filter((item) =>
+          item.estacion.codigo.toUpperCase().includes('BAR'),
+        );
+        const linea = (items: typeof pedido.comandas) => ({
+          total: items.reduce(
+            (sum, item) =>
+              sum + item.detalles.reduce((n, d) => n + d.cantidad, 0),
+            0,
+          ),
+          listas: items.reduce(
+            (sum, item) =>
+              sum +
+              item.detalles
+                .filter((d) =>
+                  ['LISTA', 'ENTREGADA'].includes(String(d.estado)),
+                )
+                .reduce((n, d) => n + d.cantidad, 0),
+            0,
+          ),
+        });
+        const cocinaLineas = linea(cocina);
+        const barLineas = linea(bar);
+        const totalLineas = cocinaLineas.total + barLineas.total;
+        const listas = cocinaLineas.listas + barLineas.listas;
+        const parcial = totalLineas > 0 && listas > 0 && listas < totalLineas;
+        if (parcial && etapa === 'Pedido en preparación')
+          etapa = 'Pedido parcialmente listo';
+
+        const nivel = prioridad(minutos, objetivoMin);
+        return {
+          pedidoId: pedido.id,
+          mesaId: pedido.mesa?.id ?? null,
+          mesa: pedido.mesa ? `Mesa ${pedido.mesa.numero}` : pedido.tipo,
+          mesero: pedido.mesero
+            ? `${pedido.mesero.nombres} ${pedido.mesero.apellidos}`.trim()
+            : null,
+          total: pedido.venta?.total ?? pedido.total,
+          estado: pedido.estado,
+          etapa,
+          area,
+          estacion,
+          minutosEnEtapa: minutos,
+          objetivoMin,
+          retrasoMin: objetivoMin ? Math.max(0, minutos - objetivoMin) : 0,
+          prioridad: nivel,
+          accion,
+          progreso: {
+            cocina: cocinaLineas,
+            bar: barLineas,
+            listas,
+            total: totalLineas,
+            parcial,
+          },
+          timeline: eventos.map((evento) => ({
+            tipo: evento.tipo,
+            etiqueta: etiquetas[evento.tipo],
+            ocurridoEn: evento.ocurridoEn,
+            metadata: evento.metadata,
+          })),
+        };
+      })
+      .filter((item) => item.etapa !== 'Pagado');
+
+    const estacionesMap = new Map<
+      string,
+      {
+        codigo: string;
+        nombre: string;
+        pendientes: number;
+        preparando: number;
+        listas: number;
+        retrasadas: number;
+        tiempos: number[];
+      }
+    >();
+    pedidos.forEach((pedido) =>
+      pedido.comandas.forEach((comanda) => {
+        const key = comanda.estacion.codigo;
+        const item = estacionesMap.get(key) ?? {
+          codigo: key,
+          nombre: comanda.estacion.nombre,
+          pendientes: 0,
+          preparando: 0,
+          listas: 0,
+          retrasadas: 0,
+          tiempos: [],
+        };
+        const estado = String(comanda.estado);
+        if (estado === 'PENDIENTE') item.pendientes += 1;
+        if (estado === 'EN_PREPARACION') item.preparando += 1;
+        if (estado === 'LISTA') item.listas += 1;
+        if (estado === 'PENDIENTE' || estado === 'EN_PREPARACION') {
+          const minutos = minutosDesde(
+            comanda.fechaInicio ?? comanda.fechaEnvio,
+          );
+          item.tiempos.push(minutos);
+          if (minutos > comanda.metaPreparacionMin) item.retrasadas += 1;
+        }
+        estacionesMap.set(key, item);
+      }),
+    );
+    const estaciones = [...estacionesMap.values()].map((item) => ({
+      codigo: item.codigo,
+      nombre: item.nombre,
+      pendientes: item.pendientes,
+      preparando: item.preparando,
+      listas: item.listas,
+      retrasadas: item.retrasadas,
+      tiempoPromedioActual: item.tiempos.length
+        ? Math.round(
+            item.tiempos.reduce((a, b) => a + b, 0) / item.tiempos.length,
+          )
+        : 0,
+    }));
+
+    const peso = (nivel: string) =>
+      nivel === 'CRITICO'
+        ? 3
+        : nivel === 'URGENTE'
+          ? 2
+          : nivel === 'ATENCION'
+            ? 1
+            : 0;
+    const cola = [...casos].sort(
+      (a, b) =>
+        peso(b.prioridad) - peso(a.prioridad) ||
+        b.retrasoMin - a.retrasoMin ||
+        b.minutosEnEtapa - a.minutosEnEtapa,
+    );
+    const mesasOcupadas = new Set(
+      casos
+        .map((item) => item.mesaId)
+        .filter((id): id is number => id !== null),
+    ).size;
+    const atencion = cola.filter((item) => item.prioridad !== 'NORMAL').length;
+    const tiemposActivos = cola.map((item) => item.minutosEnEtapa);
+    const totalPendientesEstacion = estaciones.reduce(
+      (sum, item) => sum + item.pendientes + item.preparando,
+      0,
+    );
+    const alertasRegla: {
+      nivel: 'URGENTE' | 'CRITICO';
+      area: string;
+      mensaje: string;
+    }[] = [];
+    estaciones.forEach((item) => {
+      const concentracion = totalPendientesEstacion
+        ? (item.pendientes + item.preparando) / totalPendientesEstacion
+        : 0;
+      if (item.retrasadas >= 3) {
+        alertasRegla.push({
+          nivel: 'CRITICO',
+          area: item.codigo,
+          mensaje: `${item.nombre} acumula ${item.retrasadas} comandas retrasadas.`,
+        });
+      } else if (concentracion >= 0.7 && totalPendientesEstacion >= 4) {
+        alertasRegla.push({
+          nivel: 'URGENTE',
+          area: item.codigo,
+          mensaje: `${item.nombre} concentra ${Math.round(concentracion * 100)} % de las comandas pendientes actuales.`,
+        });
+      }
+    });
+
+    return {
+      generadoEn: ahora,
+      actualizacionSegundos: 15,
+      umbrales,
+      resumen: {
+        mesasOcupadas,
+        mesasEsperandoAtencion: atencion,
+        pedidosEnPreparacion: casos.filter(
+          (item) =>
+            item.etapa === 'Pedido en preparación' ||
+            item.etapa === 'Pedido parcialmente listo',
+        ).length,
+        pedidosRetrasados: casos.filter((item) =>
+          ['URGENTE', 'CRITICO'].includes(item.prioridad),
+        ).length,
+        listosSinRetirar: casos.filter(
+          (item) => item.etapa === 'Comida o bebida lista sin retirar',
+        ).length,
+        cuentasSolicitadas: casos.filter(
+          (item) => item.etapa === 'Cuenta solicitada esperando pago',
+        ).length,
+        pendientesPago: casos.filter((item) => item.area === 'CAJA').length,
+        tiempoPromedioOperativoActual: tiemposActivos.length
+          ? Math.round(
+              (tiemposActivos.reduce((a, b) => a + b, 0) /
+                tiemposActivos.length) *
+                10,
+            ) / 10
+          : 0,
+        situacionesAtencion: atencion + alertasRegla.length,
+      },
+      cola,
+      estaciones,
+      alertasRegla,
+      tiemposPromedio24h: base.tiemposPromedio,
+      nota: 'Centro Operativo usa eventos persistidos, estado de comandas, mesas y ventas de la sucursal. Los umbrales pueden definirse con la configuración CENTRO_OPERATIVO_UMBRALES; si no existe se aplican valores seguros por defecto.',
+    };
+  }
+
   async configurarMinimo(
     id: number,
     data: ConfigurarMinimoDto,

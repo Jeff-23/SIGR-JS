@@ -32,6 +32,7 @@ import { RegistrarPagoDto } from './dto/registrar-pago.dto';
 import { DevolverPagoDto, ReversarVentaDto } from './dto/devolver-pago.dto';
 import { ListarVentasDto } from './dto/listar-ventas.dto';
 import { DividirCuentaDto } from './dto/dividir-cuenta.dto';
+import { ActualizarLiquidacionVentaDto } from './dto/actualizar-liquidacion-venta.dto';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { InventarioService } from '../inventario/inventario.service';
@@ -668,8 +669,9 @@ export class VentasService {
       include: {
         detalles: true,
         pagos: true,
-        factura: true,
+        factura: { include: { documentoElectronico: true } },
         cliente: true,
+        aplicacionesDescuento: true,
       },
     });
   }
@@ -1104,8 +1106,9 @@ export class VentasService {
       include: {
         detalles: true,
         pagos: true,
-        factura: true,
+        factura: { include: { documentoElectronico: true } },
         cliente: true,
+        aplicacionesDescuento: true,
       },
     });
   }
@@ -1179,8 +1182,9 @@ export class VentasService {
           },
         },
 
-        factura: true,
+        factura: { include: { documentoElectronico: true } },
         cliente: true,
+        aplicacionesDescuento: true,
         pedido: { include: { mesa: true } },
         divisionesCuenta: { include: { pagos: true }, orderBy: { id: 'asc' } },
       },
@@ -1215,9 +1219,10 @@ export class VentasService {
           },
         },
 
-        factura: true,
-        pedido: true,
+        factura: { include: { documentoElectronico: true } },
+        pedido: { include: { mesa: true } },
         cliente: true,
+        aplicacionesDescuento: true,
         divisionesCuenta: { include: { pagos: true }, orderBy: { id: 'asc' } },
       },
     });
@@ -1227,6 +1232,114 @@ export class VentasService {
     }
 
     return venta;
+  }
+
+  async actualizarLiquidacion(
+    ventaId: number,
+    data: ActualizarLiquidacionVentaDto,
+    usuarioActual: UsuarioAutenticado,
+  ) {
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const alcanzable = await tx.venta.findFirst({
+        where: { id: ventaId, sucursal: this.filtroSucursal(usuarioActual) },
+        select: { id: true },
+      });
+      if (!alcanzable) throw new NotFoundException('Venta no encontrada');
+
+      await tx.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "Venta" WHERE "id" = ${alcanzable.id} FOR UPDATE`,
+      );
+
+      const venta = await tx.venta.findUniqueOrThrow({
+        where: { id: alcanzable.id },
+        include: {
+          pagos: { select: { id: true } },
+          factura: { select: { id: true } },
+          divisionesCuenta: { select: { id: true } },
+          aplicacionesDescuento: { select: { monto: true } },
+        },
+      });
+      if (venta.estado === EstadoVenta.ANULADA)
+        throw new BadRequestException(
+          'No se puede modificar una venta anulada',
+        );
+      if (venta.pagos.length > 0)
+        throw new BadRequestException(
+          'Descuento, propina y cliente deben definirse antes del primer pago',
+        );
+      if (venta.factura)
+        throw new BadRequestException(
+          'La liquidación no puede modificarse después de crear la factura',
+        );
+      if (venta.divisionesCuenta.length > 0)
+        throw new BadRequestException(
+          'La liquidación debe definirse antes de dividir la cuenta',
+        );
+
+      const descuentoAutomatico = venta.aplicacionesDescuento.reduce(
+        (total, item) => total.plus(item.monto),
+        new Prisma.Decimal(0),
+      );
+      const descuentos = dinero(data.descuentos, 'descuentos');
+      const propina = dinero(data.propina, 'propina');
+      if (descuentos.lt(descuentoAutomatico))
+        throw new BadRequestException(
+          'El descuento no puede ser inferior a los descuentos automáticos ya aplicados',
+        );
+      const descuentoManual = descuentos.minus(descuentoAutomatico);
+      if (
+        !descuentos.eq(venta.descuentos) &&
+        descuentoManual.gt(0) &&
+        !this.esSuperadmin(usuarioActual) &&
+        !usuarioActual.permisos.includes('DESCUENTOS_APLICAR')
+      )
+        throw new ForbiddenException(
+          'No tienes permiso para aplicar descuentos',
+        );
+      if (descuentos.gt(venta.subtotal))
+        throw new BadRequestException(
+          'El descuento no puede superar el subtotal de la venta',
+        );
+
+      let clienteId = venta.clienteId;
+      if (Object.prototype.hasOwnProperty.call(data, 'clienteId')) {
+        clienteId =
+          data.clienteId == null
+            ? null
+            : await this.resolverClienteId(
+                tx,
+                data.clienteId,
+                venta.sucursalId,
+              );
+      }
+
+      const total = venta.subtotal
+        .minus(descuentos)
+        .plus(venta.impuestos)
+        .plus(venta.impoconsumo)
+        .plus(propina)
+        .plus(venta.domicilioCosto);
+
+      await tx.venta.update({
+        where: { id: venta.id },
+        data: { descuentos, propina, total, clienteId },
+      });
+      return tx.venta.findUniqueOrThrow({
+        where: { id: venta.id },
+        include: {
+          detalles: { include: { producto: true } },
+          pagos: { include: { metodoPago: true, devoluciones: true } },
+          factura: { include: { documentoElectronico: true } },
+          pedido: { include: { mesa: true } },
+          cliente: true,
+          divisionesCuenta: {
+            include: { pagos: true },
+            orderBy: { id: 'asc' },
+          },
+          aplicacionesDescuento: true,
+        },
+      });
+    });
   }
 
   async dividirCuenta(
@@ -1562,8 +1675,8 @@ export class VentasService {
             caja: { select: { id: true, nombre: true, estado: true } },
           },
         },
-        factura: true,
-        pedido: true,
+        factura: { include: { documentoElectronico: true } },
+        pedido: { include: { mesa: true } },
       },
     });
   }

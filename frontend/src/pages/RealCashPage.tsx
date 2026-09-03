@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RefreshCw, Printer, X } from "lucide-react";
+import { RefreshCw, X } from "lucide-react";
 import toast from "react-hot-toast";
 import { isAxiosError } from "axios";
 import { api, errorMessage } from "../lib/api";
@@ -7,7 +7,6 @@ import { useApp } from "../store/app";
 import { money } from "../data/demo";
 import {
   balance,
-  refundable,
   divisionBalance,
   type CashDrawer,
   type PaymentMethod,
@@ -18,13 +17,12 @@ import { confirmedPost } from "../lib/confirmed-operation";
 import { FinancialRecovery } from "../components/FinancialRecovery";
 import { SaleForm } from "../features/cash/SaleForm";
 import {
-  splitPeople,
-  splitPercentages,
-  splitProducts,
-} from "../features/cash/account-split";
+  ProfessionalSaleCheckout,
+  type PaymentDraft,
+} from "../features/cash/ProfessionalSaleCheckout";
 
 export function RealCashPage() {
-  const { branchId, session, hasPermission } = useApp();
+  const { branchId, session, hasPermission, hasCapability } = useApp();
   const attemptKey = `sigr-payment:${api.defaults.baseURL}:${session?.user.restauranteId}:${session?.user.id}:${branchId}`;
   const [drawers, setDrawers] = useState<CashDrawer[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
@@ -37,7 +35,7 @@ export function RealCashPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
-  const [payment, setPayment] = useState({
+  const [payment, setPayment] = useState<PaymentDraft>({
     monto: "",
     metodoPagoId: "",
     cajaId: "",
@@ -64,6 +62,7 @@ export function RealCashPage() {
   const [observation, setObservation] = useState("");
   const [showOpen, setShowOpen] = useState(false);
   const [saleMode, setSaleMode] = useState<"directa" | "manual" | null>(null);
+  const [saleSearch, setSaleSearch] = useState("");
   const mounted = useRef(true);
   const load = useCallback(async () => {
     if (!branchId) return;
@@ -202,8 +201,23 @@ export function RealCashPage() {
       sessionStorage.removeItem(attemptKey);
       paymentAttempt.current = null;
       setUncertain(false);
-      setSelectedSale(null);
-      toast.success("Pago confirmado por el servidor");
+      const { data: updatedSale } = await api.get<Sale>(`/ventas/${attempt.saleId}`);
+      setSelectedSale(updatedSale);
+      const nextDivision = updatedSale.divisionesCuenta?.find(
+        (item) => item.id === Number(payment.divisionCuentaId),
+      );
+      setPayment((current) => ({
+        ...current,
+        monto: String(
+          nextDivision ? divisionBalance(nextDivision) : balance(updatedSale),
+        ),
+        referencia: "",
+      }));
+      toast.success(
+        balance(updatedSale) > 0
+          ? "Pago registrado. Puedes agregar otro medio."
+          : "Venta pagada completamente.",
+      );
     } catch (error) {
       // Keep the exact operation/key even when the server committed but its response was lost.
       if (
@@ -223,6 +237,20 @@ export function RealCashPage() {
   const pendingSales = sales.filter(
     (sale) => sale.estado !== "ANULADA" && balance(sale) > 0,
   );
+  const normalizedSaleSearch = saleSearch.trim().toLocaleLowerCase("es-CO");
+  const visiblePendingSales = normalizedSaleSearch
+    ? pendingSales.filter((sale) => {
+        const customer = sale.cliente?.razonSocial || sale.cliente?.nombres || "";
+        return [
+          String(sale.id),
+          sale.pedido?.mesa?.numero ?? "",
+          sale.pedido?.id ? String(sale.pedido.id) : "",
+          customer,
+        ].some((value) =>
+          String(value).toLocaleLowerCase("es-CO").includes(normalizedSaleSearch),
+        );
+      })
+    : pendingSales;
   return (
     <div className="space-y-6">
       <header className="section-title">
@@ -399,11 +427,23 @@ export function RealCashPage() {
           </div>
         </section>
         <section>
-          <h2 className="text-xl font-bold">
-            Por cobrar · {pendingSales.length}
-          </h2>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-bold">Por cobrar · {pendingSales.length}</h2>
+              <p className="text-sm text-denim/55">Busca por venta, pedido, mesa o cliente y entra directo al cobro.</p>
+            </div>
+            <label className="w-full sm:w-80">
+              Buscar venta pendiente
+              <input
+                className="input"
+                value={saleSearch}
+                onChange={(event) => setSaleSearch(event.target.value)}
+                placeholder="Ej. mesa 12, venta 1050, cliente…"
+              />
+            </label>
+          </div>
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            {pendingSales.map((sale) => (
+            {visiblePendingSales.map((sale) => (
               <article className="card" key={sale.id}>
                 <h3 className="font-bold">
                   Venta #{sale.id}
@@ -436,9 +476,10 @@ export function RealCashPage() {
             ))}
           </div>
           {!loading && !pendingSales.length && (
-            <p className="mt-3">
-              Sin saldos pendientes en las últimas 200 ventas consultadas.
-            </p>
+            <p className="mt-3">Sin saldos pendientes en las últimas 200 ventas consultadas.</p>
+          )}
+          {!loading && pendingSales.length > 0 && visiblePendingSales.length === 0 && (
+            <p className="mt-3">No hay ventas pendientes que coincidan con la búsqueda.</p>
           )}
         </section>
         <section className="card">
@@ -638,359 +679,27 @@ export function RealCashPage() {
         </div>
       )}
       {selectedSale && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4 print:bg-white print:p-0">
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-label="Venta y cobro"
-            className="card mx-auto max-w-2xl space-y-4 print:shadow-none"
-          >
-            <button
-              className="secondary ml-auto w-auto print:hidden"
-              aria-label="Cerrar venta"
-              disabled={busy || uncertain}
-              onClick={() => setSelectedSale(null)}
-            >
-              <X />
-            </button>
-            <div className="cash-receipt">
-              <p className="eyebrow">
-                Comprobante de operación · No es factura electrónica
-              </p>
-              <h2 className="page-title">Venta #{selectedSale.id}</h2>
-              <p>
-                {new Date(selectedSale.fechaOperacion).toLocaleString("es-CO")}
-              </p>
-              {selectedSale.detalles.map((detail) => (
-                <p key={detail.id}>
-                  {detail.cantidad} ×{" "}
-                  {detail.producto?.nombre ?? `Producto ${detail.id}`} ·{" "}
-                  {money.format(Number(detail.subtotal))}
-                </p>
-              ))}
-              <p className="mt-4 font-bold">
-                Total {money.format(Number(selectedSale.total))} · Saldo{" "}
-                {money.format(balance(selectedSale))}
-              </p>
-              {selectedSale.pagos.map((item) => (
-                <div key={item.id} className="rounded-xl border p-3">
-                  <p>
-                    Pago #{item.id}: {item.metodoPago.nombre} ·{" "}
-                    {money.format(Number(item.monto))}
-                  </p>
-                  {(item.devoluciones ?? []).map((refund) => (
-                    <p key={refund.id} className="text-sm text-amber-800">
-                      Devolución #{refund.id}: −{money.format(Number(refund.monto))} · {refund.motivo}
-                    </p>
-                  ))}
-                  {hasPermission("PAGOS_REGISTRAR") && refundable(item) > 0 && (
-                    <button
-                      className="secondary mt-2 print:hidden"
-                      disabled={busy || uncertain}
-                      onClick={() => {
-                        const amount = window.prompt(
-                          `Monto a devolver (máximo ${money.format(refundable(item))})`,
-                          String(refundable(item)),
-                        );
-                        if (amount === null) return;
-                        const reason = window.prompt("Motivo obligatorio de la devolución");
-                        if (!reason?.trim()) return;
-                        void run(async () => {
-                          await api.post(
-                            `/ventas/${selectedSale.id}/pagos/${item.id}/devoluciones`,
-                            { monto: Number(amount), motivo: reason.trim() },
-                            { headers: { "Idempotency-Key": crypto.randomUUID() } },
-                          );
-                          const detail = await api.get<Sale>(`/ventas/${selectedSale.id}`);
-                          setSelectedSale(detail.data);
-                          toast.success("Devolución registrada sin alterar el pago original");
-                        });
-                      }}
-                    >
-                      Registrar devolución
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-            <button
-              className="secondary print:hidden"
-              onClick={() => window.print()}
-            >
-              <Printer size={18} />
-              Imprimir comprobante
-            </button>
-            {hasPermission("VENTAS_CREAR") &&
-              selectedSale.estado !== "ANULADA" &&
-              selectedSale.pagos.length === 0 && (
-                <button
-                  className="secondary print:hidden"
-                  disabled={busy || uncertain}
-                  onClick={() => {
-                    const mode = window.prompt(
-                      "Tipo de división: PERSONAS, PORCENTAJE o PRODUCTOS",
-                      "PERSONAS",
-                    )?.trim().toUpperCase();
-                    if (!mode) return;
-                    let partes;
-                    try {
-                      if (mode === "PERSONAS") {
-                        partes = splitPeople(
-                          Number(selectedSale.total),
-                          Number(window.prompt("Número de personas", "2")),
-                        );
-                      } else if (mode === "PORCENTAJE") {
-                        const percentages = (window.prompt(
-                          "Porcentajes separados por coma (deben sumar 100)",
-                          "50,50",
-                        ) ?? "")
-                          .split(",")
-                          .map(Number);
-                        partes = splitPercentages(
-                          Number(selectedSale.total),
-                          percentages,
-                        );
-                      } else if (mode === "PRODUCTOS") {
-                        const assignments = selectedSale.detalles.map((detail) =>
-                          Number(
-                            window.prompt(
-                              `Grupo para ${detail.producto?.nombre ?? `Producto ${detail.id}`}`,
-                              "1",
-                            ),
-                          ),
-                        );
-                        partes = splitProducts(selectedSale, assignments);
-                      } else throw new Error("Tipo de división inválido");
-                    } catch (error) {
-                      toast.error(
-                        error instanceof Error ? error.message : "División inválida",
-                      );
-                      return;
-                    }
-                    void run(async () => {
-                      await api.post(`/ventas/${selectedSale.id}/division-cuenta`, {
-                        modo: mode,
-                        partes,
-                      });
-                      const detail = await api.get<Sale>(`/ventas/${selectedSale.id}`);
-                      setSelectedSale(detail.data);
-                      setPayment((current) => ({
-                        ...current,
-                        divisionCuentaId: detail.data.divisionesCuenta?.[0]
-                          ? String(detail.data.divisionesCuenta[0].id)
-                          : "",
-                        monto: detail.data.divisionesCuenta?.[0]
-                          ? String(divisionBalance(detail.data.divisionesCuenta[0]))
-                          : current.monto,
-                      }));
-                      toast.success("Cuenta dividida; cada parte puede pagarse por separado");
-                    });
-                  }}
-                >
-                  Dividir cuenta
-                </button>
-              )}
-            {(selectedSale.divisionesCuenta?.length ?? 0) > 0 && (
-              <div className="rounded-xl bg-slate-50 p-3">
-                <strong>Cuenta dividida</strong>
-                {selectedSale.divisionesCuenta?.map((division) => (
-                  <p key={division.id}>
-                    {division.nombre}: {money.format(Number(division.total))} · saldo{" "}
-                    {money.format(divisionBalance(division))}
-                  </p>
-                ))}
-              </div>
-            )}
-            {(uncertain || balance(selectedSale) > 0) &&
-              selectedSale.estado !== "ANULADA" &&
-              hasPermission("PAGOS_REGISTRAR") && (
-                <form
-                  className="space-y-3 print:hidden"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void run(pay);
-                  }}
-                >
-                  <fieldset
-                    disabled={busy || uncertain}
-                    className="grid gap-3 sm:grid-cols-2"
-                  >
-                    <label>
-                      Monto a cobrar
-                      <input
-                        className="input"
-                        type="number"
-                        required
-                        min="0.01"
-                        step="0.01"
-                        max={
-                          selectedSale.divisionesCuenta?.find(
-                            (item) => item.id === Number(payment.divisionCuentaId),
-                          )
-                            ? divisionBalance(
-                                selectedSale.divisionesCuenta.find(
-                                  (item) =>
-                                    item.id === Number(payment.divisionCuentaId),
-                                )!,
-                              )
-                            : balance(selectedSale)
-                        }
-                        value={payment.monto}
-                        onChange={(event) =>
-                          setPayment({ ...payment, monto: event.target.value })
-                        }
-                      />
-                    </label>
-                    <label>
-                      Método
-                      <select
-                        required
-                        className="input"
-                        value={payment.metodoPagoId}
-                        onChange={(event) =>
-                          setPayment({
-                            ...payment,
-                            metodoPagoId: event.target.value,
-                          })
-                        }
-                      >
-                        <option value="">Selecciona</option>
-                        {methods.map((method) => (
-                          <option key={method.id} value={method.id}>
-                            {method.nombre}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Caja
-                      <select
-                        required
-                        className="input"
-                        value={payment.cajaId}
-                        onChange={(event) =>
-                          setPayment({ ...payment, cajaId: event.target.value })
-                        }
-                      >
-                        <option value="">Selecciona</option>
-                        {drawers.map((drawer) => (
-                          <option key={drawer.id} value={drawer.id}>
-                            {drawer.nombre}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Referencia
-                      <input
-                        className="input"
-                        maxLength={100}
-                        value={payment.referencia}
-                        onChange={(event) =>
-                          setPayment({
-                            ...payment,
-                            referencia: event.target.value,
-                          })
-                        }
-                      />
-                    </label>
-                    {(selectedSale.divisionesCuenta?.length ?? 0) > 0 && (
-                      <label>
-                        Parte de la cuenta
-                        <select
-                          required
-                          className="input"
-                          value={payment.divisionCuentaId}
-                          onChange={(event) => {
-                            const division = selectedSale.divisionesCuenta?.find(
-                              (item) => item.id === Number(event.target.value),
-                            );
-                            setPayment({
-                              ...payment,
-                              divisionCuentaId: event.target.value,
-                              monto: division
-                                ? String(divisionBalance(division))
-                                : payment.monto,
-                            });
-                          }}
-                        >
-                          <option value="">Selecciona</option>
-                          {selectedSale.divisionesCuenta?.map((division) => (
-                            <option key={division.id} value={division.id}>
-                              {division.nombre} · {money.format(divisionBalance(division))}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
-                  </fieldset>
-                  {uncertain && (
-                    <p role="alert" className="rounded-xl bg-amber-50 p-3">
-                      No se confirmó el resultado. Reintenta exactamente el
-                      mismo cobro; su clave evita duplicarlo. No vuelvas a
-                      cobrar al cliente.
-                    </p>
-                  )}
-                  <button
-                    className="primary"
-                    disabled={busy || Boolean(failure)}
-                  >
-                    {uncertain
-                      ? "Consultar / reintentar mismo cobro"
-                      : "Confirmar cobro"}
-                  </button>
-                </form>
-              )}
-            {hasPermission("VENTAS_ANULAR") &&
-              selectedSale.estado !== "ANULADA" &&
-              selectedSale.pagos.length > 0 &&
-              selectedSale.pagos.every((item) => refundable(item) === 0) && (
-                <button
-                  className="secondary print:hidden"
-                  disabled={busy || uncertain}
-                  onClick={() => {
-                    const reason = window.prompt(
-                      "Motivo de la reversión comercial (los pagos deben estar totalmente devueltos)",
-                    );
-                    if (!reason?.trim()) return;
-                    void run(async () => {
-                      await api.post(
-                        `/ventas/${selectedSale.id}/reversar`,
-                        { motivo: reason.trim() },
-                        { headers: { "Idempotency-Key": crypto.randomUUID() } },
-                      );
-                      setSelectedSale(null);
-                      toast.success("Venta revertida con trazabilidad append-only");
-                    });
-                  }}
-                >
-                  Reversar venta después de devoluciones
-                </button>
-              )}
-            {hasPermission("VENTAS_ANULAR") &&
-              selectedSale.estado !== "ANULADA" &&
-              selectedSale.pagos.length === 0 && (
-                <button
-                  className="secondary print:hidden"
-                  disabled={busy || uncertain}
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        "¿Anular esta venta sin pagos? No es una devolución de dinero.",
-                      )
-                    )
-                      void run(async () => {
-                        await api.patch(`/ventas/${selectedSale.id}/anular`);
-                        setSelectedSale(null);
-                        toast.success("Venta anulada");
-                      });
-                  }}
-                >
-                  Anular venta sin pagos
-                </button>
-              )}
-          </section>
-        </div>
+        <ProfessionalSaleCheckout
+          sale={selectedSale}
+          drawers={drawers}
+          methods={methods}
+          payment={payment}
+          setPayment={setPayment}
+          busy={busy}
+          uncertain={uncertain}
+          failure={failure}
+          hasPermission={hasPermission}
+          hasCapability={hasCapability}
+          onClose={() => setSelectedSale(null)}
+          onPay={pay}
+          onRun={run}
+          onSaleChanged={(sale) => {
+            setSelectedSale(sale);
+            setSales((current) =>
+              current.map((item) => (item.id === sale.id ? sale : item)),
+            );
+          }}
+        />
       )}
     </div>
   );

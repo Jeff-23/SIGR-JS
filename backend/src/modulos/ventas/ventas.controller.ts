@@ -24,6 +24,7 @@ import { RegistrarPagoDto } from './dto/registrar-pago.dto';
 import { DevolverPagoDto, ReversarVentaDto } from './dto/devolver-pago.dto';
 import { ListarVentasDto } from './dto/listar-ventas.dto';
 import { DividirCuentaDto } from './dto/dividir-cuenta.dto';
+import { ActualizarLiquidacionVentaDto } from './dto/actualizar-liquidacion-venta.dto';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
@@ -168,6 +169,16 @@ export class VentasController {
       request.user,
       claveIdempotencia,
     );
+  }
+
+  @Patch(':id/liquidacion')
+  @Permisos('VENTAS_CREAR')
+  actualizarLiquidacion(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: ActualizarLiquidacionVentaDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.ventasService.actualizarLiquidacion(id, data, request.user);
   }
 
   @Patch(':id/anular')

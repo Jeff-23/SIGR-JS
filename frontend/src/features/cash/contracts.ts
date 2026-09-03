@@ -8,6 +8,12 @@ export type Sale = {
   id: number;
   sucursalId: number;
   estado: string;
+  subtotal?: string | number;
+  descuentos?: string | number;
+  impuestos?: string | number;
+  impoconsumo?: string | number;
+  propina?: string | number;
+  domicilioCosto?: string | number;
   total: string | number;
   fechaOperacion: string;
   pedido?: {
@@ -15,7 +21,9 @@ export type Sale = {
     estado: string;
     mesa?: { numero: string } | null;
   } | null;
-  cliente?: { nombres?: string; razonSocial?: string } | null;
+  cliente?: { id?: number; nombres?: string; apellidos?: string; razonSocial?: string; numeroDocumento?: string } | null;
+  factura?: { id: number; numero: string; documentoElectronico?: { id: number; estado: string; numeroCompleto?: string } | null } | null;
+  aplicacionesDescuento?: Array<{ id: number; origen: string; nombre: string; monto: string | number }>;
   pagos: Array<{
     id: number;
     monto: string | number;
@@ -114,4 +122,40 @@ export function refundable(payment: Sale["pagos"][number]) {
         ),
     ) / 100
   );
+}
+
+export function paid(sale: Pick<Sale, "pagos">) {
+  return (
+    sale.pagos.reduce(
+      (sum, payment) =>
+        sum +
+        cents(payment.monto) -
+        (payment.devoluciones ?? []).reduce(
+          (returned, refund) => returned + cents(refund.monto),
+          0,
+        ),
+      0,
+    ) / 100
+  );
+}
+
+export function automaticDiscount(sale: Pick<Sale, "aplicacionesDescuento">) {
+  return (sale.aplicacionesDescuento ?? []).reduce(
+    (sum, item) => sum + Number(item.monto),
+    0,
+  );
+}
+
+export function cashChange(received: string | number, charged: string | number) {
+  const receivedCents = cents(received || 0);
+  const chargedCents = cents(charged || 0);
+  return Math.max(0, receivedCents - chargedCents) / 100;
+}
+
+export function clampPaymentAmount(value: string | number, maximum: string | number) {
+  const amount = Number(value);
+  const max = Math.max(0, Number(maximum));
+  if (!Number.isFinite(amount)) return "";
+  if (!(amount > 0)) return value === "" ? "" : "0";
+  return String(Math.min(amount, max));
 }

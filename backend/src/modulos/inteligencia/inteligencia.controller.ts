@@ -31,6 +31,15 @@ export class InteligenciaController {
   ) {
     return this.service.tablero(dto, req.user);
   }
+  @Get('operacion-en-vivo')
+  @Permisos('REPORTES_VER')
+  operacionEnVivo(
+    @Query('sucursalId', ParseIntPipe) sucursalId: number,
+    @Req() req: AuthRequest,
+  ) {
+    return this.service.operacionEnVivo(sucursalId, req.user);
+  }
+
   @Patch('articulos/:id/minimo') @Permisos('INVENTARIO_AJUSTAR') minimo(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ConfigurarMinimoDto,

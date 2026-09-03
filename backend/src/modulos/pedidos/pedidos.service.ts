@@ -11,6 +11,7 @@ import {
   EstadoMesa,
   EstadoPedido,
   Prisma,
+  TipoEventoOperacional,
   TipoPedido,
 } from '@prisma/client';
 
@@ -105,7 +106,9 @@ export class PedidosService {
 
     for (const detalle of detalles) {
       const observaciones = detalle.observaciones?.trim() || undefined;
-      const modificadorIds = [...new Set(detalle.modificadorIds ?? [])].sort((a, b) => a - b);
+      const modificadorIds = [...new Set(detalle.modificadorIds ?? [])].sort(
+        (a, b) => a - b,
+      );
       const clave = `${detalle.productoId}:${observaciones ?? ''}:${modificadorIds.join(',')}`;
       const existente = cantidades.get(clave);
       cantidades.set(clave, {
@@ -154,7 +157,9 @@ export class PedidosService {
           },
         },
       },
-      include: { modificadores: { where: { activo: true }, orderBy: { orden: 'asc' } } },
+      include: {
+        modificadores: { where: { activo: true }, orderBy: { orden: 'asc' } },
+      },
     });
 
     if (productos.length !== productosIds.length) {
@@ -182,14 +187,23 @@ export class PedidosService {
       }
 
       if (!producto.disponible) {
-        throw new BadRequestException(`El producto ${producto.nombre} está agotado temporalmente`);
+        throw new BadRequestException(
+          `El producto ${producto.nombre} está agotado temporalmente`,
+        );
       }
       const seleccionados = [...new Set(detalle.modificadorIds ?? [])];
-      const modificadores = producto.modificadores.filter((item) => seleccionados.includes(item.id));
+      const modificadores = producto.modificadores.filter((item) =>
+        seleccionados.includes(item.id),
+      );
       if (modificadores.length !== seleccionados.length) {
-        throw new BadRequestException(`Uno o más modificadores no pertenecen al producto ${producto.nombre}`);
+        throw new BadRequestException(
+          `Uno o más modificadores no pertenecen al producto ${producto.nombre}`,
+        );
       }
-      const adicionalUnitario = modificadores.reduce((acc, item) => acc.plus(item.precio), new Prisma.Decimal(0));
+      const adicionalUnitario = modificadores.reduce(
+        (acc, item) => acc.plus(item.precio),
+        new Prisma.Decimal(0),
+      );
       const precioUnitario = producto.precio.plus(adicionalUnitario);
       const subtotal = precioUnitario.mul(cantidad);
 
@@ -205,17 +219,19 @@ export class PedidosService {
         subtotal,
 
         observaciones: detalle.observaciones ?? null,
-        ...(modificadores.length ? {
-          modificadores: {
-            create: modificadores.map((item) => ({
-              modificadorId: item.id,
-              nombre: item.nombre,
-              precioUnitario: item.precio,
-              cantidad,
-              subtotal: item.precio.mul(cantidad),
-            })),
-          },
-        } : {}),
+        ...(modificadores.length
+          ? {
+              modificadores: {
+                create: modificadores.map((item) => ({
+                  modificadorId: item.id,
+                  nombre: item.nombre,
+                  precioUnitario: item.precio,
+                  cantidad,
+                  subtotal: item.precio.mul(cantidad),
+                })),
+              },
+            }
+          : {}),
       });
     }
 
@@ -452,7 +468,7 @@ export class PedidosService {
         data.detalles,
       );
 
-      return tx.pedido.create({
+      const creado = await tx.pedido.create({
         data: {
           sucursalId: contexto.sucursalId,
 
@@ -503,7 +519,14 @@ export class PedidosService {
         include: {
           detalles: {
             include: {
-              producto: { include: { modificadores: { where: { activo: true }, orderBy: { orden: 'asc' } } } },
+              producto: {
+                include: {
+                  modificadores: {
+                    where: { activo: true },
+                    orderBy: { orden: 'asc' },
+                  },
+                },
+              },
               modificadores: true,
             },
           },
@@ -516,6 +539,18 @@ export class PedidosService {
           domicilio: true,
         },
       });
+
+      await tx.eventoOperacional.create({
+        data: {
+          tipo: TipoEventoOperacional.PEDIDO_CREADO,
+          sucursalId: creado.sucursalId,
+          pedidoId: creado.id,
+          actorId: usuarioActual.id,
+          metadata: { tipoPedido: creado.tipo, mesaId: creado.mesaId },
+        },
+      });
+
+      return creado;
     });
   }
 
@@ -603,7 +638,14 @@ export class PedidosService {
         include: {
           detalles: {
             include: {
-              producto: { include: { modificadores: { where: { activo: true }, orderBy: { orden: 'asc' } } } },
+              producto: {
+                include: {
+                  modificadores: {
+                    where: { activo: true },
+                    orderBy: { orden: 'asc' },
+                  },
+                },
+              },
               modificadores: true,
             },
 
@@ -669,7 +711,10 @@ export class PedidosService {
     return this.prisma.transaccionSerializable(async (tx) => {
       const pedido = await tx.pedido.findFirst({
         where: { id: pedidoId, sucursal: this.filtroSucursal(usuarioActual) },
-        include: { venta: { select: { id: true } }, factura: { select: { id: true } } },
+        include: {
+          venta: { select: { id: true } },
+          factura: { select: { id: true } },
+        },
       });
       if (!pedido) throw new NotFoundException('Pedido no encontrado');
       if (
@@ -677,8 +722,10 @@ export class PedidosService {
         pedido.factura ||
         pedido.estado === EstadoPedido.CANCELADO ||
         pedido.estado === EstadoPedido.FACTURADO
-) {
-        throw new BadRequestException('La cuenta ya no admite cambios en sus líneas');
+      ) {
+        throw new BadRequestException(
+          'La cuenta ya no admite cambios en sus líneas',
+        );
       }
       const detalle = await tx.detallePedido.findFirst({
         where: { id: detalleId, pedidoId },
@@ -687,9 +734,16 @@ export class PedidosService {
           modificadores: true,
         },
       });
-      if (!detalle) throw new NotFoundException('Línea de pedido no encontrada');
-      if (detalle.comandas.some((item) => item.comanda.estado !== EstadoComanda.CANCELADA)) {
-        throw new BadRequestException('Una línea enviada a preparación no se modifica; agrega una nueva línea o gestiona la corrección en cocina');
+      if (!detalle)
+        throw new NotFoundException('Línea de pedido no encontrada');
+      if (
+        detalle.comandas.some(
+          (item) => item.comanda.estado !== EstadoComanda.CANCELADA,
+        )
+      ) {
+        throw new BadRequestException(
+          'Una línea enviada a preparación no se modifica; agrega una nueva línea o gestiona la corrección en cocina',
+        );
       }
       const cantidad = data.cantidad ?? detalle.cantidad;
       const subtotalAnterior = detalle.subtotal;
@@ -699,13 +753,18 @@ export class PedidosService {
         data: {
           cantidad,
           subtotal: subtotalNuevo,
-          ...(data.observaciones !== undefined ? { observaciones: data.observaciones.trim() || null } : {}),
+          ...(data.observaciones !== undefined
+            ? { observaciones: data.observaciones.trim() || null }
+            : {}),
         },
       });
       for (const modificador of detalle.modificadores) {
         await tx.detallePedidoModificador.update({
           where: { id: modificador.id },
-          data: { cantidad, subtotal: modificador.precioUnitario.mul(cantidad) },
+          data: {
+            cantidad,
+            subtotal: modificador.precioUnitario.mul(cantidad),
+          },
         });
       }
       await tx.pedido.update({
@@ -729,14 +788,18 @@ export class PedidosService {
     if (
       pedido.estado === EstadoPedido.CANCELADO ||
       pedido.estado === EstadoPedido.FACTURADO
-) {
-      throw new BadRequestException('El pedido ya no admite cambios de contexto');
+    ) {
+      throw new BadRequestException(
+        'El pedido ya no admite cambios de contexto',
+      );
     }
     return this.prisma.pedido.update({
       where: { id: pedido.id },
       data: {
         ...(data.personas !== undefined ? { personas: data.personas } : {}),
-        ...(data.observaciones !== undefined ? { observaciones: data.observaciones.trim() || null } : {}),
+        ...(data.observaciones !== undefined
+          ? { observaciones: data.observaciones.trim() || null }
+          : {}),
       },
       select: { id: true, personas: true, observaciones: true },
     });
@@ -922,7 +985,14 @@ export class PedidosService {
 
           detalles: {
             include: {
-              producto: { include: { modificadores: { where: { activo: true }, orderBy: { orden: 'asc' } } } },
+              producto: {
+                include: {
+                  modificadores: {
+                    where: { activo: true },
+                    orderBy: { orden: 'asc' },
+                  },
+                },
+              },
               modificadores: true,
             },
 
@@ -1171,7 +1241,14 @@ export class PedidosService {
 
         detalles: {
           include: {
-            producto: { include: { modificadores: { where: { activo: true }, orderBy: { orden: 'asc' } } } },
+            producto: {
+              include: {
+                modificadores: {
+                  where: { activo: true },
+                  orderBy: { orden: 'asc' },
+                },
+              },
+            },
             modificadores: true,
             comandas: { include: { comanda: { include: { estacion: true } } } },
           },
@@ -1180,7 +1257,9 @@ export class PedidosService {
         comandas: {
           include: {
             estacion: true,
-            detalles: { include: { detallePedido: { include: { producto: true } } } },
+            detalles: {
+              include: { detallePedido: { include: { producto: true } } },
+            },
           },
           orderBy: { fechaEnvio: 'asc' },
         },
@@ -1201,23 +1280,125 @@ export class PedidosService {
     });
   }
 
+  async marcarEntregado(pedidoId: number, usuarioActual: UsuarioAutenticado) {
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const pedido = await tx.pedido.findFirst({
+        where: { id: pedidoId, sucursal: this.filtroSucursal(usuarioActual) },
+        include: {
+          comandas: { where: { estado: { not: EstadoComanda.CANCELADA } } },
+        },
+      });
+      if (!pedido) throw new NotFoundException('Pedido no encontrado');
+      if (pedido.estado === EstadoPedido.ENTREGADO) return pedido;
+      if (pedido.estado !== EstadoPedido.LISTO) {
+        throw new BadRequestException(
+          'El pedido debe estar listo antes de marcarlo entregado al cliente',
+        );
+      }
+      if (
+        !pedido.comandas.length ||
+        pedido.comandas.some((item) => item.estado !== EstadoComanda.ENTREGADA)
+      ) {
+        throw new BadRequestException(
+          'Todas las comandas deben haber sido retiradas de sus estaciones',
+        );
+      }
+      const actualizado = await tx.pedido.update({
+        where: { id: pedido.id },
+        data: { estado: EstadoPedido.ENTREGADO },
+        include: { mesa: true, comandas: { include: { estacion: true } } },
+      });
+      await tx.eventoOperacional.create({
+        data: {
+          tipo: TipoEventoOperacional.ENTREGADO_CLIENTE,
+          sucursalId: pedido.sucursalId,
+          pedidoId: pedido.id,
+          actorId: usuarioActual.id,
+          metadata: { mesaId: pedido.mesaId, tipoPedido: pedido.tipo },
+        },
+      });
+      return actualizado;
+    });
+  }
+
+  async trazabilidad(pedidoId: number, usuarioActual: UsuarioAutenticado) {
+    const pedido = await this.prisma.pedido.findFirst({
+      where: { id: pedidoId, sucursal: this.filtroSucursal(usuarioActual) },
+      select: { id: true },
+    });
+    if (!pedido) throw new NotFoundException('Pedido no encontrado');
+    return this.prisma.eventoOperacional.findMany({
+      where: { pedidoId },
+      include: {
+        actor: { select: { id: true, nombres: true, apellidos: true } },
+        comanda: {
+          include: {
+            estacion: { select: { id: true, nombre: true, codigo: true } },
+          },
+        },
+        venta: { select: { id: true, estado: true, total: true } },
+      },
+      orderBy: { ocurridoEn: 'asc' },
+    });
+  }
+
   async solicitarCuenta(pedidoId: number, usuarioActual: UsuarioAutenticado) {
     return this.prisma.transaccionSerializable(async (tx) => {
       const pedido = await tx.pedido.findFirst({
         where: { id: pedidoId, sucursal: this.filtroSucursal(usuarioActual) },
-        include: { venta: { select: { id: true, estado: true } }, mesasVinculadas: true },
+        include: {
+          venta: { select: { id: true, estado: true } },
+          mesasVinculadas: true,
+        },
       });
       if (!pedido) throw new NotFoundException('Pedido no encontrado');
-      if (!pedido.venta) throw new BadRequestException('Genera primero la venta preliminar del pedido');
-      if (pedido.venta.estado === 'ANULADA') throw new BadRequestException('La venta asociada está anulada');
-      const mesaIds = [...new Set([pedido.mesaId, ...pedido.mesasVinculadas.map((item) => item.mesaId)].filter((id): id is number => id !== null))];
+      if (!pedido.venta)
+        throw new BadRequestException(
+          'Genera primero la venta preliminar del pedido',
+        );
+      if (pedido.venta.estado === 'ANULADA')
+        throw new BadRequestException('La venta asociada está anulada');
+      const cuentaRegistrada = await tx.eventoOperacional.findFirst({
+        where: {
+          pedidoId: pedido.id,
+          tipo: TipoEventoOperacional.CUENTA_SOLICITADA,
+        },
+        select: { id: true },
+      });
+      if (!cuentaRegistrada) {
+        await tx.eventoOperacional.create({
+          data: {
+            tipo: TipoEventoOperacional.CUENTA_SOLICITADA,
+            sucursalId: pedido.sucursalId,
+            pedidoId: pedido.id,
+            ventaId: pedido.venta.id,
+            actorId: usuarioActual.id,
+          },
+        });
+      }
+      const mesaIds = [
+        ...new Set(
+          [
+            pedido.mesaId,
+            ...pedido.mesasVinculadas.map((item) => item.mesaId),
+          ].filter((id): id is number => id !== null),
+        ),
+      ];
       if (mesaIds.length) {
         await tx.mesa.updateMany({
-          where: { id: { in: mesaIds }, situacion: { in: [EstadoMesa.OCUPADA, EstadoMesa.PENDIENTE_PAGO] } },
+          where: {
+            id: { in: mesaIds },
+            situacion: { in: [EstadoMesa.OCUPADA, EstadoMesa.PENDIENTE_PAGO] },
+          },
           data: { situacion: EstadoMesa.PENDIENTE_PAGO },
         });
       }
-      return { pedidoId, ventaId: pedido.venta.id, mesas: mesaIds, cuentaSolicitada: true };
+      return {
+        pedidoId,
+        ventaId: pedido.venta.id,
+        mesas: mesaIds,
+        cuentaSolicitada: true,
+      };
     });
   }
 
@@ -1417,7 +1598,14 @@ export class PedidosService {
 
         detalles: {
           include: {
-            producto: { include: { modificadores: { where: { activo: true }, orderBy: { orden: 'asc' } } } },
+            producto: {
+              include: {
+                modificadores: {
+                  where: { activo: true },
+                  orderBy: { orden: 'asc' },
+                },
+              },
+            },
             modificadores: true,
 
             comandas: {

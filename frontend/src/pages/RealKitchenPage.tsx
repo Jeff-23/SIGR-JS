@@ -172,7 +172,7 @@ export function RealKitchenPage() {
   const updateCommandState = (command: Command, estado: "LISTA" | "ENTREGADA") => act(
     `command-${command.id}`,
     () => api.patch(`/comandas/${command.id}/estado`, { estado }),
-    estado === "LISTA" ? "Comanda completa lista" : "Comanda entregada a servicio",
+    estado === "LISTA" ? "Comanda completa lista" : "Comanda retirada de estación",
   );
 
   const updateLineState = (command: Command, line: CommandLine, estado: "EN_PREPARACION" | "LISTA") => act(
@@ -345,7 +345,7 @@ function CommandCard({
 
       {command.estado === "EN_PREPARACION" && <button disabled={Boolean(busy) || !canEdit} onClick={() => void updateCommandState(command, "LISTA")} className="kds-action bg-emerald-700 text-white"><CheckCircle2 size={20}/> Marcar todo listo</button>}
 
-      {command.estado === "LISTA" && <button disabled={Boolean(busy) || !canEdit} onClick={() => void updateCommandState(command, "ENTREGADA")} className="kds-action bg-emerald-700 text-white"><Check size={20}/> Entregar a servicio</button>}
+      {command.estado === "LISTA" && <button disabled={Boolean(busy) || !canEdit} onClick={() => void updateCommandState(command, "ENTREGADA")} className="kds-action bg-emerald-700 text-white"><Check size={20}/> Retirar para servicio</button>}
     </footer>
 
     {command.prioridad !== "NORMAL" && <span className={["absolute right-4 top-4 z-10 flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[10px] font-black", command.prioridad === "URGENTE" ? "bg-red-600 text-white" : "bg-amber-200 text-amber-900"].join(" ")}>{command.prioridad === "URGENTE" ? <Siren size={12}/> : <AlertTriangle size={12}/>} {command.prioridad}</span>}

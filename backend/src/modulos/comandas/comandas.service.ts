@@ -7,12 +7,10 @@ import {
 import {
   EstadoComanda,
   EstadoDetalleComanda,
-  EstadoMesa,
   EstadoPedido,
-  EstadoVenta,
   Prisma,
   PrioridadComanda,
-  TipoPedido,
+  TipoEventoOperacional,
 } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -221,7 +219,19 @@ export class ComandasService {
         detallesPorEstacion.set(estacionId, grupo);
       }
 
-      const comandas = [];
+      const comandas: Prisma.ComandaGetPayload<{
+        include: {
+          estacion: true;
+          detalles: {
+            include: {
+              detallePedido: {
+                include: { producto: true; modificadores: true };
+              };
+            };
+          };
+          pedido: { include: { mesa: true; mesero: true } };
+        };
+      }>[] = [];
       for (const [estacionId, detalles] of detallesPorEstacion) {
         const estacion = await tx.estacionPreparacion.findUnique({
           where: { id: estacionId },
@@ -253,6 +263,22 @@ export class ComandasService {
             },
           }),
         );
+      }
+      if (comandas.length) {
+        await tx.eventoOperacional.createMany({
+          data: comandas.map((comanda) => ({
+            tipo: TipoEventoOperacional.ENVIADO_ESTACION,
+            sucursalId: pedido.sucursalId,
+            pedidoId: pedido.id,
+            comandaId: comanda.id,
+            actorId: usuario.id,
+            metadata: {
+              estacionId: comanda.estacionId,
+              estacion: comanda.estacion.nombre,
+              metaPreparacionMin: comanda.metaPreparacionMin,
+            },
+          })),
+        });
       }
       return { comandas };
     });
@@ -621,6 +647,7 @@ export class ComandasService {
 
         include: {
           estacion: true,
+          pedido: { select: { sucursalId: true } },
           detalles: {
             include: {
               detallePedido: {
@@ -633,6 +660,31 @@ export class ComandasService {
           },
         },
       });
+
+      const tipoEvento =
+        nuevoEstado === EstadoComanda.EN_PREPARACION
+          ? TipoEventoOperacional.PREPARACION_INICIADA
+          : nuevoEstado === EstadoComanda.LISTA
+            ? TipoEventoOperacional.LISTO_ESTACION
+            : nuevoEstado === EstadoComanda.ENTREGADA
+              ? TipoEventoOperacional.RETIRADO_ESTACION
+              : null;
+      if (tipoEvento) {
+        await tx.eventoOperacional.create({
+          data: {
+            tipo: tipoEvento,
+            sucursalId: actualizada.pedido.sucursalId,
+            pedidoId: comanda.pedidoId,
+            comandaId: comanda.id,
+            actorId: usuario.id,
+            metadata: {
+              estacionId: actualizada.estacionId,
+              estacion: actualizada.estacion.nombre,
+              metaPreparacionMin: actualizada.metaPreparacionMin,
+            },
+          },
+        });
+      }
 
       await this.sincronizarPedido(tx, comanda.pedidoId);
 
@@ -752,10 +804,7 @@ export class ComandasService {
     );
 
     if (todoEnviado && todasEntregadas) {
-      nuevoEstado =
-        pedido.tipo === TipoPedido.DOMICILIO
-          ? EstadoPedido.LISTO
-          : EstadoPedido.ENTREGADO;
+      nuevoEstado = EstadoPedido.LISTO;
     } else if (todoEnviado && todasTerminadas) {
       nuevoEstado = EstadoPedido.LISTO;
     } else if (algunaAvanzo) {
@@ -770,29 +819,6 @@ export class ComandasService {
 
         data: {
           estado: nuevoEstado,
-        },
-      });
-    }
-
-    if (nuevoEstado === EstadoPedido.ENTREGADO && pedido.mesaId !== null) {
-      const venta = await tx.venta.findUnique({
-        where: { pedidoId: pedido.id },
-        select: { estado: true },
-      });
-      await tx.mesa.updateMany({
-        where: {
-          id: pedido.mesaId,
-          estado: true,
-          situacion: { in: [EstadoMesa.OCUPADA, EstadoMesa.PENDIENTE_PAGO] },
-        },
-        data: {
-          situacion:
-            venta?.estado === EstadoVenta.PAGADA
-              ? EstadoMesa.LIBRE
-              : EstadoMesa.PENDIENTE_PAGO,
-          ocupacionManual: false,
-          ocupadaManualEn: null,
-          ocupadaManualPorId: null,
         },
       });
     }

@@ -42,23 +42,27 @@ export const demoOrders: Order[] = [
     stationStatus: { COCINA: "ENTREGADO", BAR: "ENTREGADO" }, waiter: "Juan", guests: 6,
     accountRequested: true, accountRequestNote: "Cliente pidió pago mixto",
     note: "Mesa cerca de ventana",
+    operational: { stage: "CUENTA_SOLICITADA", stageStartedAt: new Date(now - 6 * 60_000).toISOString(), sentAt: new Date(now - 33 * 60_000).toISOString(), preparationStartedAt: new Date(now - 31 * 60_000).toISOString(), readyAt: new Date(now - 17 * 60_000).toISOString(), retiredAt: new Date(now - 12 * 60_000).toISOString(), deliveredAt: new Date(now - 10 * 60_000).toISOString(), accountRequestedAt: new Date(now - 6 * 60_000).toISOString() },
   },
   {
     id: 4103, table: 3, createdAt: new Date(now - 34 * 60_000).toISOString(), status: "LISTO",
     items: [item(2, 2, "LISTA"), item(5, 1, "LISTA"), item(6, 1, "PREPARANDO"), item(8, 1, "PREPARANDO")], total: 69500, paymentStatus: "PENDIENTE",
     stationStatus: { COCINA: "LISTO", BAR: "PREPARANDO" }, waiter: "Juan", guests: 4,
     serviceAlert: "Bebida esperando 9 min",
+    operational: { stage: "LISTO_ESPERANDO_RETIRO", stageStartedAt: new Date(now - 9 * 60_000).toISOString(), station: "COCINA", sentAt: new Date(now - 33 * 60_000).toISOString(), preparationStartedAt: new Date(now - 31 * 60_000).toISOString(), readyAt: new Date(now - 9 * 60_000).toISOString() },
   },
   {
     id: 4106, table: 6, createdAt: new Date(now - 51 * 60_000).toISOString(), status: "PENDIENTE_PAGO",
     items: [item(3, 2, "ENTREGADA"), item(5, 1, "ENTREGADA"), item(8, 3, "ENTREGADA")], total: 66500, paymentStatus: "PENDIENTE",
     stationStatus: { COCINA: "ENTREGADO", BAR: "ENTREGADO" }, waiter: "Laura", guests: 4,
+    operational: { stage: "ENTREGADO_ESPERANDO_CUENTA", stageStartedAt: new Date(now - 4 * 60_000).toISOString(), sentAt: new Date(now - 50 * 60_000).toISOString(), preparationStartedAt: new Date(now - 48 * 60_000).toISOString(), readyAt: new Date(now - 33 * 60_000).toISOString(), retiredAt: new Date(now - 28 * 60_000).toISOString(), deliveredAt: new Date(now - 4 * 60_000).toISOString() },
   },
   {
     id: 4109, table: 9, createdAt: new Date(now - 18 * 60_000).toISOString(), status: "PREPARANDO",
     items: [{ ...item(3, 1, "PREPARANDO"), note: "Sin cebolla" }, item(4, 1, "PREPARANDO"), item(7, 2, "LISTA")], total: 51000, paymentStatus: "PENDIENTE",
     stationStatus: { COCINA: "PREPARANDO", BAR: "LISTO" }, waiter: "Carlos", guests: 4,
     serviceAlert: "Bebidas listas para retirar",
+    operational: { stage: "EN_PREPARACION", stageStartedAt: new Date(now - 18 * 60_000).toISOString(), station: "COCINA", sentAt: new Date(now - 18 * 60_000).toISOString(), preparationStartedAt: new Date(now - 18 * 60_000).toISOString() },
   },
 ];
 

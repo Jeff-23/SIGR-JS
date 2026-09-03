@@ -4,7 +4,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { EstadoVenta, Prisma, TipoMovimientoInventario } from '@prisma/client';
+import {
+  EstadoPedido,
+  EstadoVenta,
+  Prisma,
+  TipoEventoOperacional,
+  TipoMovimientoInventario,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import {
@@ -166,6 +172,200 @@ export class InteligenciaService {
         'Estimación orientativa basada en 28 días de ventas históricas. No constituye certeza ni reemplaza el criterio operativo.',
     };
   }
+  async operacionEnVivo(sucursalId: number, usuario: UsuarioAutenticado) {
+    await this.sucursal(sucursalId, usuario);
+    const ahora = new Date();
+    const desde = new Date(ahora.getTime() - 24 * 60 * 60 * 1000);
+    const [eventos, pedidos] = await Promise.all([
+      this.prisma.eventoOperacional.findMany({
+        where: { sucursalId, ocurridoEn: { gte: desde } },
+        orderBy: { ocurridoEn: 'asc' },
+      }),
+      this.prisma.pedido.findMany({
+        where: {
+          sucursalId,
+          creadoEn: { gte: desde },
+          estado: { notIn: [EstadoPedido.CANCELADO, EstadoPedido.FACTURADO] },
+        },
+        include: {
+          mesa: { select: { id: true, numero: true } },
+          venta: { select: { id: true, estado: true, total: true } },
+          comandas: {
+            include: { estacion: true },
+            orderBy: { fechaEnvio: 'asc' },
+          },
+        },
+        orderBy: { creadoEn: 'asc' },
+        take: 200,
+      }),
+    ]);
+
+    const porPedido = new Map<number, typeof eventos>();
+    eventos.forEach((evento) => {
+      const lista = porPedido.get(evento.pedidoId) ?? [];
+      lista.push(evento);
+      porPedido.set(evento.pedidoId, lista);
+    });
+    const min = (a?: Date, b?: Date) =>
+      a && b ? Math.max(0, (b.getTime() - a.getTime()) / 60000) : null;
+    const primera = (lista: typeof eventos, tipo: TipoEventoOperacional) =>
+      lista.find((item) => item.tipo === tipo)?.ocurridoEn;
+    const ultima = (lista: typeof eventos, tipo: TipoEventoOperacional) =>
+      [...lista].reverse().find((item) => item.tipo === tipo)?.ocurridoEn;
+    const muestras = {
+      pedidoACocina: [] as number[],
+      cocinaAListo: [] as number[],
+      listoARetirado: [] as number[],
+      retiradoAMesa: [] as number[],
+      entregaACuenta: [] as number[],
+      cuentaAPago: [] as number[],
+      cicloTotal: [] as number[],
+    };
+    for (const lista of porPedido.values()) {
+      const creado = primera(lista, TipoEventoOperacional.PEDIDO_CREADO);
+      const enviado = primera(lista, TipoEventoOperacional.ENVIADO_ESTACION);
+      const inicio = primera(lista, TipoEventoOperacional.PREPARACION_INICIADA);
+      const listo = ultima(lista, TipoEventoOperacional.LISTO_ESTACION);
+      const retirado = ultima(lista, TipoEventoOperacional.RETIRADO_ESTACION);
+      const entregado = primera(lista, TipoEventoOperacional.ENTREGADO_CLIENTE);
+      const cuenta = primera(lista, TipoEventoOperacional.CUENTA_SOLICITADA);
+      const pago = primera(lista, TipoEventoOperacional.PAGO_COMPLETADO);
+      const valores = {
+        pedidoACocina: min(creado, enviado),
+        cocinaAListo: min(inicio, listo),
+        listoARetirado: min(listo, retirado),
+        retiradoAMesa: min(retirado, entregado),
+        entregaACuenta: min(entregado, cuenta),
+        cuentaAPago: min(cuenta, pago),
+        cicloTotal: min(creado, pago),
+      };
+      (Object.keys(valores) as (keyof typeof valores)[]).forEach((clave) => {
+        const valor = valores[clave];
+        if (valor !== null) muestras[clave].push(valor);
+      });
+    }
+    const promedio = (valores: number[]) =>
+      valores.length
+        ? Math.round(
+            (valores.reduce((a, b) => a + b, 0) / valores.length) * 10,
+          ) / 10
+        : null;
+
+    const casos = pedidos.map((pedido) => {
+      const lista = porPedido.get(pedido.id) ?? [];
+      const ultimo = lista.length ? lista[lista.length - 1] : undefined;
+      const minutosEnEtapa = ultimo
+        ? Math.max(
+            0,
+            Math.floor((ahora.getTime() - ultimo.ocurridoEn.getTime()) / 60000),
+          )
+        : Math.max(
+            0,
+            Math.floor((ahora.getTime() - pedido.creadoEn.getTime()) / 60000),
+          );
+      let etapa = 'Pedido creado';
+      let objetivoMin: number | null = 5;
+      let estacion: string | null = null;
+      switch (ultimo?.tipo) {
+        case TipoEventoOperacional.ENVIADO_ESTACION:
+          etapa = 'Esperando inicio de preparación';
+          objetivoMin = 5;
+          break;
+        case TipoEventoOperacional.PREPARACION_INICIADA: {
+          etapa = 'En preparación';
+          const meta = (
+            ultimo.metadata as { metaPreparacionMin?: number } | null
+          )?.metaPreparacionMin;
+          objetivoMin = meta ?? 15;
+          estacion =
+            (ultimo.metadata as { estacion?: string } | null)?.estacion ?? null;
+          break;
+        }
+        case TipoEventoOperacional.LISTO_ESTACION:
+          etapa = 'Listo esperando retiro';
+          objetivoMin = 5;
+          estacion =
+            (ultimo.metadata as { estacion?: string } | null)?.estacion ?? null;
+          break;
+        case TipoEventoOperacional.RETIRADO_ESTACION:
+          etapa = 'Retirado esperando entrega';
+          objetivoMin = 4;
+          break;
+        case TipoEventoOperacional.ENTREGADO_CLIENTE:
+          etapa = 'En mesa';
+          objetivoMin = null;
+          break;
+        case TipoEventoOperacional.CUENTA_SOLICITADA:
+          etapa = 'Cuenta solicitada esperando pago';
+          objetivoMin = 8;
+          break;
+        case TipoEventoOperacional.PAGO_COMPLETADO:
+          etapa = 'Pagado';
+          objetivoMin = null;
+          break;
+        case TipoEventoOperacional.PEDIDO_CREADO:
+        default:
+          etapa = 'Pedido creado esperando estación';
+          objetivoMin = 5;
+      }
+      const riesgo =
+        objetivoMin === null
+          ? 'OK'
+          : minutosEnEtapa > objetivoMin
+            ? 'DEMORADO'
+            : minutosEnEtapa >= Math.max(1, Math.floor(objetivoMin * 0.75))
+              ? 'ATENCION'
+              : 'OK';
+      return {
+        pedidoId: pedido.id,
+        mesa: pedido.mesa ? `Mesa ${pedido.mesa.numero}` : pedido.tipo,
+        estado: pedido.estado,
+        etapa,
+        estacion,
+        minutosEnEtapa,
+        objetivoMin,
+        riesgo,
+        ventaEstado: pedido.venta?.estado ?? null,
+      };
+    });
+
+    const activos = casos.filter((item) => item.etapa !== 'Pagado');
+    return {
+      generadoEn: ahora,
+      ventanaHoras: 24,
+      resumen: {
+        activos: activos.length,
+        demorados: activos.filter((item) => item.riesgo === 'DEMORADO').length,
+        listosSinRetirar: activos.filter(
+          (item) => item.etapa === 'Listo esperando retiro',
+        ).length,
+        esperandoEntrega: activos.filter(
+          (item) => item.etapa === 'Retirado esperando entrega',
+        ).length,
+        esperandoPago: activos.filter(
+          (item) => item.etapa === 'Cuenta solicitada esperando pago',
+        ).length,
+      },
+      tiemposPromedio: {
+        pedidoACocina: promedio(muestras.pedidoACocina),
+        cocinaAListo: promedio(muestras.cocinaAListo),
+        listoARetirado: promedio(muestras.listoARetirado),
+        retiradoAMesa: promedio(muestras.retiradoAMesa),
+        entregaACuenta: promedio(muestras.entregaACuenta),
+        cuentaAPago: promedio(muestras.cuentaAPago),
+        cicloTotal: promedio(muestras.cicloTotal),
+      },
+      casos: activos.sort((a, b) => {
+        const peso = (riesgo: string) =>
+          riesgo === 'DEMORADO' ? 2 : riesgo === 'ATENCION' ? 1 : 0;
+        return (
+          peso(b.riesgo) - peso(a.riesgo) || b.minutosEnEtapa - a.minutosEnEtapa
+        );
+      }),
+      nota: 'Los tiempos se calculan desde eventos operacionales persistidos. Los objetivos de preparación provienen de cada estación; retiro, entrega y pago usan umbrales operativos iniciales configurables en una fase posterior.',
+    };
+  }
+
   async configurarMinimo(
     id: number,
     data: ConfigurarMinimoDto,

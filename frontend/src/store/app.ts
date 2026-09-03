@@ -85,7 +85,7 @@ export const useApp = create<State>((set, get) => ({
   setPendingCount: (pendingCount) => set({ pendingCount }),
   hasPermission: (permission) => hasPermission(get().session?.user, permission),
   hasCapability: (capability) => hasCapability(get().session?.user, capability),
-  createOrder: (order) => set((state) => ({ orders: [...state.orders, order], tables: state.tables.map((table) => table.number === order.table ? { ...table, state: "OCUPADA", orderId: order.id } : table) })),
+  createOrder: (order) => set((state) => { const now = new Date().toISOString(); const created = { ...order, operational: order.operational ?? { stage: "ENVIADO_ESTACION" as const, stageStartedAt: now, sentAt: now } }; return { orders: [...state.orders, created], tables: state.tables.map((table) => table.number === order.table ? { ...table, state: "OCUPADA", orderId: order.id } : table) }; }),
   appendOrderLines: (orderId, lines) => set((state) => ({
     orders: state.orders.map((order) => order.id === orderId ? {
       ...order,
@@ -98,11 +98,12 @@ export const useApp = create<State>((set, get) => ({
       },
       accountRequested: false,
       accountRequestNote: undefined,
+      operational: { ...(order.operational ?? { stage: "ENVIADO_ESTACION" as const, stageStartedAt: new Date().toISOString() }), stage: "ENVIADO_ESTACION" as const, stageStartedAt: new Date().toISOString(), sentAt: new Date().toISOString() },
     } : order),
     tables: state.tables.map((table) => table.orderId === orderId ? { ...table, state: "OCUPADA" } : table),
   })),
   requestAccount: (orderId, note) => set((state) => ({
-    orders: state.orders.map((order) => order.id === orderId ? { ...order, accountRequested: true, accountRequestNote: note, status: "PENDIENTE_PAGO" } : order),
+    orders: state.orders.map((order) => order.id === orderId ? { ...order, accountRequested: true, accountRequestNote: note, status: "PENDIENTE_PAGO", operational: { ...(order.operational ?? { stage: "CUENTA_SOLICITADA" as const, stageStartedAt: new Date().toISOString() }), stage: "CUENTA_SOLICITADA" as const, stageStartedAt: new Date().toISOString(), accountRequestedAt: new Date().toISOString() } } : order),
     tables: state.tables.map((table) => table.orderId === orderId ? { ...table, state: "PENDIENTE_PAGO" } : table),
   })),
   advanceStation: (id, station) => set((state) => ({ orders: state.orders.map((order) => {
@@ -110,11 +111,15 @@ export const useApp = create<State>((set, get) => ({
     const current = order.stationStatus[station];
     const next = current === "PENDIENTE" ? "PREPARANDO" : current === "PREPARANDO" ? "LISTO" : "ENTREGADO";
     const stationStatus = { ...order.stationStatus, [station]: next };
+    const now = new Date().toISOString();
+    const activeStatuses = Object.values(stationStatus).filter((value) => value !== "NO_APLICA");
+    const stage = activeStatuses.every((value) => value === "ENTREGADO") ? "RETIRADO_ESPERANDO_ENTREGA" as const : activeStatuses.some((value) => value === "LISTO") ? "LISTO_ESPERANDO_RETIRO" as const : "EN_PREPARACION" as const;
+    const operational = { ...(order.operational ?? { stage, stageStartedAt: now }), stage, stageStartedAt: now, station, ...(next === "PREPARANDO" ? { preparationStartedAt: order.operational?.preparationStartedAt ?? now } : {}), ...(next === "LISTO" ? { readyAt: now } : {}), ...(stage === "RETIRADO_ESPERANDO_ENTREGA" ? { retiredAt: now } : {}) };
     const lineStatus: OrderLineStatus = next === "PREPARANDO" ? "PREPARANDO" : next === "LISTO" ? "LISTA" : "ENTREGADA";
     const items = order.items.map((item) => item.station === station ? { ...item, lineStatus } : item);
     const active = Object.values(stationStatus).filter((value) => value !== "NO_APLICA");
     const status = active.every((value) => value === "ENTREGADO") ? "ENTREGADO" : active.every((value) => value === "LISTO" || value === "ENTREGADO") ? "LISTO" : active.some((value) => value === "PREPARANDO" || value === "LISTO") ? "PREPARANDO" : "NUEVO";
-    return { ...order, items, stationStatus, status };
+    return { ...order, items, stationStatus, status, operational };
   }) })),
   markKitchenSeen: (id, station) => set((state) => ({
     orders: state.orders.map((order) => order.id === id ? { ...order, kitchenSeen: { ...order.kitchenSeen, [station]: true } } : order),
@@ -135,8 +140,8 @@ export const useApp = create<State>((set, get) => ({
     return { ...order, items, stationStatus, status };
   }) })),
   setOrderPriority: (id, priority) => set((state) => ({ orders: state.orders.map((order) => order.id === id ? { ...order, priority } : order) })),
-  markDelivered: (id) => set((state) => ({ orders: state.orders.map((order) => order.id === id ? { ...order, status: "PENDIENTE_PAGO", stationStatus: { COCINA: order.stationStatus.COCINA === "NO_APLICA" ? "NO_APLICA" : "ENTREGADO", BAR: order.stationStatus.BAR === "NO_APLICA" ? "NO_APLICA" : "ENTREGADO" } } : order), tables: state.tables.map((table) => table.orderId === id ? { ...table, state: "PENDIENTE_PAGO" } : table) })),
-  markPaid: (id) => set((state) => ({ orders: state.orders.map((order) => order.id === id ? { ...order, status: "PAGADO", paymentStatus: "PAGADO" } : order) })),
+  markDelivered: (id) => set((state) => ({ orders: state.orders.map((order) => order.id === id ? { ...order, status: "PENDIENTE_PAGO", stationStatus: { COCINA: order.stationStatus.COCINA === "NO_APLICA" ? "NO_APLICA" : "ENTREGADO", BAR: order.stationStatus.BAR === "NO_APLICA" ? "NO_APLICA" : "ENTREGADO" }, operational: { ...(order.operational ?? { stage: "ENTREGADO_ESPERANDO_CUENTA" as const, stageStartedAt: new Date().toISOString() }), stage: "ENTREGADO_ESPERANDO_CUENTA" as const, stageStartedAt: new Date().toISOString(), deliveredAt: new Date().toISOString() } } : order), tables: state.tables.map((table) => table.orderId === id ? { ...table, state: "PENDIENTE_PAGO" } : table) })),
+  markPaid: (id) => set((state) => ({ orders: state.orders.map((order) => order.id === id ? { ...order, status: "PAGADO", paymentStatus: "PAGADO", operational: { ...(order.operational ?? { stage: "PAGADO" as const, stageStartedAt: new Date().toISOString() }), stage: "PAGADO" as const, stageStartedAt: new Date().toISOString(), paidAt: new Date().toISOString() } } : order) })),
   releaseTable: (tableId) => set((state) => ({ tables: state.tables.map((table) => table.id === tableId ? { ...table, state: "LIBRE", orderId: undefined } : table) })),
   occupyWithoutOrder: (tableId) => set((state) => ({ tables: state.tables.map((table) => table.id === tableId ? { ...table, state: "OCUPADA" } : table) })),
 }));

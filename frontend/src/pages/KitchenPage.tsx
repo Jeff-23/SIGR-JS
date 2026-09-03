@@ -196,7 +196,7 @@ function DemoCommandCard({ command, now, advanceStation, markDelivered, markKitc
       {!seen && <button onClick={() => { markKitchenSeen(order.id, station); toast.success(`${stationName[station]}: comanda vista`); }} className="kds-action bg-marigold text-steel"><Eye size={20}/> Visto por {station === "BAR" ? "bar" : "cocina"}</button>}
       {status === "PENDIENTE" && <button onClick={() => { advanceStation(order.id, station); toast.success(`${stationName[station]}: preparación iniciada`); }} className="kds-action bg-steel text-white"><Play size={20}/> Iniciar todos</button>}
       {status === "PREPARANDO" && <button onClick={() => { advanceStation(order.id, station); toast.success(`${stationName[station]}: todo listo`); }} className="kds-action bg-emerald-700 text-white"><CheckCircle2 size={20}/> Marcar todo listo</button>}
-      {status === "LISTO" && <button onClick={() => { advanceStation(order.id, station); toast.success(`${stationName[station]} entregó a servicio`); }} className="kds-action bg-emerald-700 text-white"><Check size={20}/> Entregar a servicio</button>}
+      {status === "LISTO" && <button onClick={() => { advanceStation(order.id, station); toast.success(`${stationName[station]} retiró para servicio`); }} className="kds-action bg-emerald-700 text-white"><Check size={20}/> Retirar para servicio</button>}
       {allStationsReady && <button onClick={() => { markDelivered(order.id); toast.success(`Pedido de mesa ${order.table} entregado; caja fue notificada`); }} className="kds-action border-2 border-emerald-700 bg-emerald-50 text-emerald-800"><PackageCheck size={18}/> Confirmar entrega completa</button>}
     </footer>
 

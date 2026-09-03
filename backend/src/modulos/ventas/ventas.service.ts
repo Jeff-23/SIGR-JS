@@ -13,6 +13,7 @@ import {
   EstadoVenta,
   OrigenVenta,
   Prisma,
+  TipoEventoOperacional,
   TipoMetodoPago,
   TipoMovimientoCaja,
   TipoMovimientoPuntos,
@@ -1630,6 +1631,19 @@ export class VentasService {
             ...venta,
             estado: EstadoVenta.PAGADA,
           });
+
+          if (pedido) {
+            await tx.eventoOperacional.create({
+              data: {
+                tipo: TipoEventoOperacional.PAGO_COMPLETADO,
+                sucursalId: venta.sucursalId,
+                pedidoId: pedido.id,
+                ventaId: venta.id,
+                actorId: usuarioActual.id,
+                metadata: { total: venta.total.toString() },
+              },
+            });
+          }
 
           /*
            * Si la venta proviene de un pedido

@@ -1,4 +1,4 @@
-﻿import {
+import {
   Body,
   Controller,
   Get,
@@ -95,7 +95,12 @@ export class PedidosController {
     @Body() data: ActualizarDetallePedidoDto,
     @Req() request: RequestAutenticada,
   ) {
-    return this.pedidosService.actualizarDetalle(id, detalleId, data, request.user);
+    return this.pedidosService.actualizarDetalle(
+      id,
+      detalleId,
+      data,
+      request.user,
+    );
   }
 
   @Patch(':id/cancelar')
@@ -108,6 +113,15 @@ export class PedidosController {
     request: RequestAutenticada,
   ) {
     return this.pedidosService.cancelar(id, request.user);
+  }
+
+  @Patch(':id/entregado')
+  @Permisos('PEDIDOS_EDITAR')
+  marcarEntregado(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.pedidosService.marcarEntregado(id, request.user);
   }
 
   @Post(':id/solicitar-cuenta')
@@ -197,6 +211,15 @@ export class PedidosController {
     @Req() request: RequestAutenticada,
   ) {
     return this.pedidosService.actualizarDomicilio(id, data, request.user);
+  }
+
+  @Get(':id/trazabilidad')
+  @Permisos('PEDIDOS_VER')
+  trazabilidad(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.pedidosService.trazabilidad(id, request.user);
   }
 
   @Get(':id')

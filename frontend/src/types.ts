@@ -46,6 +46,19 @@ export type OrderLine = MenuItem & {
   selectedModifiers?: ProductModifier[];
   lineStatus?: OrderLineStatus;
 };
+export type OperationalStage = "ENVIADO_ESTACION" | "EN_PREPARACION" | "LISTO_ESPERANDO_RETIRO" | "RETIRADO_ESPERANDO_ENTREGA" | "ENTREGADO_ESPERANDO_CUENTA" | "CUENTA_SOLICITADA" | "PAGADO";
+export type OperationalTimeline = {
+  stage: OperationalStage;
+  stageStartedAt: string;
+  station?: "COCINA" | "BAR";
+  sentAt?: string;
+  preparationStartedAt?: string;
+  readyAt?: string;
+  retiredAt?: string;
+  deliveredAt?: string;
+  accountRequestedAt?: string;
+  paidAt?: string;
+};
 export type Order = {
   id: number;
   table: number;
@@ -63,4 +76,5 @@ export type Order = {
   guests?: number;
   kitchenSeen?: Partial<Record<"COCINA" | "BAR", boolean>>;
   priority?: "NORMAL" | "ALTA" | "URGENTE";
+  operational?: OperationalTimeline;
 };

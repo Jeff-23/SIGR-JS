@@ -175,6 +175,10 @@ export function RealSalonPage() {
   const occupy = async (table: ApiTable) => run(() => api.patch(`/mesas/${table.id}/ocupar-sin-pedido`, { motivo: "Cliente ubicado sin pedido" }), `Mesa ${table.numero} ocupada`, false);
   const release = async (table: ApiTable) => run(() => api.patch(`/mesas/${table.id}/liberar-sin-consumo`, { motivo: "Cliente se retiró sin consumo" }), `Mesa ${table.numero} liberada`, false);
 
+  const markDelivered = async (order: ApiOrder) => {
+    await run(() => api.patch(`/pedidos/${order.id}/entregado`), "Pedido entregado en mesa");
+  };
+
   const requestBill = async (order: ApiOrder) => {
     await run(async () => {
       if (!order.venta) await api.post("/ventas/pedido", { pedidoId: order.id });
@@ -279,6 +283,7 @@ export function RealSalonPage() {
           </div>
           <div className="mt-3 card p-4"><h3 className="font-black">Acciones rápidas</h3><div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
             {hasPermission("PEDIDOS_EDITAR") && <><button className="secondary h-10 px-2 text-xs" onClick={() => void transfer(draft.existing!)}><MoveRight size={14}/>Trasladar</button><button className="secondary h-10 px-2 text-xs" onClick={() => void merge(draft.existing!)}><Merge size={14}/>Unir mesa</button><button className="secondary h-10 px-2 text-xs" onClick={() => void separate(draft.existing!)}><Scissors size={14}/>Separar</button><button className="secondary h-10 px-2 text-xs" onClick={() => void changeWaiter(draft.existing!)}><UserRound size={14}/>Mesero</button></>}
+            {draft.existing.estado === "LISTO" && hasPermission("PEDIDOS_EDITAR") && <button className="secondary h-10 px-2 text-xs" onClick={() => void markDelivered(draft.existing!)}><CheckCircle2 size={14}/>Entregado a mesa</button>}
             {hasPermission("VENTAS_CREAR") && <><button className="secondary h-10 px-2 text-xs" onClick={() => void requestBill(draft.existing!)}><ReceiptText size={14}/>Solicitar cuenta</button><button className="secondary h-10 px-2 text-xs" onClick={() => void splitBill(draft.existing!)}><Split size={14}/>Dividir cuenta</button></>}
             {pendingCommandDetails(draft.existing).length > 0 && hasPermission("COMANDAS_ENVIAR") && hasCapability("KDS") && <button className="secondary h-10 px-2 text-xs" onClick={() => void run(() => sendPending(draft.existing!), "Líneas nuevas enviadas")}><Send size={14}/>Enviar nuevas</button>}
           </div></div>

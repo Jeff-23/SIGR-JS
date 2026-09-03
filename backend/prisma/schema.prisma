@@ -98,6 +98,17 @@ enum EstadoDetalleComanda {
   LISTA
 }
 
+enum TipoEventoOperacional {
+  PEDIDO_CREADO
+  ENVIADO_ESTACION
+  PREPARACION_INICIADA
+  LISTO_ESTACION
+  RETIRADO_ESTACION
+  ENTREGADO_CLIENTE
+  CUENTA_SOLICITADA
+  PAGO_COMPLETADO
+}
+
 enum EstadoDomicilio {
   PENDIENTE_ASIGNACION
   ASIGNADO
@@ -345,6 +356,7 @@ model Sucursal {
   empleados              Empleado[]
   turnosPersonal         TurnoPersonal[]
   metasOperativas        MetaOperativa[]
+  eventosOperacionales   EventoOperacional[]
 }
 
 // ==========================================
@@ -436,7 +448,7 @@ model Usuario {
   consentimientosRegistrados   ConsentimientoCliente[]
   movimientosPuntosRegistrados MovimientoPuntos[]
   solicitudesQrAceptadas       SolicitudPedidoQr[]        @relation("SolicitudQrAceptadaPor")
-  comandasVistas               Comanda[]                   @relation("ComandaVistaPor")
+  comandasVistas               Comanda[]                  @relation("ComandaVistaPor")
   solicitudesCompraCreadas     SolicitudCompra[]
   ordenesCompraCreadas         OrdenCompra[]
   recepcionesCompraRegistradas RecepcionCompra[]
@@ -446,6 +458,7 @@ model Usuario {
   empleado                     Empleado?
   marcacionesPersonal          MarcacionPersonal[]
   novedadesPersonalRegistradas NovedadPersonal[]
+  eventosOperacionales         EventoOperacional[]        @relation("EventoOperacionalActor")
 
   @@index([restauranteId])
   @@index([sucursalId])
@@ -696,15 +709,15 @@ model Producto {
 }
 
 model ProductoModificador {
-  id        Int      @id @default(autoincrement())
-  nombre    String   @db.VarChar(100)
-  precio    Decimal  @default(0) @db.Decimal(10, 2)
-  activo    Boolean  @default(true)
-  orden     Int      @default(0)
-  creadoEn  DateTime @default(now())
+  id       Int      @id @default(autoincrement())
+  nombre   String   @db.VarChar(100)
+  precio   Decimal  @default(0) @db.Decimal(10, 2)
+  activo   Boolean  @default(true)
+  orden    Int      @default(0)
+  creadoEn DateTime @default(now())
 
   productoId Int
-  producto   Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  producto   Producto                   @relation(fields: [productoId], references: [id], onDelete: Cascade)
   detalles   DetallePedidoModificador[]
 
   @@unique([productoId, nombre])
@@ -712,14 +725,14 @@ model ProductoModificador {
 }
 
 model EstacionPreparacion {
-  id       Int      @id @default(autoincrement())
-  codigo   String   @db.VarChar(40)
-  nombre   String   @db.VarChar(80)
-  color    String   @default("#F97316") @db.VarChar(7)
-  orden                   Int      @default(0)
+  id                     Int      @id @default(autoincrement())
+  codigo                 String   @db.VarChar(40)
+  nombre                 String   @db.VarChar(80)
+  color                  String   @default("#F97316") @db.VarChar(7)
+  orden                  Int      @default(0)
   objetivoPreparacionMin Int      @default(15)
-  estado                  Boolean  @default(true)
-  creadoEn DateTime @default(now())
+  estado                 Boolean  @default(true)
+  creadoEn               DateTime @default(now())
 
   sucursalId Int
   sucursal   Sucursal   @relation(fields: [sucursalId], references: [id], onDelete: Cascade)
@@ -752,13 +765,14 @@ model Pedido {
   usuario  Usuario? @relation("PedidoCreadoPor", fields: [usuarioId], references: [id], onDelete: SetNull)
   mesero   Usuario? @relation("PedidoMesero", fields: [meseroId], references: [id], onDelete: SetNull)
 
-  detalles        DetallePedido[]
-  comandas        Comanda[]
-  factura         Factura?
-  venta           Venta?
-  domicilio       Domicilio?
-  mesasVinculadas PedidoMesa[]
-  solicitudQr     SolicitudPedidoQr?
+  detalles             DetallePedido[]
+  comandas             Comanda[]
+  factura              Factura?
+  venta                Venta?
+  domicilio            Domicilio?
+  mesasVinculadas      PedidoMesa[]
+  solicitudQr          SolicitudPedidoQr?
+  eventosOperacionales EventoOperacional[]
 
   @@unique([sucursalId, idempotenciaClave])
   @@index([sucursalId, creadoEn])
@@ -853,7 +867,7 @@ model DetallePedido {
   pedido   Pedido   @relation(fields: [pedidoId], references: [id])
   producto Producto @relation(fields: [productoId], references: [id])
 
-  comandas     DetalleComanda[]
+  comandas      DetalleComanda[]
   modificadores DetallePedidoModificador[]
 
   @@index([pedidoId])
@@ -869,7 +883,7 @@ model DetallePedidoModificador {
 
   detallePedidoId Int
   modificadorId   Int?
-  detallePedido   DetallePedido       @relation(fields: [detallePedidoId], references: [id], onDelete: Cascade)
+  detallePedido   DetallePedido        @relation(fields: [detallePedidoId], references: [id], onDelete: Cascade)
   modificador     ProductoModificador? @relation(fields: [modificadorId], references: [id], onDelete: SetNull)
 
   @@index([detallePedidoId])
@@ -894,10 +908,11 @@ model Comanda {
   estacionId Int
   vistoPorId Int?
 
-  pedido   Pedido              @relation(fields: [pedidoId], references: [id], onDelete: Restrict)
-  estacion EstacionPreparacion @relation(fields: [estacionId], references: [id], onDelete: Restrict)
-  vistoPor  Usuario?           @relation("ComandaVistaPor", fields: [vistoPorId], references: [id], onDelete: SetNull)
-  detalles DetalleComanda[]
+  pedido               Pedido              @relation(fields: [pedidoId], references: [id], onDelete: Restrict)
+  estacion             EstacionPreparacion @relation(fields: [estacionId], references: [id], onDelete: Restrict)
+  vistoPor             Usuario?            @relation("ComandaVistaPor", fields: [vistoPorId], references: [id], onDelete: SetNull)
+  detalles             DetalleComanda[]
+  eventosOperacionales EventoOperacional[]
 
   @@index([pedidoId])
   @@index([estacionId, estado, prioridad])
@@ -925,6 +940,31 @@ model DetalleComanda {
   @@index([comandaId])
   @@index([detallePedidoId])
   @@index([estado])
+}
+
+model EventoOperacional {
+  id         Int                   @id @default(autoincrement())
+  tipo       TipoEventoOperacional
+  ocurridoEn DateTime              @default(now())
+  metadata   Json?
+
+  sucursalId Int
+  pedidoId   Int
+  comandaId  Int?
+  ventaId    Int?
+  actorId    Int?
+
+  sucursal Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  pedido   Pedido   @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  comanda  Comanda? @relation(fields: [comandaId], references: [id], onDelete: SetNull)
+  venta    Venta?   @relation(fields: [ventaId], references: [id], onDelete: SetNull)
+  actor    Usuario? @relation("EventoOperacionalActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([sucursalId, ocurridoEn])
+  @@index([pedidoId, ocurridoEn])
+  @@index([comandaId, ocurridoEn])
+  @@index([ventaId, ocurridoEn])
+  @@index([tipo, ocurridoEn])
 }
 
 model Venta {
@@ -973,6 +1013,7 @@ model Venta {
   divisionesCuenta      DivisionCuenta[]
   aplicacionesDescuento AplicacionDescuento[]
   movimientosPuntos     MovimientoPuntos[]
+  eventosOperacionales  EventoOperacional[]
 
   @@unique([sucursalId, idempotenciaClave])
   @@unique([sucursalId, numeroComandaPapel])

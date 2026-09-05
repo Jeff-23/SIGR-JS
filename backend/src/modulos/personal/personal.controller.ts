@@ -9,6 +9,8 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Capacidades } from '../auth/capacidades.decorator';
+import { CapabilitiesGuard } from '../auth/capabilities.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Permisos } from '../auth/permisos.decorator';
 import { PermissionsGuard } from '../auth/permissions.guard';
@@ -27,7 +29,8 @@ import {
 import { PersonalService } from './personal.service';
 type AuthRequest = { user: UsuarioAutenticado };
 @Controller('personal')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, CapabilitiesGuard)
+@Capacidades('PERSONAL')
 export class PersonalController {
   constructor(private readonly service: PersonalService) {}
   @Get() @Permisos('USUARIOS_VER') resumen(

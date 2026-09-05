@@ -11,6 +11,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { CanalComunicacion } from '@prisma/client';
+import { Capacidades } from '../auth/capacidades.decorator';
+import { CapabilitiesGuard } from '../auth/capabilities.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Permisos } from '../auth/permisos.decorator';
 import { PermissionsGuard } from '../auth/permissions.guard';
@@ -26,7 +28,8 @@ import { FidelizacionService } from './fidelizacion.service';
 
 type RequestAutenticada = { user: UsuarioAutenticado };
 @Controller('fidelizacion')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, CapabilitiesGuard)
+@Capacidades('FIDELIZACION')
 export class FidelizacionController {
   constructor(private readonly service: FidelizacionService) {}
   @Post('promociones') @Permisos('CONFIGURACION_GESTIONAR') crearPromocion(

@@ -181,7 +181,7 @@ function ApplicationRoutes() {
           element={
             <RouteGuard
               permission="REPORTES_VER"
-              capability="ANALYTICS"
+              capability="REPORTES"
               branchRequired
             >
               <ReportsPage />
@@ -209,7 +209,7 @@ function ApplicationRoutes() {
           element={
             <RouteGuard
               permission="REPORTES_VER"
-              capability="INVENTARIO"
+              capability="COSTOS"
               branchRequired
             >
               <CostsPage />
@@ -221,7 +221,7 @@ function ApplicationRoutes() {
           element={
             <RouteGuard
               permission="REPORTES_VER"
-              capability="INVENTARIO"
+              capability="CUENTAS_PAGAR"
               branchRequired
             >
               <PayablesPage />
@@ -231,7 +231,11 @@ function ApplicationRoutes() {
         <Route
           path="personal"
           element={
-            <RouteGuard permission="USUARIOS_VER" branchRequired>
+            <RouteGuard
+              permission="USUARIOS_VER"
+              capability="PERSONAL"
+              branchRequired
+            >
               <StaffPage />
             </RouteGuard>
           }
@@ -266,7 +270,7 @@ function ApplicationRoutes() {
           element={
             <RouteGuard
               permission="INVENTARIO_VER"
-              capability="INVENTARIO"
+              capability="ABASTECIMIENTO"
               branchRequired
             >
               <SupplyPage />
@@ -299,7 +303,7 @@ function ApplicationRoutes() {
         <Route
           path="fidelizacion"
           element={
-            <RouteGuard permission="CLIENTES_VER" capability="CLIENTES">
+            <RouteGuard permission="CLIENTES_VER" capability="FIDELIZACION">
               <LoyaltyPage />
             </RouteGuard>
           }

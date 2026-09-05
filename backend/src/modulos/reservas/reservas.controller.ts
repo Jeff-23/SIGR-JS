@@ -10,6 +10,8 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Capacidades } from '../auth/capacidades.decorator';
+import { CapabilitiesGuard } from '../auth/capabilities.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
 import { Permisos } from '../auth/permisos.decorator';
@@ -26,7 +28,8 @@ import { ReservasService } from './reservas.service';
 type RequestAutenticada = { user: UsuarioAutenticado };
 
 @Controller('reservas')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, CapabilitiesGuard)
+@Capacidades('RESERVAS')
 export class ReservasController {
   constructor(private readonly reservas: ReservasService) {}
 

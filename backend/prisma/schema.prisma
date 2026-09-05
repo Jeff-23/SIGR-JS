@@ -1779,13 +1779,15 @@ model ConsentimientoCliente {
 // ==========================================
 
 model Plan {
-  id            Int      @id @default(autoincrement())
-  codigo        String   @unique @db.VarChar(30)
-  nombre        String   @db.VarChar(60)
-  descripcion   String?  @db.Text
-  activo        Boolean  @default(true)
-  creadoEn      DateTime @default(now())
-  actualizadoEn DateTime @updatedAt
+  id             Int      @id @default(autoincrement())
+  codigo         String   @unique @db.VarChar(30)
+  nombre         String   @db.VarChar(60)
+  descripcion    String?  @db.Text
+  sedesIncluidas Int      @default(1)
+  maxSedes       Int      @default(1)
+  activo         Boolean  @default(true)
+  creadoEn       DateTime @default(now())
+  actualizadoEn  DateTime @updatedAt
 
   restaurantes Restaurante[]
   capacidades  PlanCapacidad[]

@@ -20,7 +20,7 @@ type RequestAutenticada = {
 @Controller('reportes')
 @UseGuards(JwtAuthGuard, PermissionsGuard, CapabilitiesGuard)
 @Permisos('REPORTES_VER')
-@Capacidades('ANALYTICS')
+@Capacidades('REPORTES')
 export class ReportesController {
   constructor(private readonly reportesService: ReportesService) {}
 

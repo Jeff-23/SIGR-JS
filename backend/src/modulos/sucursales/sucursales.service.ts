@@ -35,6 +35,36 @@ export class SucursalesService {
     return restaurante;
   }
 
+  private async validarLimiteSedes(restauranteId: number) {
+    const restaurante = await this.prisma.restaurante.findUnique({
+      where: { id: restauranteId },
+      select: {
+        nombre: true,
+        plan: {
+          select: {
+            codigo: true,
+            nombre: true,
+            activo: true,
+            sedesIncluidas: true,
+            maxSedes: true,
+          },
+        },
+        _count: {
+          select: { sucursales: { where: { estado: true } } },
+        },
+      },
+    });
+
+    if (!restaurante?.plan?.activo) return;
+
+    const actuales = restaurante._count.sucursales;
+    if (actuales >= restaurante.plan.maxSedes) {
+      throw new ForbiddenException(
+        `El plan ${restaurante.plan.nombre} permite máximo ${restaurante.plan.maxSedes} sede(s) activas. Para crecer por encima de ese tope se requiere un ajuste comercial del plan.`,
+      );
+    }
+  }
+
   private async buscarDentroDelAlcance(
     id: number,
     usuarioActual: UsuarioAutenticado,
@@ -87,6 +117,7 @@ export class SucursalesService {
     }
 
     await this.validarRestauranteActivo(data.restauranteId);
+    await this.validarLimiteSedes(data.restauranteId);
 
     return this.prisma.sucursal.create({
       data: {

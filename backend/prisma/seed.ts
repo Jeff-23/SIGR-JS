@@ -12,24 +12,24 @@ const PLANES = [
     codigo: 'BASICO',
     nombre: 'Básico',
     descripcion: 'Plan inicial con el núcleo operativo de SIGR.',
+    sedesIncluidas: 1,
+    maxSedes: 1,
   },
   {
     codigo: 'MEDIO',
     nombre: 'Medio',
     descripcion:
-      'Plan para restaurantes que requieren operación digital de salón y clientes.',
+      'Plan recomendado para restaurantes que requieren gestión interna y hasta dos sedes.',
+    sedesIncluidas: 2,
+    maxSedes: 2,
   },
   {
     codigo: 'PRO',
     nombre: 'Pro',
     descripcion:
-      'Plan avanzado con operación integral, inventario, cocina y analítica.',
-  },
-  {
-    codigo: 'ENTERPRISE',
-    nombre: 'Enterprise',
-    descripcion:
-      'Plan empresarial con todas las capacidades y soporte multisucursal.',
+      'Plan avanzado para grupos gastronómicos; incluye tres sedes y permite crecimiento con sedes adicionales.',
+    sedesIncluidas: 3,
+    maxSedes: 10,
   },
 ] as const;
 
@@ -64,6 +64,51 @@ const CAPACIDADES = [
     nombre: 'Clientes',
     modulo: 'CLIENTES',
     descripcion: 'Habilita gestión de clientes e historial comercial.',
+  },
+  {
+    codigo: 'RESERVAS',
+    nombre: 'Reservas y lista de espera',
+    modulo: 'SALON',
+    descripcion: 'Habilita reservas, lista de espera y recepción avanzada.',
+  },
+  {
+    codigo: 'FIDELIZACION',
+    nombre: 'Promociones y fidelización',
+    modulo: 'CLIENTES',
+    descripcion: 'Habilita promociones, cupones, puntos y niveles.',
+  },
+  {
+    codigo: 'PERSONAL',
+    nombre: 'Personal y turnos',
+    modulo: 'PERSONAL',
+    descripcion:
+      'Habilita empleados, horarios, turnos y productividad operativa.',
+  },
+  {
+    codigo: 'REPORTES',
+    nombre: 'Reportes operativos',
+    modulo: 'REPORTES',
+    descripcion: 'Habilita reportes operativos y comerciales estándar.',
+  },
+  {
+    codigo: 'ABASTECIMIENTO',
+    nombre: 'Proveedores y compras',
+    modulo: 'ABASTECIMIENTO',
+    descripcion:
+      'Habilita proveedores, solicitudes, órdenes y recepciones de compra.',
+  },
+  {
+    codigo: 'COSTOS',
+    nombre: 'Costos y rentabilidad',
+    modulo: 'COSTOS',
+    descripcion: 'Habilita costos, rendimientos, mermas y rentabilidad.',
+  },
+  {
+    codigo: 'CUENTAS_PAGAR',
+    nombre: 'Cuentas por pagar',
+    modulo: 'FINANZAS',
+    descripcion:
+      'Habilita obligaciones, abonos y cierres administrativos de proveedores.',
   },
   {
     codigo: 'MULTICAJA',
@@ -113,31 +158,39 @@ const METODOS_PAGO_BASE = [
 ] as const;
 
 const CAPACIDADES_POR_PLAN: Record<string, string[]> = {
-  BASICO: [],
+  BASICO: ['MESAS', 'KDS', 'CLIENTES'],
 
-  MEDIO: ['MESAS', 'CLIENTES'],
+  MEDIO: [
+    'MESAS',
+    'KDS',
+    'CLIENTES',
+    'INVENTARIO',
+    'RECETAS',
+    'CATALOGO_VISUAL',
+    'RESERVAS',
+    'FIDELIZACION',
+    'PERSONAL',
+    'REPORTES',
+    'MULTISUCURSAL',
+  ],
 
   PRO: [
     'MESAS',
     'KDS',
+    'CLIENTES',
     'INVENTARIO',
     'RECETAS',
-    'CLIENTES',
-    'MULTICAJA',
-    'ANALYTICS',
     'CATALOGO_VISUAL',
-  ],
-
-  ENTERPRISE: [
-    'MESAS',
-    'KDS',
-    'INVENTARIO',
-    'RECETAS',
-    'CLIENTES',
+    'RESERVAS',
+    'FIDELIZACION',
+    'PERSONAL',
+    'REPORTES',
+    'ABASTECIMIENTO',
+    'COSTOS',
+    'CUENTAS_PAGAR',
     'MULTICAJA',
     'ANALYTICS',
     'MULTISUCURSAL',
-    'CATALOGO_VISUAL',
   ],
 };
 
@@ -517,12 +570,16 @@ async function bootstrap() {
         update: {
           nombre: plan.nombre,
           descripcion: plan.descripcion,
+          sedesIncluidas: plan.sedesIncluidas,
+          maxSedes: plan.maxSedes,
           activo: true,
         },
         create: {
           codigo: plan.codigo,
           nombre: plan.nombre,
           descripcion: plan.descripcion,
+          sedesIncluidas: plan.sedesIncluidas,
+          maxSedes: plan.maxSedes,
         },
       });
 
@@ -598,6 +655,29 @@ async function bootstrap() {
     }
 
     console.log('Matriz de capacidades por plan configurada.');
+
+    // Enterprise se retira del catálogo comercial. Si una base existente aún
+    // lo utiliza, sus restaurantes pasan a PRO antes de eliminar el plan.
+    const planEnterprise = await prisma.plan.findUnique({
+      where: { codigo: 'ENTERPRISE' },
+    });
+    const planProId = planesPorCodigo.get('PRO');
+
+    if (planEnterprise && planProId) {
+      await prisma.restaurante.updateMany({
+        where: { planId: planEnterprise.id },
+        data: { planId: planProId },
+      });
+      await prisma.planCapacidad.deleteMany({
+        where: { planId: planEnterprise.id },
+      });
+      await prisma.plan.delete({
+        where: { id: planEnterprise.id },
+      });
+      console.log(
+        'Plan ENTERPRISE retirado; restaurantes existentes migrados a PRO.',
+      );
+    }
 
     // ==========================================
     // 4. PERMISOS GRANULARES

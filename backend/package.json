@@ -33,7 +33,8 @@
     "pilot:load": "node scripts/pilot-load.mjs",
     "audit:check": "node scripts/audit-dependencies.mjs",
     "certify": "npm run lint:check && npm run build && npm test -- --runInBand && npm run test:e2e -- --runInBand && prisma migrate status",
-    "certify:ci": "npm run certify && npm run audit:check"
+    "certify:ci": "npm run certify && npm run audit:check",
+    "db:seed:certificacion": "ts-node prisma/seed-certificacion-multiempresa.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

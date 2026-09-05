@@ -10,6 +10,8 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Capacidades } from '../auth/capacidades.decorator';
+import { CapabilitiesGuard } from '../auth/capabilities.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Permisos } from '../auth/permisos.decorator';
 import { PermissionsGuard } from '../auth/permissions.guard';
@@ -22,7 +24,8 @@ import {
 import { InteligenciaService } from './inteligencia.service';
 type AuthRequest = { user: UsuarioAutenticado };
 @Controller('inteligencia')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, CapabilitiesGuard)
+@Capacidades('ANALYTICS')
 export class InteligenciaController {
   constructor(private readonly service: InteligenciaService) {}
   @Get() @Permisos('REPORTES_VER') tablero(

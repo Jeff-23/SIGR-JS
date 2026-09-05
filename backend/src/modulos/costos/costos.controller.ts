@@ -23,7 +23,7 @@ import {
 type AuthRequest = { user: UsuarioAutenticado };
 @Controller('costos')
 @UseGuards(JwtAuthGuard, PermissionsGuard, CapabilitiesGuard)
-@Capacidades('INVENTARIO')
+@Capacidades('COSTOS')
 export class CostosController {
   constructor(private readonly service: CostosService) {}
   @Get('recetas') @Permisos('INVENTARIO_VER') recetas(

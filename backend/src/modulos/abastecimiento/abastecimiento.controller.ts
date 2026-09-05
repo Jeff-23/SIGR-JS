@@ -27,7 +27,7 @@ type AuthRequest = { user: UsuarioAutenticado };
 
 @Controller('abastecimiento')
 @UseGuards(JwtAuthGuard, PermissionsGuard, CapabilitiesGuard)
-@Capacidades('INVENTARIO')
+@Capacidades('ABASTECIMIENTO')
 export class AbastecimientoController {
   constructor(private readonly service: AbastecimientoService) {}
   @Get('proveedores') @Permisos('INVENTARIO_VER') proveedores(

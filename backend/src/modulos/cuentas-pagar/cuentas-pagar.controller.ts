@@ -27,7 +27,7 @@ import {
 type AuthRequest = { user: UsuarioAutenticado };
 @Controller('cuentas-pagar')
 @UseGuards(JwtAuthGuard, PermissionsGuard, CapabilitiesGuard)
-@Capacidades('INVENTARIO')
+@Capacidades('CUENTAS_PAGAR')
 export class CuentasPagarController {
   constructor(private readonly service: CuentasPagarService) {}
   @Get('facturas') @Permisos('REPORTES_VER') listar(

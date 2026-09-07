@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  BookOpenCheck,
   ClipboardList,
   Flame,
   LayoutDashboard,
@@ -19,6 +20,7 @@ import {
   UtensilsCrossed,
   X,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { Brand } from "../components/Brand";
@@ -28,8 +30,18 @@ import { useApp } from "../store/app";
 import { api } from "../lib/api";
 import { GuidedTour } from "../components/GuidedTour";
 import { pendingCommandCount, type Command } from "../features/kds/contracts";
+import { hasAnyPermission } from "../lib/access";
 
-const nav = [
+type NavItem = {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+  permission?: string | null;
+  anyPermissions?: string[];
+  capability?: string | null;
+};
+
+const nav: NavItem[] = [
   {
     to: "/centro-operativo",
     label: "Centro Operativo",
@@ -41,7 +53,7 @@ const nav = [
     to: "/presentacion",
     label: "Presentación comercial",
     icon: Presentation,
-    permission: null,
+    permission: "CONFIGURACION_VER",
     capability: null,
   },
   {
@@ -83,7 +95,7 @@ const nav = [
     to: "/pedidos-qr",
     label: "Pedidos QR",
     icon: QrCode,
-    permission: "PEDIDOS_VER",
+    permission: "PEDIDOS_CREAR",
     capability: "MESAS",
   },
   {
@@ -97,7 +109,14 @@ const nav = [
     to: "/continuidad",
     label: "Sincronización",
     icon: ClipboardList,
-    permission: null,
+    permission: "PEDIDOS_CREAR",
+    capability: null,
+  },
+  {
+    to: "/contabilidad",
+    label: "Consulta contable",
+    icon: BookOpenCheck,
+    permission: "CONTABILIDAD_VER",
     capability: null,
   },
   {
@@ -105,6 +124,7 @@ const nav = [
     label: "Facturación y DIAN",
     icon: Receipt,
     permission: null,
+    anyPermissions: ["FACTURAS_VER", "CONFIGURACION_VER"],
     capability: null,
   },
   {
@@ -112,6 +132,16 @@ const nav = [
     label: "Administración",
     icon: Settings,
     permission: null,
+    anyPermissions: [
+      "USUARIOS_CREAR",
+      "USUARIOS_EDITAR",
+      "SUCURSALES_CREAR",
+      "SUCURSALES_EDITAR",
+      "METODOS_PAGO_GESTIONAR",
+      "AUTORIZACION_VER",
+      "AUTORIZACION_GESTIONAR",
+      "CONFIGURACION_GESTIONAR",
+    ],
     capability: null,
   },
   {
@@ -125,7 +155,7 @@ const nav = [
     to: "/domicilios",
     label: "Domicilios",
     icon: UtensilsCrossed,
-    permission: "PEDIDOS_VER",
+    permission: "DOMICILIOS_VER",
     capability: null,
   },
   {
@@ -133,6 +163,17 @@ const nav = [
     label: "Catálogo y clientes",
     icon: ClipboardList,
     permission: null,
+    anyPermissions: [
+      "PRODUCTOS_CREAR",
+      "PRODUCTOS_EDITAR",
+      "CATEGORIAS_CREAR",
+      "CATEGORIAS_EDITAR",
+      "ZONAS_CREAR",
+      "ZONAS_EDITAR",
+      "MESAS_CREAR",
+      "MESAS_EDITAR",
+      "CLIENTES_EDITAR",
+    ],
     capability: null,
   },
   {
@@ -168,7 +209,7 @@ const nav = [
     label: "Facturas",
     icon: ClipboardList,
     permission: "REGISTROS_FACTURA_VER",
-    capability: "FACTURACION",
+    capability: null,
   },
   {
     to: "/reportes",
@@ -268,6 +309,7 @@ export function AppShell() {
             .filter(
               (item) =>
                 hasPermission(item.permission) &&
+                hasAnyPermission(session?.user, item.anyPermissions) &&
                 hasCapability(item.capability),
             )
             .sort(

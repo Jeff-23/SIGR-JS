@@ -1454,6 +1454,9 @@ export class PedidosService {
   }
 
   listarDomicilios(usuarioActual: UsuarioAutenticado) {
+    const puedeSupervisar = usuarioActual.permisos.includes(
+      'DOMICILIOS_SUPERVISAR',
+    );
     return this.prisma.domicilio.findMany({
       where: {
         estado: {
@@ -1465,6 +1468,7 @@ export class PedidosService {
           ],
         },
         pedido: { sucursal: this.filtroSucursal(usuarioActual) },
+        ...(!puedeSupervisar ? { repartidorId: usuarioActual.id } : {}),
       },
       include: {
         repartidor: { select: { id: true, nombres: true, apellidos: true } },
@@ -1472,6 +1476,22 @@ export class PedidosService {
       },
       orderBy: { creadoEn: 'asc' },
       take: 200,
+    });
+  }
+
+  listarRepartidores(usuarioActual: UsuarioAutenticado) {
+    if (!usuarioActual.restauranteId) return [];
+    return this.prisma.usuario.findMany({
+      where: {
+        activo: true,
+        restauranteId: usuarioActual.restauranteId,
+        OR: usuarioActual.sucursalId
+          ? [{ sucursalId: null }, { sucursalId: usuarioActual.sucursalId }]
+          : undefined,
+        rol: { nombre: { equals: 'DOMICILIARIO', mode: 'insensitive' } },
+      },
+      select: { id: true, nombres: true, apellidos: true, sucursalId: true },
+      orderBy: [{ nombres: 'asc' }, { apellidos: 'asc' }],
     });
   }
 
@@ -1486,6 +1506,14 @@ export class PedidosService {
         include: { pedido: { include: { sucursal: true } } },
       });
       if (!domicilio) throw new NotFoundException('Domicilio no encontrado');
+      const puedeSupervisar = usuarioActual.permisos.includes(
+        'DOMICILIOS_SUPERVISAR',
+      );
+      if (!puedeSupervisar && domicilio.repartidorId !== usuarioActual.id) {
+        throw new ForbiddenException(
+          'El domicilio no está asignado a este repartidor',
+        );
+      }
       const permitidas: Record<EstadoDomicilio, EstadoDomicilio[]> = {
         PENDIENTE_ASIGNACION: [
           EstadoDomicilio.ASIGNADO,
@@ -1497,13 +1525,31 @@ export class PedidosService {
         ENTREGADO: [],
         CANCELADO: [],
       };
+      if (
+        !puedeSupervisar &&
+        !(
+          [
+            EstadoDomicilio.ASIGNADO,
+            EstadoDomicilio.EN_RUTA,
+          ] as EstadoDomicilio[]
+        ).includes(domicilio.estado)
+      ) {
+        throw new BadRequestException(
+          'El repartidor sólo puede operar entregas previamente asignadas',
+        );
+      }
+      if (!puedeSupervisar && data.estado === EstadoDomicilio.CANCELADO) {
+        throw new ForbiddenException(
+          'Cancelar o reasignar un domicilio requiere un perfil supervisor',
+        );
+      }
       if (!permitidas[domicilio.estado].includes(data.estado)) {
         throw new BadRequestException(
           `Transición de domicilio no permitida: ${domicilio.estado} -> ${data.estado}`,
         );
       }
       let repartidorId = domicilio.repartidorId;
-      if (data.estado === EstadoDomicilio.ASIGNADO) {
+      if (data.estado === EstadoDomicilio.ASIGNADO && puedeSupervisar) {
         if (!data.repartidorId)
           throw new BadRequestException(
             'Asignar domicilio requiere repartidorId',

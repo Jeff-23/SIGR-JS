@@ -66,6 +66,13 @@ type Delivery = {
   referencias: string;
   costo: number;
 };
+type QuickAction =
+  | "transfer"
+  | "merge"
+  | "separate"
+  | "waiter"
+  | "split"
+  | null;
 
 function sentQuantity(detail: OrderDetail) {
   return (detail.comandas ?? [])
@@ -91,8 +98,11 @@ export function RealSalonPage() {
   );
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
+  const [quickAction, setQuickAction] = useState<QuickAction>(null);
+  const [splitParts, setSplitParts] = useState("2");
   const [contextPeople, setContextPeople] = useState("2");
   const [contextNotes, setContextNotes] = useState("");
+  const [detailNotes, setDetailNotes] = useState<Record<number, string>>({});
   const [delivery, setDelivery] = useState<Delivery>({
     destinatario: "",
     telefono: "",
@@ -113,7 +123,9 @@ export function RealSalonPage() {
             api.get<ApiTable[]>("/mesas", { params }),
             api.get<ApiProduct[]>("/productos", { params }),
             api.get<ApiOrder[]>("/pedidos", { params }),
-            api.get<User[]>("/usuarios"),
+            hasPermission("USUARIOS_VER")
+              ? api.get<User[]>("/usuarios")
+              : Promise.resolve({ data: [] as User[] }),
           ]);
         setTables(tableResponse.data);
         setProducts(productResponse.data);
@@ -125,7 +137,7 @@ export function RealSalonPage() {
         if (!quiet) setLoading(false);
       }
     },
-    [branchId],
+    [branchId, hasPermission],
   );
 
   useEffect(() => {
@@ -185,6 +197,8 @@ export function RealSalonPage() {
     setSearch("");
     setContextPeople(String(Math.min(table?.capacidad ?? 2, 2)));
     setContextNotes("");
+    setDetailNotes({});
+    setQuickAction(null);
     setDraft({ type, table, existing: null });
   };
   const openExisting = async (summary: ApiOrder) => {
@@ -195,6 +209,9 @@ export function RealSalonPage() {
       setSearch("");
       setContextPeople(String(data.personas ?? data.mesa?.capacidad ?? 2));
       setContextNotes(data.observaciones ?? "");
+      setDetailNotes(Object.fromEntries(data.detalles.map((detail) => [detail.id, detail.observaciones ?? ""])));
+      setQuickAction(null);
+      setSplitParts(String(data.personas ?? 2));
       setDraft({ type: data.tipo, table: data.mesa, existing: data });
     } catch (error) {
       toast.error(errorMessage(error));
@@ -246,8 +263,47 @@ export function RealSalonPage() {
       ),
     );
 
+  const persistDetailObservation = async (
+    order: ApiOrder,
+    detail: OrderDetail,
+  ) => {
+    if (sentQuantity(detail) > 0) return;
+    const next = (detailNotes[detail.id] ?? detail.observaciones ?? "").trim();
+    const current = (detail.observaciones ?? "").trim();
+    if (next === current) return;
+    await api.patch(`/pedidos/${order.id}/detalles/${detail.id}`, {
+      cantidad: detail.cantidad,
+      observaciones: next,
+    });
+    setDraft((value) =>
+      value?.existing?.id === order.id
+        ? {
+            ...value,
+            existing: {
+              ...value.existing,
+              detalles: value.existing.detalles.map((item) =>
+                item.id === detail.id ? { ...item, observaciones: next || null } : item,
+              ),
+            },
+          }
+        : value,
+    );
+  };
+
+  const flushDetailObservations = async (order: ApiOrder) => {
+    for (const detail of order.detalles) {
+      if (sentQuantity(detail) > 0) continue;
+      const next = (detailNotes[detail.id] ?? detail.observaciones ?? "").trim();
+      if (next !== (detail.observaciones ?? "").trim())
+        await persistDetailObservation(order, detail);
+    }
+  };
+
   const sendPending = async (order: ApiOrder) => {
     if (!hasPermission("COMANDAS_ENVIAR") || !hasCapability("KDS")) return;
+    // Persistir primero las observaciones todavía enfocadas evita que el click
+    // en "Enviar nuevas" adelante a la petición disparada por onBlur.
+    await flushDetailObservations(order);
     const details = pendingCommandDetails(order);
     if (details.length)
       await api.post(`/pedidos/${order.id}/comandas`, { detalles: details });
@@ -374,98 +430,82 @@ export function RealSalonPage() {
   const requestBill = async (order: ApiOrder) => {
     await run(async () => {
       if (!order.venta)
-        await api.post("/ventas/pedido", { pedidoId: order.id });
+        await api.post(
+          "/ventas/pedido-operativo",
+          { pedidoId: order.id },
+          { headers: { "Idempotency-Key": `venta-pedido-${order.id}` } },
+        );
       await api.post(`/pedidos/${order.id}/solicitar-cuenta`);
     }, "Cuenta solicitada · mesa enviada a cobro");
   };
-  const splitBill = async (order: ApiOrder) => {
-    let saleId = order.venta?.id;
-    if (!saleId) {
-      try {
-        const { data } = await api.post<{ id: number }>("/ventas/pedido", {
-          pedidoId: order.id,
-        });
-        saleId = data.id;
-      } catch (error) {
-        return toast.error(errorMessage(error));
-      }
-    }
-    const requested = Number(
-      window.prompt("¿En cuántas partes iguales?", String(order.personas ?? 2)),
+  const ensureSale = async (order: ApiOrder) => {
+    if (order.venta?.id) return order.venta.id;
+    const { data } = await api.post<{ id: number }>(
+      "/ventas/pedido-operativo",
+      { pedidoId: order.id },
+      { headers: { "Idempotency-Key": `venta-pedido-${order.id}` } },
     );
-    if (!Number.isInteger(requested) || requested < 2 || requested > 20) return;
-    const totalCents = Math.round(Number(order.total) * 100);
-    const base = Math.floor(totalCents / requested);
-    const parts = Array.from({ length: requested }, (_, index) => ({
-      nombre: `Persona ${index + 1}`,
-      total:
-        (base + (index === requested - 1 ? totalCents - base * requested : 0)) /
-        100,
-    }));
-    await run(
-      () =>
-        api.post(`/ventas/${saleId}/division-cuenta`, {
-          modo: "PERSONAS",
-          partes: parts,
-        }),
-      `Cuenta dividida en ${requested} partes`,
-    );
+    return data.id;
   };
-  const transfer = async (order: ApiOrder) => {
-    const free = tables.filter((table) => table.situacion === "LIBRE");
-    const target = Number(
-      window.prompt(
-        `Mesa destino: ${free.map((table) => `${table.id}=M${table.numero}`).join(", ")}`,
-        free[0] ? String(free[0].id) : "",
-      ),
-    );
-    if (target)
+
+  const splitBill = async (order: ApiOrder, requested: number) => {
+    if (!Number.isInteger(requested) || requested < 2 || requested > 20)
+      return toast.error("La cuenta debe dividirse entre 2 y 20 partes");
+    try {
+      const saleId = await ensureSale(order);
+      const totalCents = Math.round(Number(order.total) * 100);
+      const base = Math.floor(totalCents / requested);
+      const parts = Array.from({ length: requested }, (_, index) => ({
+        nombre: `Persona ${index + 1}`,
+        total:
+          (base +
+            (index === requested - 1
+              ? totalCents - base * requested
+              : 0)) /
+          100,
+      }));
       await run(
         () =>
-          api.post(`/pedidos/${order.id}/mesas/trasladar`, {
-            mesaDestinoId: target,
+          api.post(`/ventas/${saleId}/division-cuenta-operativa`, {
+            modo: "PERSONAS",
+            partes: parts,
           }),
-        "Consumo trasladado",
+        `Cuenta dividida en ${requested} partes`,
       );
+      setQuickAction(null);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
   };
-  const merge = async (order: ApiOrder) => {
-    const free = tables.filter((table) => table.situacion === "LIBRE");
-    const raw = window.prompt(
-      `IDs de mesas a unir, separados por coma: ${free.map((table) => `${table.id}=M${table.numero}`).join(", ")}`,
+
+  const transfer = async (order: ApiOrder, mesaDestinoId: number) => {
+    await run(
+      () =>
+        api.post(`/pedidos/${order.id}/mesas/trasladar`, { mesaDestinoId }),
+      "Consumo trasladado",
     );
-    const ids = raw?.split(",").map(Number).filter(Boolean) ?? [];
-    if (ids.length)
-      await run(
-        () => api.post(`/pedidos/${order.id}/mesas/unir`, { mesaIds: ids }),
-        "Mesas unidas",
-      );
+    setQuickAction(null);
   };
-  const separate = async (order: ApiOrder) => {
-    const secondary =
-      order.mesasVinculadas?.filter((item) => !item.principal) ?? [];
-    const id = Number(
-      window.prompt(
-        `Mesa a separar: ${secondary.map((item) => `${item.mesa.id}=M${item.mesa.numero}`).join(", ")}`,
-      ),
+  const merge = async (order: ApiOrder, mesaId: number) => {
+    await run(
+      () => api.post(`/pedidos/${order.id}/mesas/unir`, { mesaIds: [mesaId] }),
+      "Mesa unida al pedido",
     );
-    if (id)
-      await run(
-        () => api.post(`/pedidos/${order.id}/mesas/separar`, { mesaId: id }),
-        "Mesa separada",
-      );
+    setQuickAction(null);
   };
-  const changeWaiter = async (order: ApiOrder) => {
-    const id = Number(
-      window.prompt(
-        `Mesero: ${users.map((user) => `${user.id}=${user.nombres} ${user.apellidos}`).join(", ")}`,
-        order.mesero ? String(order.mesero.id) : "",
-      ),
+  const separate = async (order: ApiOrder, mesaId: number) => {
+    await run(
+      () => api.post(`/pedidos/${order.id}/mesas/separar`, { mesaId }),
+      "Mesa separada",
     );
-    if (id)
-      await run(
-        () => api.patch(`/pedidos/${order.id}/mesero`, { meseroId: id }),
-        "Mesero actualizado",
-      );
+    setQuickAction(null);
+  };
+  const changeWaiter = async (order: ApiOrder, meseroId: number) => {
+    await run(
+      () => api.patch(`/pedidos/${order.id}/mesero`, { meseroId }),
+      "Mesero actualizado",
+    );
+    setQuickAction(null);
   };
   const updateExistingDetail = async (
     order: ApiOrder,
@@ -701,6 +741,7 @@ export function RealSalonPage() {
             canEdit={
               hasPermission("MESAS_EDITAR") && hasPermission("PEDIDOS_EDITAR")
             }
+            canViewUsers={hasPermission("USUARIOS_VER")}
             reservationsEnabled={hasCapability("RESERVAS")}
             onChanged={load}
           />
@@ -829,34 +870,40 @@ export function RealSalonPage() {
                   <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
                     {hasPermission("PEDIDOS_EDITAR") && (
                       <>
-                        <button
-                          className="secondary h-10 px-2 text-xs"
-                          onClick={() => void transfer(draft.existing!)}
-                        >
-                          <MoveRight size={14} />
-                          Trasladar
-                        </button>
-                        <button
-                          className="secondary h-10 px-2 text-xs"
-                          onClick={() => void merge(draft.existing!)}
-                        >
-                          <Merge size={14} />
-                          Unir mesa
-                        </button>
-                        <button
-                          className="secondary h-10 px-2 text-xs"
-                          onClick={() => void separate(draft.existing!)}
-                        >
-                          <Scissors size={14} />
-                          Separar
-                        </button>
-                        <button
-                          className="secondary h-10 px-2 text-xs"
-                          onClick={() => void changeWaiter(draft.existing!)}
-                        >
-                          <UserRound size={14} />
-                          Mesero
-                        </button>
+                        {hasPermission("MESAS_EDITAR") && (
+                          <>
+                            <button
+                              className="secondary h-10 px-2 text-xs"
+                              onClick={() => setQuickAction((value) => value === "transfer" ? null : "transfer")}
+                            >
+                              <MoveRight size={14} />
+                              Trasladar
+                            </button>
+                            <button
+                              className="secondary h-10 px-2 text-xs"
+                              onClick={() => setQuickAction((value) => value === "merge" ? null : "merge")}
+                            >
+                              <Merge size={14} />
+                              Unir mesa
+                            </button>
+                            <button
+                              className="secondary h-10 px-2 text-xs"
+                              onClick={() => setQuickAction((value) => value === "separate" ? null : "separate")}
+                            >
+                              <Scissors size={14} />
+                              Separar
+                            </button>
+                          </>
+                        )}
+                        {hasPermission("USUARIOS_VER") && (
+                          <button
+                            className="secondary h-10 px-2 text-xs"
+                            onClick={() => setQuickAction((value) => value === "waiter" ? null : "waiter")}
+                          >
+                            <UserRound size={14} />
+                            Mesero
+                          </button>
+                        )}
                       </>
                     )}
                     {draft.existing.estado === "LISTO" &&
@@ -869,7 +916,7 @@ export function RealSalonPage() {
                           Entregado a mesa
                         </button>
                       )}
-                    {hasPermission("VENTAS_CREAR") && (
+                    {hasPermission("PEDIDOS_EDITAR") && (
                       <>
                         <button
                           className="secondary h-10 px-2 text-xs"
@@ -880,7 +927,7 @@ export function RealSalonPage() {
                         </button>
                         <button
                           className="secondary h-10 px-2 text-xs"
-                          onClick={() => void splitBill(draft.existing!)}
+                          onClick={() => setQuickAction((value) => value === "split" ? null : "split")}
                         >
                           <Split size={14} />
                           Dividir cuenta
@@ -904,6 +951,106 @@ export function RealSalonPage() {
                         </button>
                       )}
                   </div>
+                  {quickAction && (
+                    <div className="mt-3 rounded-2xl border border-denim/10 bg-[#f7f5ef] p-3">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <strong className="text-sm">
+                          {quickAction === "transfer" && "Selecciona la mesa destino"}
+                          {quickAction === "merge" && "Selecciona una mesa para unir"}
+                          {quickAction === "separate" && "Selecciona la mesa que deseas separar"}
+                          {quickAction === "waiter" && "Selecciona el nuevo mesero"}
+                          {quickAction === "split" && "Divide la cuenta en partes iguales"}
+                        </strong>
+                        <button
+                          className="rounded-lg p-1 hover:bg-white"
+                          aria-label="Cerrar acción"
+                          onClick={() => setQuickAction(null)}
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                      {(quickAction === "transfer" || quickAction === "merge") && (
+                        <div className="flex flex-wrap gap-2">
+                          {tables.filter((table) => table.situacion === "LIBRE").length === 0 ? (
+                            <span className="text-sm text-denim/55">No hay mesas libres disponibles.</span>
+                          ) : (
+                            tables
+                              .filter((table) => table.situacion === "LIBRE")
+                              .map((table) => (
+                                <button
+                                  key={table.id}
+                                  className="secondary h-9 px-3 text-xs"
+                                  disabled={saving}
+                                  onClick={() =>
+                                    void (quickAction === "transfer"
+                                      ? transfer(draft.existing!, table.id)
+                                      : merge(draft.existing!, table.id))
+                                  }
+                                >
+                                  Mesa {table.numero}
+                                </button>
+                              ))
+                          )}
+                        </div>
+                      )}
+                      {quickAction === "separate" && (
+                        <div className="flex flex-wrap gap-2">
+                          {(draft.existing.mesasVinculadas?.filter((item) => !item.principal) ?? []).length === 0 ? (
+                            <span className="text-sm text-denim/55">Este pedido no tiene mesas secundarias unidas.</span>
+                          ) : (
+                            (draft.existing.mesasVinculadas?.filter((item) => !item.principal) ?? []).map((item) => (
+                              <button
+                                key={item.mesa.id}
+                                className="secondary h-9 px-3 text-xs"
+                                disabled={saving}
+                                onClick={() => void separate(draft.existing!, item.mesa.id)}
+                              >
+                                Mesa {item.mesa.numero}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                      {quickAction === "waiter" && (
+                        <div className="flex flex-wrap gap-2">
+                          {users.length === 0 ? (
+                            <span className="text-sm text-denim/55">No hay usuarios activos disponibles para asignar.</span>
+                          ) : (
+                            users.map((user) => (
+                              <button
+                                key={user.id}
+                                className="secondary h-9 px-3 text-xs"
+                                disabled={saving || user.id === draft.existing?.mesero?.id}
+                                onClick={() => void changeWaiter(draft.existing!, user.id)}
+                              >
+                                {user.nombres} {user.apellidos}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                      {quickAction === "split" && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            className="input h-10 w-24"
+                            type="number"
+                            min="2"
+                            max="20"
+                            value={splitParts}
+                            onChange={(event) => setSplitParts(event.target.value)}
+                            aria-label="Número de partes"
+                          />
+                          <button
+                            className="primary h-10 px-4 text-xs"
+                            disabled={saving}
+                            onClick={() => void splitBill(draft.existing!, Number(splitParts))}
+                          >
+                            Confirmar división
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-5 card p-4">
@@ -974,21 +1121,21 @@ export function RealSalonPage() {
                           </div>
                           <input
                             className="mt-2 w-full rounded-xl border border-denim/10 bg-white/70 px-3 py-2 text-sm"
-                            defaultValue={detail.observaciones ?? ""}
+                            value={detailNotes[detail.id] ?? detail.observaciones ?? ""}
                             disabled={
                               sent > 0 || !hasPermission("PEDIDOS_EDITAR")
                             }
-                            placeholder="Observación por producto"
-                            onBlur={(e) => {
-                              if (
-                                sent === 0 &&
-                                e.target.value !== (detail.observaciones ?? "")
-                              )
-                                void updateExistingDetail(
-                                  draft.existing!,
-                                  detail,
-                                  detail.cantidad,
-                                  e.target.value,
+                            placeholder="Observación para cocina/bar: sin salsas, sin hielo…"
+                            onChange={(e) =>
+                              setDetailNotes((current) => ({
+                                ...current,
+                                [detail.id]: e.target.value,
+                              }))
+                            }
+                            onBlur={() => {
+                              if (sent === 0)
+                                void persistDetailObservation(draft.existing!, detail).catch(
+                                  (error) => toast.error(errorMessage(error)),
                                 );
                             }}
                           />

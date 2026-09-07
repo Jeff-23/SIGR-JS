@@ -60,6 +60,20 @@ export class VentasController {
     );
   }
 
+  @Post('pedido-operativo')
+  @Permisos('PEDIDOS_EDITAR')
+  crearDesdePedidoOperativo(
+    @Body() data: CrearVentaPedidoDto,
+    @Headers('idempotency-key') claveIdempotencia: string | undefined,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.ventasService.crearDesdePedido(
+      data,
+      request.user,
+      claveIdempotencia,
+    );
+  }
+
   @Post('directa')
   @Permisos('VENTAS_CREAR')
   crearDirecta(
@@ -220,6 +234,16 @@ export class VentasController {
     @Req() request: RequestAutenticada,
   ) {
     return this.ventasService.reversar(id, data, request.user, clave);
+  }
+
+  @Post(':id/division-cuenta-operativa')
+  @Permisos('PEDIDOS_EDITAR')
+  dividirCuentaOperativa(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: DividirCuentaDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.ventasService.dividirCuenta(id, data, request.user);
   }
 
   @Post(':id/division-cuenta')

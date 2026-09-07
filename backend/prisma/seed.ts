@@ -352,6 +352,21 @@ const PERMISOS = [
     nombre: 'Cancelar pedidos',
     modulo: 'PEDIDOS',
   },
+  {
+    codigo: 'DOMICILIOS_VER',
+    nombre: 'Ver domicilios y entregas',
+    modulo: 'DOMICILIOS',
+  },
+  {
+    codigo: 'DOMICILIOS_ACTUALIZAR',
+    nombre: 'Actualizar estado de domicilios',
+    modulo: 'DOMICILIOS',
+  },
+  {
+    codigo: 'DOMICILIOS_SUPERVISAR',
+    nombre: 'Asignar, reasignar y cancelar domicilios',
+    modulo: 'DOMICILIOS',
+  },
 
   // Comandas / KDS
   {
@@ -507,6 +522,11 @@ const PERMISOS = [
   },
 
   // Reportes
+  {
+    codigo: 'CONTABILIDAD_VER',
+    nombre: 'Acceder a consulta contable',
+    modulo: 'CONTABILIDAD',
+  },
   {
     codigo: 'REPORTES_VER',
     nombre: 'Ver reportes',
@@ -915,9 +935,14 @@ async function bootstrap() {
       );
 
       const codigosContador = new Set([
+        'SUCURSALES_VER',
+        'CONTABILIDAD_VER',
+        'VENTAS_VER',
         'REGISTROS_FACTURA_VER',
         'REGISTROS_FACTURA_EXPORTAR',
         'FACTURAS_VER',
+        'METODOS_PAGO_VER',
+        'INVENTARIO_VER',
         'REPORTES_VER',
         'CAJA_VER',
         'AUDITORIA_VER',

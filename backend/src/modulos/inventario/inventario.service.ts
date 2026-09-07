@@ -611,14 +611,20 @@ export class InventarioService {
         producto.estrategiaInventario === EstrategiaInventario.POR_RECETA,
     );
 
+    /*
+     * BÁSICO debe seguir siendo un POS plenamente operativo aunque el plan no
+     * incluya el módulo de inventario. Productos heredados o compartidos pueden
+     * conservar una estrategia de stock configurada, pero esa configuración no
+     * debe impedir crear la Venta. En ese caso la venta no genera movimientos de
+     * inventario; el acceso al módulo y a sus ajustes continúa protegido por la
+     * capacidad INVENTARIO.
+     */
     if (
       !this.esSuperadmin(params.usuarioActual) &&
       usaInventario &&
       !params.usuarioActual.capacidades.includes('INVENTARIO')
     ) {
-      throw new ForbiddenException(
-        'El control de inventario no está incluido en el plan del restaurante',
-      );
+      return [];
     }
 
     if (

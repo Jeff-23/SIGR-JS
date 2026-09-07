@@ -61,7 +61,7 @@ const lineLabel: Record<KdsLineState, string> = {
 };
 
 export function RealKitchenPage() {
-  const { branchId, hasPermission } = useApp();
+  const { branchId, hasPermission, session } = useApp();
   const [commands, setCommands] = useState<Command[]>([]);
   const [stations, setStations] = useState<Station[]>([]);
   const [stationId, setStationId] = useState<number | "all">("all");
@@ -79,6 +79,11 @@ export function RealKitchenPage() {
   const ready = useRef(new Set<number>());
 
   const canEdit = hasPermission("COMANDAS_ACTUALIZAR_ESTADO");
+  const stationScope = session?.user.rol === "COCINA"
+    ? "COCINA"
+    : session?.user.rol === "BAR"
+      ? "BAR"
+      : null;
 
   const load = useCallback(async (quiet = false) => {
     if (!branchId) return;
@@ -129,19 +134,27 @@ export function RealKitchenPage() {
     };
   }, [load]);
 
-  const visible = useMemo(() => commands.filter((command) =>
+  const scopedStations = useMemo(
+    () => stations.filter((station) => !stationScope || station.codigo === stationScope),
+    [stationScope, stations],
+  );
+  const scopedCommands = useMemo(
+    () => commands.filter((command) => !stationScope || command.estacion.codigo === stationScope),
+    [commands, stationScope],
+  );
+  const visible = useMemo(() => scopedCommands.filter((command) =>
     (stationId === "all" || command.estacion.id === stationId) &&
     (state === "all" || command.estado === state),
-  ), [commands, state, stationId]);
+  ), [scopedCommands, state, stationId]);
 
   const counters = useMemo(() => ({
-    pending: commands.filter((item) => item.estado === "PENDIENTE").length,
-    preparing: commands.filter((item) => item.estado === "EN_PREPARACION").length,
-    ready: commands.filter((item) => item.estado === "LISTA").length,
-    delayed: commands.filter((item) => servicePromise(elapsedMinutes(item.fechaEnvio, now), item.metaPreparacionMin).risk === "late").length,
-  }), [commands, now]);
+    pending: scopedCommands.filter((item) => item.estado === "PENDIENTE").length,
+    preparing: scopedCommands.filter((item) => item.estado === "EN_PREPARACION").length,
+    ready: scopedCommands.filter((item) => item.estado === "LISTA").length,
+    delayed: scopedCommands.filter((item) => servicePromise(elapsedMinutes(item.fechaEnvio, now), item.metaPreparacionMin).risk === "late").length,
+  }), [scopedCommands, now]);
 
-  const unseen = useMemo(() => unseenCommandCount(commands), [commands]);
+  const unseen = useMemo(() => unseenCommandCount(scopedCommands), [scopedCommands]);
 
   const act = async (key: string, action: () => Promise<unknown>, success?: string) => {
     if (!canEdit || busy) return;
@@ -219,8 +232,8 @@ export function RealKitchenPage() {
   return <div>
     <div className="section-title">
       <div>
-        <p className="eyebrow">KDS · operación de cocina y bar</p>
-        <h1 className="page-title">Producción y despacho</h1>
+        <p className="eyebrow">{canEdit ? "KDS · operación de cocina y bar" : "Seguimiento de preparación"}</p>
+        <h1 className="page-title">{canEdit ? "Producción y despacho" : "Estado de cocina y bar"}</h1>
       </div>
       <div className="flex flex-wrap gap-2">
         <button onClick={() => setCompact(!compact)} className="secondary h-11 w-auto px-4">{compact ? "Vista amplia" : "Vista compacta"}</button>
@@ -232,7 +245,7 @@ export function RealKitchenPage() {
     </div>
 
     {unseen > 0 && <div className="kds-new-alert mt-4" aria-live="assertive">
-      <div className="flex items-center gap-3"><BellRing size={24}/><div><strong>{unseen} pedido(s) nuevo(s) sin confirmar</strong><p>La alerta permanece hasta que cocina o bar marque cada comanda como vista.</p></div></div>
+      <div className="flex items-center gap-3"><BellRing size={24}/><div><strong>{unseen} pedido(s) nuevo(s) sin confirmar</strong><p>{canEdit ? "La alerta permanece hasta que la estación marque cada comanda como vista." : "Puedes seguir el estado aquí; las acciones de preparación están reservadas a cocina y bar."}</p></div></div>
     </div>}
 
     {stationForm && <div className="card mt-4 grid gap-3 md:grid-cols-[1fr_1.4fr_110px_130px_auto]">
@@ -251,8 +264,8 @@ export function RealKitchenPage() {
     </div>
 
     <div className="mt-6 flex flex-wrap gap-2">
-      <button className={["salon-filter", stationId === "all" ? "active" : ""].join(" ")} onClick={() => setStationId("all")}>Todas las estaciones</button>
-      {stations.map((station) => <button key={station.id} onClick={() => setStationId(station.id)} className={["salon-filter", stationId === station.id ? "active" : ""].join(" ")}><i className="mr-2 inline-block h-2 w-2 rounded-full" style={{ background: station.color }}/>{station.nombre} · {station.objetivoPreparacionMin} min</button>)}
+      {!stationScope && <button className={["salon-filter", stationId === "all" ? "active" : ""].join(" ")} onClick={() => setStationId("all")}>Todas las estaciones</button>}
+      {scopedStations.map((station) => <button key={station.id} onClick={() => setStationId(station.id)} className={["salon-filter", stationId === station.id || Boolean(stationScope) ? "active" : ""].join(" ")}><i className="mr-2 inline-block h-2 w-2 rounded-full" style={{ background: station.color }}/>{station.nombre} · {station.objetivoPreparacionMin} min</button>)}
     </div>
 
     <div className="mt-3 flex flex-wrap gap-2">
@@ -339,13 +352,15 @@ function CommandCard({
         {canEdit && <select aria-label="Prioridad" className="rounded-lg border border-denim/10 bg-white px-2 py-2 text-xs font-black" value={command.prioridad} onChange={(event) => void prioritize(command, event.target.value as KdsPriority)}><option value="NORMAL">Normal</option><option value="ALTA">Alta</option><option value="URGENTE">Urgente</option></select>}
       </div>
 
-      {!command.fechaVista && <button disabled={Boolean(busy) || !canEdit} onClick={() => void markSeen(command)} className="kds-action bg-marigold text-steel"><Eye size={20}/> Visto por cocina</button>}
+      {canEdit && !command.fechaVista && <button disabled={Boolean(busy)} onClick={() => void markSeen(command)} className="kds-action bg-marigold text-steel"><Eye size={20}/> Visto por {command.estacion.nombre}</button>}
 
-      {command.estado !== "LISTA" && pendingLines && <button disabled={Boolean(busy) || !canEdit} onClick={() => void startAll(command)} className="kds-action bg-steel text-white"><Play size={20}/> Iniciar todos</button>}
+      {canEdit && command.estado !== "LISTA" && pendingLines && <button disabled={Boolean(busy)} onClick={() => void startAll(command)} className="kds-action bg-steel text-white"><Play size={20}/> Iniciar todos</button>}
 
-      {command.estado === "EN_PREPARACION" && <button disabled={Boolean(busy) || !canEdit} onClick={() => void updateCommandState(command, "LISTA")} className="kds-action bg-emerald-700 text-white"><CheckCircle2 size={20}/> Marcar todo listo</button>}
+      {canEdit && command.estado === "EN_PREPARACION" && <button disabled={Boolean(busy)} onClick={() => void updateCommandState(command, "LISTA")} className="kds-action bg-emerald-700 text-white"><CheckCircle2 size={20}/> Marcar todo listo</button>}
 
-      {command.estado === "LISTA" && <button disabled={Boolean(busy) || !canEdit} onClick={() => void updateCommandState(command, "ENTREGADA")} className="kds-action bg-emerald-700 text-white"><Check size={20}/> Retirar para servicio</button>}
+      {canEdit && command.estado === "LISTA" && <button disabled={Boolean(busy)} onClick={() => void updateCommandState(command, "ENTREGADA")} className="kds-action bg-emerald-700 text-white"><Check size={20}/> Retirar para servicio</button>}
+
+      {!canEdit && <div className="rounded-xl bg-denim/[.04] px-3 py-2 text-center text-xs font-bold text-denim/55">Seguimiento solamente · sin acciones de preparación</div>}
     </footer>
 
     {command.prioridad !== "NORMAL" && <span className={["absolute right-4 top-4 z-10 flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[10px] font-black", command.prioridad === "URGENTE" ? "bg-red-600 text-white" : "bg-amber-200 text-amber-900"].join(" ")}>{command.prioridad === "URGENTE" ? <Siren size={12}/> : <AlertTriangle size={12}/>} {command.prioridad}</span>}
@@ -381,7 +396,7 @@ function LineCard({ line, command, busy, canEdit, updateLineState }: {
           <span className="rounded-full bg-denim/5 px-2 py-1 text-[10px] font-black uppercase text-denim/55">{lineLabel[line.estado]}</span>
         </div>
         {modifiers.length > 0 && <div className="mt-2 rounded-xl bg-blue-50 px-3 py-2 text-xs font-extrabold text-blue-700">{modifiers.map((modifier) => <div key={modifier.id}>+ {modifier.cantidad > 1 ? `${modifier.cantidad}× ` : ""}{modifier.nombre}</div>)}</div>}
-        {line.detallePedido.observaciones && <div className="kds-note mt-2"><AlertTriangle size={15}/><span>{line.detallePedido.observaciones}</span></div>}
+        {line.detallePedido.observaciones && <div className="kds-note mt-2"><AlertTriangle size={15}/><span><b>Observación:</b> {line.detallePedido.observaciones}</span></div>}
       </div>
     </div>
 

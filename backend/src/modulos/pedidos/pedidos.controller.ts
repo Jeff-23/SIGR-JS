@@ -125,7 +125,7 @@ export class PedidosController {
   }
 
   @Post(':id/solicitar-cuenta')
-  @Permisos('PEDIDOS_EDITAR', 'VENTAS_CREAR')
+  @Permisos('PEDIDOS_EDITAR')
   solicitarCuenta(
     @Param('id', ParseIntPipe) id: number,
     @Req() request: RequestAutenticada,
@@ -198,13 +198,19 @@ export class PedidosController {
   }
 
   @Get('domicilios/activos')
-  @Permisos('PEDIDOS_VER')
+  @Permisos('DOMICILIOS_VER')
   listarDomicilios(@Req() request: RequestAutenticada) {
     return this.pedidosService.listarDomicilios(request.user);
   }
 
+  @Get('domicilios/repartidores')
+  @Permisos('DOMICILIOS_SUPERVISAR')
+  listarRepartidores(@Req() request: RequestAutenticada) {
+    return this.pedidosService.listarRepartidores(request.user);
+  }
+
   @Patch('domicilios/:id/estado')
-  @Permisos('PEDIDOS_EDITAR')
+  @Permisos('DOMICILIOS_ACTUALIZAR')
   actualizarDomicilio(
     @Param('id', ParseIntPipe) id: number,
     @Body() data: ActualizarDomicilioDto,

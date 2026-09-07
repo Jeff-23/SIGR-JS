@@ -28,6 +28,7 @@ import { ContinuityPage } from "./pages/ContinuityPage";
 import { LoyaltyPage } from "./pages/LoyaltyPage";
 import { PublicQrMenuPage } from "./pages/PublicQrMenuPage";
 import { QrOrdersPage } from "./pages/QrOrdersPage";
+import { AccountantPage } from "./pages/AccountantPage";
 import { useApp } from "./store/app";
 
 const InvoicesPage = lazy(() =>
@@ -136,7 +137,7 @@ function ApplicationRoutes() {
           path="pedidos-qr"
           element={
             <RouteGuard
-              permission="PEDIDOS_VER"
+              permission="PEDIDOS_CREAR"
               capability="MESAS"
               branchRequired
             >
@@ -169,7 +170,6 @@ function ApplicationRoutes() {
           element={
             <RouteGuard
               permission="REGISTROS_FACTURA_VER"
-              capability="FACTURACION"
               branchRequired
             >
               <InvoicesPage />
@@ -199,7 +199,20 @@ function ApplicationRoutes() {
         <Route
           path="catalogo"
           element={
-            <RouteGuard branchRequired>
+            <RouteGuard
+              anyPermissions={[
+                "PRODUCTOS_CREAR",
+                "PRODUCTOS_EDITAR",
+                "CATEGORIAS_CREAR",
+                "CATEGORIAS_EDITAR",
+                "ZONAS_CREAR",
+                "ZONAS_EDITAR",
+                "MESAS_CREAR",
+                "MESAS_EDITAR",
+                "CLIENTES_EDITAR",
+              ]}
+              branchRequired
+            >
               <CatalogPage />
             </RouteGuard>
           }
@@ -264,7 +277,14 @@ function ApplicationRoutes() {
             </RouteGuard>
           }
         />
-        <Route path="presentacion" element={<CommercialPresentationPage />} />
+        <Route
+          path="presentacion"
+          element={
+            <RouteGuard permission="CONFIGURACION_VER">
+              <CommercialPresentationPage />
+            </RouteGuard>
+          }
+        />
         <Route
           path="abastecimiento"
           element={
@@ -292,14 +312,54 @@ function ApplicationRoutes() {
         <Route
           path="domicilios"
           element={
-            <RouteGuard permission="PEDIDOS_VER" branchRequired>
+            <RouteGuard permission="DOMICILIOS_VER" branchRequired>
               <DeliveryPage />
             </RouteGuard>
           }
         />
-        <Route path="administracion" element={<AdminPage />} />
-        <Route path="fiscal" element={<FiscalPage />} />
-        <Route path="continuidad" element={<ContinuityPage />} />
+        <Route
+          path="administracion"
+          element={
+            <RouteGuard
+              anyPermissions={[
+                "USUARIOS_CREAR",
+                "USUARIOS_EDITAR",
+                "SUCURSALES_CREAR",
+                "SUCURSALES_EDITAR",
+                "METODOS_PAGO_GESTIONAR",
+                "AUTORIZACION_VER",
+                "AUTORIZACION_GESTIONAR",
+                "CONFIGURACION_GESTIONAR",
+              ]}
+            >
+              <AdminPage />
+            </RouteGuard>
+          }
+        />
+        <Route
+          path="contabilidad"
+          element={
+            <RouteGuard permission="CONTABILIDAD_VER" branchRequired>
+              <AccountantPage />
+            </RouteGuard>
+          }
+        />
+        <Route
+          path="fiscal"
+          element={
+            <RouteGuard anyPermissions={["FACTURAS_VER", "CONFIGURACION_VER"]}>
+              <FiscalPage />
+            </RouteGuard>
+          }
+        />
+        <Route
+          path="continuidad"
+          element={
+            <RouteGuard permission="PEDIDOS_CREAR">
+              <ContinuityPage />
+            </RouteGuard>
+          }
+        />
         <Route
           path="fidelizacion"
           element={
@@ -328,7 +388,7 @@ export default function App() {
       >
         <ApplicationRoutes />
       </Suspense>
-      <Toaster position="top-right" toastOptions={{ duration: 4500 }} />
+      <Toaster position="bottom-center" toastOptions={{ duration: 3500 }} />
     </BrowserRouter>
   );
 }

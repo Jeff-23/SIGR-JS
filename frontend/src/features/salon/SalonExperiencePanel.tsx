@@ -34,6 +34,7 @@ export function SalonExperiencePanel({
   tables,
   orders,
   canEdit,
+  canViewUsers,
   reservationsEnabled,
   onChanged,
 }: {
@@ -41,6 +42,7 @@ export function SalonExperiencePanel({
   tables: ApiTable[];
   orders: ApiOrder[];
   canEdit: boolean;
+  canViewUsers: boolean;
   reservationsEnabled: boolean;
   onChanged: () => Promise<void>;
 }) {
@@ -73,8 +75,12 @@ export function SalonExperiencePanel({
   );
   const [now] = useState(() => Date.now());
   const load = useCallback(async () => {
-    const u = await api.get<User[]>("/usuarios");
-    setUsers(u.data.filter((item) => item.activo));
+    if (canEdit && canViewUsers) {
+      const u = await api.get<User[]>("/usuarios");
+      setUsers(u.data.filter((item) => item.activo));
+    } else {
+      setUsers([]);
+    }
     if (!reservationsEnabled) {
       setReservations([]);
       setWaiting([]);
@@ -88,7 +94,7 @@ export function SalonExperiencePanel({
     ]);
     setReservations(r.data);
     setWaiting(w.data);
-  }, [branchId, reservationsEnabled]);
+  }, [branchId, canEdit, canViewUsers, reservationsEnabled]);
   useEffect(() => {
     const timer = window.setTimeout(
       () => void load().catch((error) => toast.error(errorMessage(error))),

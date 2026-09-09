@@ -17,7 +17,9 @@ function Settings() {
     valores: {},
     origenes: {},
   });
-  const [changes, setChanges] = useState<Record<string, string | number | boolean>>({}),
+  const [changes, setChanges] = useState<
+      Record<string, string | number | boolean>
+    >({}),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
   return (
@@ -68,35 +70,55 @@ function Settings() {
           {Object.entries(query.data.valores).map(([key, value]) => (
             <label key={key}>
               {key.replaceAll("_", " ")}
-              {typeof value === "boolean" ? (
+              {key === "ANCHO_PAPEL" ? (
                 <select
                   className="input mt-1"
                   disabled={!hasPermission("CONFIGURACION_GESTIONAR") || busy}
                   value={String(changes[key] ?? value)}
-                  onChange={(e) => setChanges((current) => ({ ...current, [key]: e.target.value === "true" }))}
+                  onChange={(e) =>
+                    setChanges((current) => ({
+                      ...current,
+                      [key]: Number(e.target.value),
+                    }))
+                  }
+                >
+                  <option value="58">58 mm</option>
+                  <option value="80">80 mm</option>
+                </select>
+              ) : typeof value === "boolean" ? (
+                <select
+                  className="input mt-1"
+                  disabled={!hasPermission("CONFIGURACION_GESTIONAR") || busy}
+                  value={String(changes[key] ?? value)}
+                  onChange={(e) =>
+                    setChanges((current) => ({
+                      ...current,
+                      [key]: e.target.value === "true",
+                    }))
+                  }
                 >
                   <option value="true">Sí</option>
                   <option value="false">No</option>
                 </select>
               ) : (
-              <input
-                className="input mt-1"
-                disabled={!hasPermission("CONFIGURACION_GESTIONAR") || busy}
-                type={typeof value === "number" ? "number" : "text"}
-                min={typeof value === "number" ? 0 : undefined}
-                max={key === "PORCENTAJE_IMPUESTO" ? 100 : undefined}
-                step="0.01"
-                value={String(changes[key] ?? value)}
-                onChange={(e) =>
-                  setChanges((current) => ({
-                    ...current,
-                    [key]:
-                      typeof value === "number"
-                        ? Number(e.target.value)
-                        : e.target.value,
-                  }))
-                }
-              />
+                <input
+                  className="input mt-1"
+                  disabled={!hasPermission("CONFIGURACION_GESTIONAR") || busy}
+                  type={typeof value === "number" ? "number" : "text"}
+                  min={typeof value === "number" ? 0 : undefined}
+                  max={key === "PORCENTAJE_IMPUESTO" ? 100 : undefined}
+                  step="0.01"
+                  value={String(changes[key] ?? value)}
+                  onChange={(e) =>
+                    setChanges((current) => ({
+                      ...current,
+                      [key]:
+                        typeof value === "number"
+                          ? Number(e.target.value)
+                          : e.target.value,
+                    }))
+                  }
+                />
               )}
               <small>Origen: {query.data.origenes[key]}</small>
             </label>

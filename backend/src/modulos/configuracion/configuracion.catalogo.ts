@@ -47,6 +47,10 @@ export const CATALOGO_CONFIGURACION = {
     valorPredeterminado: true,
     validar: (valor) => typeof valor === 'boolean',
   },
+  ANCHO_PAPEL: {
+    valorPredeterminado: 80,
+    validar: (valor) => valor === 58 || valor === 80,
+  },
 } satisfies Record<string, DefinicionConfiguracion>;
 
 export type ClaveConfiguracion = keyof typeof CATALOGO_CONFIGURACION;

@@ -1,7 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Banknote, CreditCard, FileText, Landmark, Printer, ReceiptText, Split, UserRound, WalletCards, X } from "lucide-react";
+import {
+  Banknote,
+  CreditCard,
+  FileText,
+  Landmark,
+  Printer,
+  ReceiptText,
+  Split,
+  UserRound,
+  WalletCards,
+  X,
+} from "lucide-react";
 import toast from "react-hot-toast";
 import { api, errorMessage } from "../../lib/api";
+import { PrintableDocumentModal } from "../../components/PrintableDocumentModal";
 import { money } from "../../data/demo";
 import {
   automaticDiscount,
@@ -83,23 +95,33 @@ export function ProfessionalSaleCheckout({
   onSaleChanged,
 }: Props) {
   const [cashReceived, setCashReceived] = useState(() =>
-    methods.find((item) => item.id === Number(payment.metodoPagoId))?.tipo === "EFECTIVO"
+    methods.find((item) => item.id === Number(payment.metodoPagoId))?.tipo ===
+    "EFECTIVO"
       ? payment.monto
       : "",
   );
   const [customerSearch, setCustomerSearch] = useState("");
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [customerId, setCustomerId] = useState(sale.cliente?.id ? String(sale.cliente.id) : "");
-  const [discounts, setDiscounts] = useState(String(Number(sale.descuentos ?? 0)));
+  const [customerId, setCustomerId] = useState(
+    sale.cliente?.id ? String(sale.cliente.id) : "",
+  );
+  const [discounts, setDiscounts] = useState(
+    String(Number(sale.descuentos ?? 0)),
+  );
   const [tip, setTip] = useState(String(Number(sale.propina ?? 0)));
   const [invoiceHtml, setInvoiceHtml] = useState<string | null>(null);
+  const [posHtml, setPosHtml] = useState<string | null>(null);
   const invoiceFrame = useRef<HTMLIFrameElement>(null);
 
-  const selectedMethod = methods.find((item) => item.id === Number(payment.metodoPagoId));
+  const selectedMethod = methods.find(
+    (item) => item.id === Number(payment.metodoPagoId),
+  );
   const selectedDivision = sale.divisionesCuenta?.find(
     (item) => item.id === Number(payment.divisionCuentaId),
   );
-  const amountDue = selectedDivision ? divisionBalance(selectedDivision) : balance(sale);
+  const amountDue = selectedDivision
+    ? divisionBalance(selectedDivision)
+    : balance(sale);
   const amountPaid = paid(sale);
   const automatic = automaticDiscount(sale);
   const canEditLiquidation =
@@ -108,7 +130,8 @@ export function ProfessionalSaleCheckout({
     sale.pagos.length === 0 &&
     !sale.factura &&
     !(sale.divisionesCuenta?.length ?? 0);
-  const canSearchCustomers = hasPermission("CLIENTES_VER") && hasCapability("CLIENTES");
+  const canSearchCustomers =
+    hasPermission("CLIENTES_VER") && hasCapability("CLIENTES");
 
   useEffect(() => {
     if (!canSearchCustomers || !canEditLiquidation) return;
@@ -130,10 +153,9 @@ export function ProfessionalSaleCheckout({
     };
   }, [customerSearch, canSearchCustomers, canEditLiquidation]);
 
-
-
   const change = useMemo(() => {
-    if (selectedMethod?.tipo !== "EFECTIVO" || !cashReceived || !payment.monto) return 0;
+    if (selectedMethod?.tipo !== "EFECTIVO" || !cashReceived || !payment.monto)
+      return 0;
     try {
       return cashChange(cashReceived, payment.monto);
     } catch {
@@ -151,7 +173,9 @@ export function ProfessionalSaleCheckout({
     const discount = Number(discounts);
     const gratuity = Number(tip);
     if (!Number.isFinite(discount) || discount < automatic)
-      return toast.error(`El descuento total no puede ser menor a ${money.format(automatic)}`);
+      return toast.error(
+        `El descuento total no puede ser menor a ${money.format(automatic)}`,
+      );
     if (!Number.isFinite(gratuity) || gratuity < 0)
       return toast.error("La propina no puede ser negativa");
     if (discount > Number(sale.subtotal ?? sale.total))
@@ -176,6 +200,15 @@ export function ProfessionalSaleCheckout({
     });
   }
 
+  async function loadPosReceipt() {
+    await onRun(async () => {
+      const { data } = await api.get<{ contenido: string }>(
+        `/ventas/${sale.id}/comprobante-pos`,
+      );
+      setPosHtml(data.contenido);
+    });
+  }
+
   async function loadInvoiceRepresentation() {
     if (!sale.factura) return;
     await onRun(async () => {
@@ -193,7 +226,9 @@ export function ProfessionalSaleCheckout({
         facturaIds: [sale.factura!.id],
       });
       await refreshSale();
-      toast.success("Documento electrónico preparado, sin envío fiscal automático");
+      toast.success(
+        "Documento electrónico preparado, sin envío fiscal automático",
+      );
     });
   }
 
@@ -217,20 +252,25 @@ export function ProfessionalSaleCheckout({
   }
 
   async function splitAccount() {
-    const mode = window.prompt(
-      "Tipo de división: PERSONAS, PORCENTAJE o PRODUCTOS",
-      "PERSONAS",
-    )?.trim().toUpperCase();
+    const mode = window
+      .prompt("Tipo de división: PERSONAS, PORCENTAJE o PRODUCTOS", "PERSONAS")
+      ?.trim()
+      .toUpperCase();
     if (!mode) return;
     let parts;
     try {
       if (mode === "PERSONAS") {
-        parts = splitPeople(Number(sale.total), Number(window.prompt("Número de personas", "2")));
+        parts = splitPeople(
+          Number(sale.total),
+          Number(window.prompt("Número de personas", "2")),
+        );
       } else if (mode === "PORCENTAJE") {
-        const percentages = (window.prompt(
-          "Porcentajes separados por coma (deben sumar 100)",
-          "50,50",
-        ) ?? "")
+        const percentages = (
+          window.prompt(
+            "Porcentajes separados por coma (deben sumar 100)",
+            "50,50",
+          ) ?? ""
+        )
           .split(",")
           .map(Number);
         parts = splitPercentages(Number(sale.total), percentages);
@@ -250,7 +290,10 @@ export function ProfessionalSaleCheckout({
       return;
     }
     await onRun(async () => {
-      await api.post(`/ventas/${sale.id}/division-cuenta`, { modo: mode, partes: parts });
+      await api.post(`/ventas/${sale.id}/division-cuenta`, {
+        modo: mode,
+        partes: parts,
+      });
       const detail = await refreshSale();
       const first = detail.divisionesCuenta?.[0];
       setPayment({
@@ -258,7 +301,9 @@ export function ProfessionalSaleCheckout({
         divisionCuentaId: first ? String(first.id) : "",
         monto: first ? String(divisionBalance(first)) : payment.monto,
       });
-      toast.success("Cuenta dividida; cada parte mantiene su saldo independiente");
+      toast.success(
+        "Cuenta dividida; cada parte mantiene su saldo independiente",
+      );
     });
   }
 
@@ -278,7 +323,8 @@ export function ProfessionalSaleCheckout({
               {sale.pedido?.mesa ? ` · Mesa ${sale.pedido.mesa.numero}` : ""}
             </h2>
             <p className="text-sm text-denim/60">
-              {sale.pedido ? `Pedido #${sale.pedido.id}` : "Venta directa"} · {customerName(sale.cliente)}
+              {sale.pedido ? `Pedido #${sale.pedido.id}` : "Venta directa"} ·{" "}
+              {customerName(sale.cliente)}
             </p>
           </div>
           <button
@@ -295,16 +341,28 @@ export function ProfessionalSaleCheckout({
           <div className="space-y-5">
             <section className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-2xl bg-denim p-5 text-white">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/65">Total</p>
-                <strong className="mt-2 block text-3xl">{money.format(Number(sale.total))}</strong>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/65">
+                  Total
+                </p>
+                <strong className="mt-2 block text-3xl">
+                  {money.format(Number(sale.total))}
+                </strong>
               </div>
               <div className="rounded-2xl bg-white p-5 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-denim/50">Pagado</p>
-                <strong className="mt-2 block text-3xl text-denim">{money.format(amountPaid)}</strong>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-denim/50">
+                  Pagado
+                </p>
+                <strong className="mt-2 block text-3xl text-denim">
+                  {money.format(amountPaid)}
+                </strong>
               </div>
               <div className="rounded-2xl border-2 border-marigold bg-white p-5 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-denim/50">Pendiente</p>
-                <strong className="mt-2 block text-3xl text-denim">{money.format(balance(sale))}</strong>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-denim/50">
+                  Pendiente
+                </p>
+                <strong className="mt-2 block text-3xl text-denim">
+                  {money.format(balance(sale))}
+                </strong>
               </div>
             </section>
 
@@ -312,23 +370,52 @@ export function ProfessionalSaleCheckout({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h3 className="text-lg font-bold">Consumo</h3>
-                  <p className="text-sm text-denim/55">Detalle comercial de la venta seleccionada.</p>
+                  <p className="text-sm text-denim/55">
+                    Detalle comercial de la venta seleccionada.
+                  </p>
                 </div>
-                <span className="rounded-full bg-screen/60 px-3 py-1 text-sm font-semibold">{sale.detalles.length} líneas</span>
+                <span className="rounded-full bg-screen/60 px-3 py-1 text-sm font-semibold">
+                  {sale.detalles.length} líneas
+                </span>
               </div>
               <div className="mt-3 divide-y divide-denim/10">
                 {sale.detalles.map((detail) => (
-                  <div key={detail.id} className="flex items-center justify-between gap-4 py-3 text-sm">
-                    <span>{detail.cantidad} × {detail.producto?.nombre ?? `Producto ${detail.id}`}</span>
+                  <div
+                    key={detail.id}
+                    className="flex items-center justify-between gap-4 py-3 text-sm"
+                  >
+                    <span>
+                      {detail.cantidad} ×{" "}
+                      {detail.producto?.nombre ?? `Producto ${detail.id}`}
+                    </span>
                     <strong>{money.format(Number(detail.subtotal))}</strong>
                   </div>
                 ))}
               </div>
               <div className="mt-3 grid gap-2 border-t border-denim/10 pt-3 text-sm sm:grid-cols-2">
-                <p>Subtotal <strong>{money.format(Number(sale.subtotal ?? sale.total))}</strong></p>
-                <p>Descuentos <strong>−{money.format(Number(sale.descuentos ?? 0))}</strong></p>
-                <p>Impuestos + impoconsumo <strong>{money.format(Number(sale.impuestos ?? 0) + Number(sale.impoconsumo ?? 0))}</strong></p>
-                <p>Propina <strong>{money.format(Number(sale.propina ?? 0))}</strong></p>
+                <p>
+                  Subtotal{" "}
+                  <strong>
+                    {money.format(Number(sale.subtotal ?? sale.total))}
+                  </strong>
+                </p>
+                <p>
+                  Descuentos{" "}
+                  <strong>−{money.format(Number(sale.descuentos ?? 0))}</strong>
+                </p>
+                <p>
+                  Impuestos + impoconsumo{" "}
+                  <strong>
+                    {money.format(
+                      Number(sale.impuestos ?? 0) +
+                        Number(sale.impoconsumo ?? 0),
+                    )}
+                  </strong>
+                </p>
+                <p>
+                  Propina{" "}
+                  <strong>{money.format(Number(sale.propina ?? 0))}</strong>
+                </p>
               </div>
             </section>
 
@@ -336,28 +423,53 @@ export function ProfessionalSaleCheckout({
               <section className="rounded-2xl bg-white p-4 shadow-sm print:hidden">
                 <div className="flex items-center gap-2">
                   <UserRound size={20} />
-                  <h3 className="text-lg font-bold">Cliente, descuento y propina</h3>
+                  <h3 className="text-lg font-bold">
+                    Cliente, descuento y propina
+                  </h3>
                 </div>
                 <p className="mt-1 text-sm text-denim/55">
-                  Se define antes del primer pago. Los descuentos automáticos existentes se conservan.
+                  Se define antes del primer pago. Los descuentos automáticos
+                  existentes se conservan.
                 </p>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   {canSearchCustomers && (
                     <>
                       <label>
                         Buscar cliente
-                        <input className="input" value={customerSearch} onChange={(event) => setCustomerSearch(event.target.value)} placeholder="Documento, nombre…" />
+                        <input
+                          className="input"
+                          value={customerSearch}
+                          onChange={(event) =>
+                            setCustomerSearch(event.target.value)
+                          }
+                          placeholder="Documento, nombre…"
+                        />
                       </label>
                       <label>
                         Cliente
-                        <select className="input" value={customerId} onChange={(event) => setCustomerId(event.target.value)}>
-                          <option value="">Consumidor final / sin cliente</option>
-                          {sale.cliente?.id && !customers.some((item) => item.id === sale.cliente?.id) && (
-                            <option value={sale.cliente.id}>{customerName(sale.cliente)}</option>
-                          )}
+                        <select
+                          className="input"
+                          value={customerId}
+                          onChange={(event) =>
+                            setCustomerId(event.target.value)
+                          }
+                        >
+                          <option value="">
+                            Consumidor final / sin cliente
+                          </option>
+                          {sale.cliente?.id &&
+                            !customers.some(
+                              (item) => item.id === sale.cliente?.id,
+                            ) && (
+                              <option value={sale.cliente.id}>
+                                {customerName(sale.cliente)}
+                              </option>
+                            )}
                           {customers.map((customer) => (
                             <option value={customer.id} key={customer.id}>
-                              {customer.razonSocial || `${customer.nombres} ${customer.apellidos ?? ""}`} · {customer.numeroDocumento ?? "sin documento"}
+                              {customer.razonSocial ||
+                                `${customer.nombres} ${customer.apellidos ?? ""}`}{" "}
+                              · {customer.numeroDocumento ?? "sin documento"}
                             </option>
                           ))}
                         </select>
@@ -372,17 +484,35 @@ export function ProfessionalSaleCheckout({
                       min={automatic}
                       step="0.01"
                       value={discounts}
-                      readOnly={!hasPermission("DESCUENTOS_APLICAR") && Number(discounts) === automatic}
+                      readOnly={
+                        !hasPermission("DESCUENTOS_APLICAR") &&
+                        Number(discounts) === automatic
+                      }
                       onChange={(event) => setDiscounts(event.target.value)}
                     />
-                    {automatic > 0 && <span className="text-xs text-denim/55">Automático protegido: {money.format(automatic)}</span>}
+                    {automatic > 0 && (
+                      <span className="text-xs text-denim/55">
+                        Automático protegido: {money.format(automatic)}
+                      </span>
+                    )}
                   </label>
                   <label>
                     Propina
-                    <input className="input" type="number" min="0" step="0.01" value={tip} onChange={(event) => setTip(event.target.value)} />
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={tip}
+                      onChange={(event) => setTip(event.target.value)}
+                    />
                   </label>
                 </div>
-                <button className="secondary mt-3 w-auto" disabled={busy || Boolean(failure)} onClick={() => void saveLiquidation()}>
+                <button
+                  className="secondary mt-3 w-auto"
+                  disabled={busy || Boolean(failure)}
+                  onClick={() => void saveLiquidation()}
+                >
                   Guardar liquidación
                 </button>
               </section>
@@ -405,7 +535,9 @@ export function ProfessionalSaleCheckout({
                       }
                     >
                       <strong>{division.nombre}</strong>
-                      <span className="mt-1 block text-sm">Saldo {money.format(divisionBalance(division))}</span>
+                      <span className="mt-1 block text-sm">
+                        Saldo {money.format(divisionBalance(division))}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -416,28 +548,57 @@ export function ProfessionalSaleCheckout({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h3 className="text-lg font-bold">Pagos registrados</h3>
-                  <p className="text-sm text-denim/55">Cada pago permanece como movimiento financiero independiente.</p>
+                  <p className="text-sm text-denim/55">
+                    Cada pago permanece como movimiento financiero
+                    independiente.
+                  </p>
                 </div>
-                <span className="rounded-full bg-screen/60 px-3 py-1 text-sm font-semibold">{sale.pagos.length}</span>
+                <span className="rounded-full bg-screen/60 px-3 py-1 text-sm font-semibold">
+                  {sale.pagos.length}
+                </span>
               </div>
               <div className="mt-3 space-y-2">
-                {sale.pagos.length === 0 && <p className="rounded-xl bg-screen/30 p-3 text-sm">Aún no hay pagos registrados.</p>}
+                {sale.pagos.length === 0 && (
+                  <p className="rounded-xl bg-screen/30 p-3 text-sm">
+                    Aún no hay pagos registrados.
+                  </p>
+                )}
                 {sale.pagos.map((item) => {
                   const available = refundable(item);
                   return (
-                    <div key={item.id} className="rounded-xl border border-denim/10 p-3">
+                    <div
+                      key={item.id}
+                      className="rounded-xl border border-denim/10 p-3"
+                    >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <strong>{item.metodoPago.nombre}</strong>
-                          <p className="text-xs text-denim/55">Pago #{item.id}{item.referencia ? ` · Ref. ${item.referencia}` : ""}</p>
+                          <p className="text-xs text-denim/55">
+                            Pago #{item.id}
+                            {item.referencia
+                              ? ` · Ref. ${item.referencia}`
+                              : ""}
+                          </p>
                         </div>
-                        <strong className="text-lg">{money.format(Number(item.monto))}</strong>
+                        <strong className="text-lg">
+                          {money.format(Number(item.monto))}
+                        </strong>
                       </div>
                       {(item.devoluciones ?? []).map((refund) => (
-                        <p key={refund.id} className="mt-2 text-sm text-amber-800">Devolución #{refund.id}: −{money.format(Number(refund.monto))} · {refund.motivo}</p>
+                        <p
+                          key={refund.id}
+                          className="mt-2 text-sm text-amber-800"
+                        >
+                          Devolución #{refund.id}: −
+                          {money.format(Number(refund.monto))} · {refund.motivo}
+                        </p>
                       ))}
                       {hasPermission("PAGOS_REGISTRAR") && available > 0 && (
-                        <button className="secondary mt-2 w-auto print:hidden" disabled={busy || uncertain} onClick={() => void refund(item.id, available)}>
+                        <button
+                          className="secondary mt-2 w-auto print:hidden"
+                          disabled={busy || uncertain}
+                          onClick={() => void refund(item.id, available)}
+                        >
                           Registrar devolución
                         </button>
                       )}
@@ -449,11 +610,15 @@ export function ProfessionalSaleCheckout({
           </div>
 
           <aside className="space-y-4 print:hidden xl:sticky xl:top-4 xl:self-start">
-            {balance(sale) > 0 && sale.estado !== "ANULADA" && hasPermission("PAGOS_REGISTRAR") ? (
+            {balance(sale) > 0 &&
+            sale.estado !== "ANULADA" &&
+            hasPermission("PAGOS_REGISTRAR") ? (
               <section className="rounded-2xl bg-white p-4 shadow-lg ring-1 ring-denim/10">
                 <h3 className="text-xl font-bold">Cobrar</h3>
                 <p className="mt-1 text-sm text-denim/55">
-                  {selectedDivision ? `${selectedDivision.nombre}: ${money.format(amountDue)} pendientes` : `${money.format(amountDue)} pendientes`}
+                  {selectedDivision
+                    ? `${selectedDivision.nombre}: ${money.format(amountDue)} pendientes`
+                    : `${money.format(amountDue)} pendientes`}
                 </p>
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   {methods.map((method) => {
@@ -465,13 +630,22 @@ export function ProfessionalSaleCheckout({
                         key={method.id}
                         className={`rounded-xl border-2 p-3 text-left transition ${selected ? "border-marigold bg-amber-50" : "border-denim/10 bg-white hover:border-denim/25"}`}
                         onClick={() => {
-                          setPayment({ ...payment, metodoPagoId: String(method.id), referencia: "" });
-                          if (method.tipo === "EFECTIVO") setCashReceived(payment.monto);
+                          setPayment({
+                            ...payment,
+                            metodoPagoId: String(method.id),
+                            referencia: "",
+                          });
+                          if (method.tipo === "EFECTIVO")
+                            setCashReceived(payment.monto);
                         }}
                       >
                         <Icon size={22} />
                         <strong className="mt-2 block">{method.nombre}</strong>
-                        <span className="text-xs text-denim/50">{method.tipo === "QR" ? "Otro / QR" : method.tipo.toLowerCase()}</span>
+                        <span className="text-xs text-denim/50">
+                          {method.tipo === "QR"
+                            ? "Otro / QR"
+                            : method.tipo.toLowerCase()}
+                        </span>
                       </button>
                     );
                   })}
@@ -480,8 +654,13 @@ export function ProfessionalSaleCheckout({
                   className="mt-4 space-y-3"
                   onSubmit={(event) => {
                     event.preventDefault();
-                    if (selectedMethod?.tipo === "EFECTIVO" && Number(cashReceived) < Number(payment.monto)) {
-                      toast.error("El efectivo recibido no cubre el monto aplicado");
+                    if (
+                      selectedMethod?.tipo === "EFECTIVO" &&
+                      Number(cashReceived) < Number(payment.monto)
+                    ) {
+                      toast.error(
+                        "El efectivo recibido no cubre el monto aplicado",
+                      );
                       return;
                     }
                     void onRun(onPay);
@@ -498,83 +677,179 @@ export function ProfessionalSaleCheckout({
                       max={amountDue}
                       value={payment.monto}
                       onChange={(event) => {
-                        const next = clampPaymentAmount(event.target.value, amountDue);
+                        const next = clampPaymentAmount(
+                          event.target.value,
+                          amountDue,
+                        );
                         setPayment({ ...payment, monto: next });
-                        if (selectedMethod?.tipo === "EFECTIVO" && Number(cashReceived || 0) < Number(next || 0)) {
+                        if (
+                          selectedMethod?.tipo === "EFECTIVO" &&
+                          Number(cashReceived || 0) < Number(next || 0)
+                        ) {
                           setCashReceived(next);
                         }
                       }}
                     />
-                    <span className="text-xs text-denim/50">Máximo aplicable: {money.format(amountDue)}</span>
+                    <span className="text-xs text-denim/50">
+                      Máximo aplicable: {money.format(amountDue)}
+                    </span>
                   </label>
                   {selectedMethod?.tipo === "EFECTIVO" ? (
                     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                       <label>
                         Efectivo recibido
-                        <input className="input" type="number" min={payment.monto || "0"} step="0.01" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} />
+                        <input
+                          className="input"
+                          type="number"
+                          min={payment.monto || "0"}
+                          step="0.01"
+                          value={cashReceived}
+                          onChange={(event) =>
+                            setCashReceived(event.target.value)
+                          }
+                        />
                       </label>
                       <div className="rounded-xl bg-screen/35 p-3">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-denim/55">Cambio</span>
-                        <strong className="mt-1 block text-2xl">{money.format(change)}</strong>
+                        <span className="text-xs font-semibold uppercase tracking-wide text-denim/55">
+                          Cambio
+                        </span>
+                        <strong className="mt-1 block text-2xl">
+                          {money.format(change)}
+                        </strong>
                       </div>
                     </div>
                   ) : (
                     <label>
                       Referencia / autorización
-                      <input className="input" maxLength={100} value={payment.referencia} onChange={(event) => setPayment({ ...payment, referencia: event.target.value })} placeholder="Opcional según el medio" />
+                      <input
+                        className="input"
+                        maxLength={100}
+                        value={payment.referencia}
+                        onChange={(event) =>
+                          setPayment({
+                            ...payment,
+                            referencia: event.target.value,
+                          })
+                        }
+                        placeholder="Opcional según el medio"
+                      />
                     </label>
                   )}
                   <label>
                     Caja receptora
-                    <select className="input" required value={payment.cajaId} onChange={(event) => setPayment({ ...payment, cajaId: event.target.value })}>
+                    <select
+                      className="input"
+                      required
+                      value={payment.cajaId}
+                      onChange={(event) =>
+                        setPayment({ ...payment, cajaId: event.target.value })
+                      }
+                    >
                       <option value="">Selecciona caja</option>
-                      {drawers.map((drawer) => <option value={drawer.id} key={drawer.id}>{drawer.nombre}</option>)}
+                      {drawers.map((drawer) => (
+                        <option value={drawer.id} key={drawer.id}>
+                          {drawer.nombre}
+                        </option>
+                      ))}
                     </select>
                   </label>
                   {uncertain && (
-                    <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm">
-                      El resultado del último cobro no quedó confirmado. Reintenta exactamente la misma operación; SIGR conserva su clave idempotente para evitar duplicarla.
+                    <p
+                      role="alert"
+                      className="rounded-xl bg-amber-50 p-3 text-sm"
+                    >
+                      El resultado del último cobro no quedó confirmado.
+                      Reintenta exactamente la misma operación; SIGR conserva su
+                      clave idempotente para evitar duplicarla.
                     </p>
                   )}
-                  <button className="primary" disabled={busy || Boolean(failure) || !payment.metodoPagoId || !payment.cajaId}>
-                    {uncertain ? "Consultar / reintentar mismo cobro" : "Registrar pago"}
+                  <button
+                    className="primary"
+                    disabled={
+                      busy ||
+                      Boolean(failure) ||
+                      !payment.metodoPagoId ||
+                      !payment.cajaId
+                    }
+                  >
+                    {uncertain
+                      ? "Consultar / reintentar mismo cobro"
+                      : "Registrar pago"}
                   </button>
                 </form>
               </section>
             ) : (
               <section className="rounded-2xl bg-white p-4 shadow-sm">
                 <ReceiptText size={24} />
-                <h3 className="mt-2 text-xl font-bold">Venta sin saldo pendiente</h3>
-                <p className="mt-1 text-sm text-denim/55">El cobro terminó. Pago, factura y documento electrónico siguen siendo operaciones separadas.</p>
+                <h3 className="mt-2 text-xl font-bold">
+                  Venta sin saldo pendiente
+                </h3>
+                <p className="mt-1 text-sm text-denim/55">
+                  El cobro terminó. Pago, factura y documento electrónico siguen
+                  siendo operaciones separadas.
+                </p>
               </section>
             )}
 
             <section className="rounded-2xl bg-white p-4 shadow-sm">
               <h3 className="font-bold">Acciones de cuenta</h3>
               <div className="mt-3 grid gap-2">
-                {hasPermission("VENTAS_CREAR") && sale.estado !== "ANULADA" && sale.pagos.length === 0 && (
-                  <button className="secondary" disabled={busy || uncertain} onClick={() => void splitAccount()}>
-                    <Split size={18} /> Dividir cuenta
+                {hasPermission("VENTAS_CREAR") &&
+                  sale.estado !== "ANULADA" &&
+                  sale.pagos.length === 0 && (
+                    <button
+                      className="secondary"
+                      disabled={busy || uncertain}
+                      onClick={() => void splitAccount()}
+                    >
+                      <Split size={18} /> Dividir cuenta
+                    </button>
+                  )}
+                {sale.pagos.length > 0 && hasPermission("VENTAS_VER") && (
+                  <button
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => void loadPosReceipt()}
+                  >
+                    <Printer size={18} /> Imprimir / reimprimir comprobante POS
                   </button>
                 )}
-                {hasPermission("FACTURAS_EMITIR") && !sale.factura && sale.estado !== "ANULADA" && (
-                  <button className="secondary" disabled={busy || uncertain} onClick={() => void createInvoice()}>
-                    <FileText size={18} /> Crear factura interna
-                  </button>
-                )}
+                {hasPermission("FACTURAS_EMITIR") &&
+                  !sale.factura &&
+                  sale.estado !== "ANULADA" && (
+                    <button
+                      className="secondary"
+                      disabled={busy || uncertain}
+                      onClick={() => void createInvoice()}
+                    >
+                      <FileText size={18} /> Crear factura interna
+                    </button>
+                  )}
                 {sale.factura && hasPermission("FACTURAS_VER") && (
-                  <button className="secondary" disabled={busy} onClick={() => void loadInvoiceRepresentation()}>
+                  <button
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => void loadInvoiceRepresentation()}
+                  >
                     <Printer size={18} /> Imprimir / reimprimir factura
                   </button>
                 )}
-                {sale.factura && hasPermission("FACTURAS_EMITIR") && !sale.factura.documentoElectronico && (
-                  <button className="secondary" disabled={busy} onClick={() => void prepareElectronic()}>
-                    <FileText size={18} /> Preparar documento electrónico
-                  </button>
-                )}
+                {sale.factura &&
+                  hasPermission("FACTURAS_EMITIR") &&
+                  !sale.factura.documentoElectronico && (
+                    <button
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() => void prepareElectronic()}
+                    >
+                      <FileText size={18} /> Preparar documento electrónico
+                    </button>
+                  )}
               </div>
               <p className="mt-3 text-xs text-denim/50">
-                Preparar un documento electrónico no significa enviarlo ni obtener aceptación DIAN. La integración fiscal real se habilita aparte.
+                Preparar un documento electrónico no significa enviarlo ni
+                obtener aceptación DIAN. La integración fiscal real se habilita
+                aparte.
               </p>
             </section>
 
@@ -583,7 +858,8 @@ export function ProfessionalSaleCheckout({
                 <strong>Factura interna</strong>
                 <p className="mt-1">{sale.factura.numero}</p>
                 <p className="text-denim/55">
-                  Documento electrónico: {sale.factura.documentoElectronico?.estado ?? "no preparado"}
+                  Documento electrónico:{" "}
+                  {sale.factura.documentoElectronico?.estado ?? "no preparado"}
                 </p>
               </section>
             )}
@@ -591,18 +867,38 @@ export function ProfessionalSaleCheckout({
         </div>
       </section>
 
+      {posHtml && (
+        <PrintableDocumentModal
+          html={posHtml}
+          title={`Comprobante POS · Venta #${sale.id}`}
+          onClose={() => setPosHtml(null)}
+        />
+      )}
+
       {invoiceHtml && (
         <div className="fixed inset-0 z-[60] overflow-y-auto bg-black/60 p-3 print:bg-white">
           <section className="card mx-auto max-w-3xl space-y-3">
             <div className="flex justify-end gap-2 print:hidden">
-              <button className="primary w-auto" onClick={() => invoiceFrame.current?.contentWindow?.print()}>
+              <button
+                className="primary w-auto"
+                onClick={() => invoiceFrame.current?.contentWindow?.print()}
+              >
                 <Printer size={18} /> Imprimir
               </button>
-              <button className="secondary w-auto" onClick={() => setInvoiceHtml(null)}>
+              <button
+                className="secondary w-auto"
+                onClick={() => setInvoiceHtml(null)}
+              >
                 <X /> Cerrar
               </button>
             </div>
-            <iframe ref={invoiceFrame} title="Factura interna imprimible" sandbox="allow-same-origin allow-modals" srcDoc={invoiceHtml} className="h-[75vh] w-full border-0 bg-white" />
+            <iframe
+              ref={invoiceFrame}
+              title="Factura interna imprimible"
+              sandbox="allow-same-origin allow-modals"
+              srcDoc={invoiceHtml}
+              className="h-[75vh] w-full border-0 bg-white"
+            />
           </section>
         </div>
       )}

@@ -7,6 +7,7 @@ import {
   Minus,
   MoveRight,
   Plus,
+  Printer,
   ReceiptText,
   RefreshCw,
   Scissors,
@@ -23,6 +24,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { ErrorState, LoadingState } from "../components/AsyncState";
+import { PrintableDocumentModal } from "../components/PrintableDocumentModal";
 import { SalonExperiencePanel } from "../features/salon/SalonExperiencePanel";
 import {
   activeOrder,
@@ -99,6 +101,10 @@ export function RealSalonPage() {
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [quickAction, setQuickAction] = useState<QuickAction>(null);
+  const [printDocument, setPrintDocument] = useState<{
+    title: string;
+    html: string;
+  } | null>(null);
   const [splitParts, setSplitParts] = useState("2");
   const [contextPeople, setContextPeople] = useState("2");
   const [contextNotes, setContextNotes] = useState("");
@@ -209,7 +215,14 @@ export function RealSalonPage() {
       setSearch("");
       setContextPeople(String(data.personas ?? data.mesa?.capacidad ?? 2));
       setContextNotes(data.observaciones ?? "");
-      setDetailNotes(Object.fromEntries(data.detalles.map((detail) => [detail.id, detail.observaciones ?? ""])));
+      setDetailNotes(
+        Object.fromEntries(
+          data.detalles.map((detail) => [
+            detail.id,
+            detail.observaciones ?? "",
+          ]),
+        ),
+      );
       setQuickAction(null);
       setSplitParts(String(data.personas ?? 2));
       setDraft({ type: data.tipo, table: data.mesa, existing: data });
@@ -282,7 +295,9 @@ export function RealSalonPage() {
             existing: {
               ...value.existing,
               detalles: value.existing.detalles.map((item) =>
-                item.id === detail.id ? { ...item, observaciones: next || null } : item,
+                item.id === detail.id
+                  ? { ...item, observaciones: next || null }
+                  : item,
               ),
             },
           }
@@ -293,7 +308,11 @@ export function RealSalonPage() {
   const flushDetailObservations = async (order: ApiOrder) => {
     for (const detail of order.detalles) {
       if (sentQuantity(detail) > 0) continue;
-      const next = (detailNotes[detail.id] ?? detail.observaciones ?? "").trim();
+      const next = (
+        detailNotes[detail.id] ??
+        detail.observaciones ??
+        ""
+      ).trim();
       if (next !== (detail.observaciones ?? "").trim())
         await persistDetailObservation(order, detail);
     }
@@ -427,6 +446,20 @@ export function RealSalonPage() {
     );
   };
 
+  const previewPreaccount = async (order: ApiOrder) => {
+    try {
+      const { data } = await api.get<{ contenido: string }>(
+        `/pedidos/${order.id}/precuenta`,
+      );
+      setPrintDocument({
+        title: `Precuenta · Pedido #${order.id}`,
+        html: data.contenido,
+      });
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  };
+
   const requestBill = async (order: ApiOrder) => {
     await run(async () => {
       if (!order.venta)
@@ -459,9 +492,7 @@ export function RealSalonPage() {
         nombre: `Persona ${index + 1}`,
         total:
           (base +
-            (index === requested - 1
-              ? totalCents - base * requested
-              : 0)) /
+            (index === requested - 1 ? totalCents - base * requested : 0)) /
           100,
       }));
       await run(
@@ -480,8 +511,7 @@ export function RealSalonPage() {
 
   const transfer = async (order: ApiOrder, mesaDestinoId: number) => {
     await run(
-      () =>
-        api.post(`/pedidos/${order.id}/mesas/trasladar`, { mesaDestinoId }),
+      () => api.post(`/pedidos/${order.id}/mesas/trasladar`, { mesaDestinoId }),
       "Consumo trasladado",
     );
     setQuickAction(null);
@@ -874,21 +904,33 @@ export function RealSalonPage() {
                           <>
                             <button
                               className="secondary h-10 px-2 text-xs"
-                              onClick={() => setQuickAction((value) => value === "transfer" ? null : "transfer")}
+                              onClick={() =>
+                                setQuickAction((value) =>
+                                  value === "transfer" ? null : "transfer",
+                                )
+                              }
                             >
                               <MoveRight size={14} />
                               Trasladar
                             </button>
                             <button
                               className="secondary h-10 px-2 text-xs"
-                              onClick={() => setQuickAction((value) => value === "merge" ? null : "merge")}
+                              onClick={() =>
+                                setQuickAction((value) =>
+                                  value === "merge" ? null : "merge",
+                                )
+                              }
                             >
                               <Merge size={14} />
                               Unir mesa
                             </button>
                             <button
                               className="secondary h-10 px-2 text-xs"
-                              onClick={() => setQuickAction((value) => value === "separate" ? null : "separate")}
+                              onClick={() =>
+                                setQuickAction((value) =>
+                                  value === "separate" ? null : "separate",
+                                )
+                              }
                             >
                               <Scissors size={14} />
                               Separar
@@ -898,7 +940,11 @@ export function RealSalonPage() {
                         {hasPermission("USUARIOS_VER") && (
                           <button
                             className="secondary h-10 px-2 text-xs"
-                            onClick={() => setQuickAction((value) => value === "waiter" ? null : "waiter")}
+                            onClick={() =>
+                              setQuickAction((value) =>
+                                value === "waiter" ? null : "waiter",
+                              )
+                            }
                           >
                             <UserRound size={14} />
                             Mesero
@@ -920,6 +966,15 @@ export function RealSalonPage() {
                       <>
                         <button
                           className="secondary h-10 px-2 text-xs"
+                          onClick={() =>
+                            void previewPreaccount(draft.existing!)
+                          }
+                        >
+                          <Printer size={14} />
+                          Precuenta
+                        </button>
+                        <button
+                          className="secondary h-10 px-2 text-xs"
                           onClick={() => void requestBill(draft.existing!)}
                         >
                           <ReceiptText size={14} />
@@ -927,7 +982,11 @@ export function RealSalonPage() {
                         </button>
                         <button
                           className="secondary h-10 px-2 text-xs"
-                          onClick={() => setQuickAction((value) => value === "split" ? null : "split")}
+                          onClick={() =>
+                            setQuickAction((value) =>
+                              value === "split" ? null : "split",
+                            )
+                          }
                         >
                           <Split size={14} />
                           Dividir cuenta
@@ -955,11 +1014,16 @@ export function RealSalonPage() {
                     <div className="mt-3 rounded-2xl border border-denim/10 bg-[#f7f5ef] p-3">
                       <div className="mb-2 flex items-center justify-between gap-3">
                         <strong className="text-sm">
-                          {quickAction === "transfer" && "Selecciona la mesa destino"}
-                          {quickAction === "merge" && "Selecciona una mesa para unir"}
-                          {quickAction === "separate" && "Selecciona la mesa que deseas separar"}
-                          {quickAction === "waiter" && "Selecciona el nuevo mesero"}
-                          {quickAction === "split" && "Divide la cuenta en partes iguales"}
+                          {quickAction === "transfer" &&
+                            "Selecciona la mesa destino"}
+                          {quickAction === "merge" &&
+                            "Selecciona una mesa para unir"}
+                          {quickAction === "separate" &&
+                            "Selecciona la mesa que deseas separar"}
+                          {quickAction === "waiter" &&
+                            "Selecciona el nuevo mesero"}
+                          {quickAction === "split" &&
+                            "Divide la cuenta en partes iguales"}
                         </strong>
                         <button
                           className="rounded-lg p-1 hover:bg-white"
@@ -969,10 +1033,14 @@ export function RealSalonPage() {
                           <X size={16} />
                         </button>
                       </div>
-                      {(quickAction === "transfer" || quickAction === "merge") && (
+                      {(quickAction === "transfer" ||
+                        quickAction === "merge") && (
                         <div className="flex flex-wrap gap-2">
-                          {tables.filter((table) => table.situacion === "LIBRE").length === 0 ? (
-                            <span className="text-sm text-denim/55">No hay mesas libres disponibles.</span>
+                          {tables.filter((table) => table.situacion === "LIBRE")
+                            .length === 0 ? (
+                            <span className="text-sm text-denim/55">
+                              No hay mesas libres disponibles.
+                            </span>
                           ) : (
                             tables
                               .filter((table) => table.situacion === "LIBRE")
@@ -995,15 +1063,27 @@ export function RealSalonPage() {
                       )}
                       {quickAction === "separate" && (
                         <div className="flex flex-wrap gap-2">
-                          {(draft.existing.mesasVinculadas?.filter((item) => !item.principal) ?? []).length === 0 ? (
-                            <span className="text-sm text-denim/55">Este pedido no tiene mesas secundarias unidas.</span>
+                          {(
+                            draft.existing.mesasVinculadas?.filter(
+                              (item) => !item.principal,
+                            ) ?? []
+                          ).length === 0 ? (
+                            <span className="text-sm text-denim/55">
+                              Este pedido no tiene mesas secundarias unidas.
+                            </span>
                           ) : (
-                            (draft.existing.mesasVinculadas?.filter((item) => !item.principal) ?? []).map((item) => (
+                            (
+                              draft.existing.mesasVinculadas?.filter(
+                                (item) => !item.principal,
+                              ) ?? []
+                            ).map((item) => (
                               <button
                                 key={item.mesa.id}
                                 className="secondary h-9 px-3 text-xs"
                                 disabled={saving}
-                                onClick={() => void separate(draft.existing!, item.mesa.id)}
+                                onClick={() =>
+                                  void separate(draft.existing!, item.mesa.id)
+                                }
                               >
                                 Mesa {item.mesa.numero}
                               </button>
@@ -1014,14 +1094,21 @@ export function RealSalonPage() {
                       {quickAction === "waiter" && (
                         <div className="flex flex-wrap gap-2">
                           {users.length === 0 ? (
-                            <span className="text-sm text-denim/55">No hay usuarios activos disponibles para asignar.</span>
+                            <span className="text-sm text-denim/55">
+                              No hay usuarios activos disponibles para asignar.
+                            </span>
                           ) : (
                             users.map((user) => (
                               <button
                                 key={user.id}
                                 className="secondary h-9 px-3 text-xs"
-                                disabled={saving || user.id === draft.existing?.mesero?.id}
-                                onClick={() => void changeWaiter(draft.existing!, user.id)}
+                                disabled={
+                                  saving ||
+                                  user.id === draft.existing?.mesero?.id
+                                }
+                                onClick={() =>
+                                  void changeWaiter(draft.existing!, user.id)
+                                }
                               >
                                 {user.nombres} {user.apellidos}
                               </button>
@@ -1037,13 +1124,20 @@ export function RealSalonPage() {
                             min="2"
                             max="20"
                             value={splitParts}
-                            onChange={(event) => setSplitParts(event.target.value)}
+                            onChange={(event) =>
+                              setSplitParts(event.target.value)
+                            }
                             aria-label="Número de partes"
                           />
                           <button
                             className="primary h-10 px-4 text-xs"
                             disabled={saving}
-                            onClick={() => void splitBill(draft.existing!, Number(splitParts))}
+                            onClick={() =>
+                              void splitBill(
+                                draft.existing!,
+                                Number(splitParts),
+                              )
+                            }
                           >
                             Confirmar división
                           </button>
@@ -1121,7 +1215,11 @@ export function RealSalonPage() {
                           </div>
                           <input
                             className="mt-2 w-full rounded-xl border border-denim/10 bg-white/70 px-3 py-2 text-sm"
-                            value={detailNotes[detail.id] ?? detail.observaciones ?? ""}
+                            value={
+                              detailNotes[detail.id] ??
+                              detail.observaciones ??
+                              ""
+                            }
                             disabled={
                               sent > 0 || !hasPermission("PEDIDOS_EDITAR")
                             }
@@ -1134,8 +1232,11 @@ export function RealSalonPage() {
                             }
                             onBlur={() => {
                               if (sent === 0)
-                                void persistDetailObservation(draft.existing!, detail).catch(
-                                  (error) => toast.error(errorMessage(error)),
+                                void persistDetailObservation(
+                                  draft.existing!,
+                                  detail,
+                                ).catch((error) =>
+                                  toast.error(errorMessage(error)),
                                 );
                             }}
                           />
@@ -1414,6 +1515,13 @@ export function RealSalonPage() {
             </div>
           </section>
         </div>
+      )}
+      {printDocument && (
+        <PrintableDocumentModal
+          html={printDocument.html}
+          title={printDocument.title}
+          onClose={() => setPrintDocument(null)}
+        />
       )}
     </div>
   );

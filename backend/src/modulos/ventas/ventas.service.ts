@@ -44,6 +44,13 @@ import {
   normalizarClaveIdempotencia,
   validarReplayIdempotente,
 } from '../../plataforma/idempotencia';
+import {
+  configuracionImpresionTermica,
+  dineroTermico,
+  documentoTermicoHtml,
+  escaparHtml,
+  fechaLocalTermica,
+} from '../../plataforma/impresion-termica';
 
 @Injectable()
 export class VentasService {
@@ -2063,5 +2070,73 @@ export class VentasService {
         factura: true,
       },
     });
+  }
+
+  async comprobantePos(id: number, usuarioActual: UsuarioAutenticado) {
+    const venta = await this.prisma.venta.findFirst({
+      where: { id, sucursal: this.filtroSucursal(usuarioActual) },
+      include: {
+        sucursal: { include: { restaurante: true } },
+        usuario: { select: { nombres: true, apellidos: true } },
+        pedido: { include: { mesa: true } },
+        detalles: { include: { producto: true } },
+        pagos: { include: { metodoPago: true, devoluciones: true } },
+        factura: { include: { documentoElectronico: true } },
+      },
+    });
+    if (!venta) throw new NotFoundException('Venta no encontrada');
+    if (venta.pagos.length === 0)
+      throw new BadRequestException(
+        'El comprobante POS requiere al menos un pago registrado',
+      );
+    const cfg = await configuracionImpresionTermica(
+      this.prisma,
+      venta.sucursal.restauranteId,
+      venta.sucursalId,
+    );
+    const esc = escaparHtml;
+    const filas = venta.detalles
+      .map(
+        (d) =>
+          `<div class="row line"><span>${d.cantidad}× ${esc(d.producto.nombre)}</span><strong>${dineroTermico(d.subtotal, cfg.moneda)}</strong></div>`,
+      )
+      .join('');
+    const pagos = venta.pagos
+      .map((p) => {
+        const devuelto = p.devoluciones.reduce(
+          (sum, d) => sum + Number(d.monto),
+          0,
+        );
+        const neto = Number(p.monto) - devuelto;
+        return `<div class="row"><span>${esc(p.metodoPago.nombre)}</span><strong>${dineroTermico(neto, cfg.moneda)}</strong></div>`;
+      })
+      .join('');
+    const totalPagado = venta.pagos.reduce(
+      (sum, p) =>
+        sum +
+        Number(p.monto) -
+        p.devoluciones.reduce((r, d) => r + Number(d.monto), 0),
+      0,
+    );
+    const pendiente = Math.max(0, Number(venta.total) - totalPagado);
+    const factura = venta.factura
+      ? `<div class="row"><span>Factura interna</span><strong>${esc(venta.factura.numero)}</strong></div>`
+      : '';
+    const fiscal =
+      venta.factura?.documentoElectronico?.estado === 'ACEPTADO'
+        ? `<div class="center muted">Documento electrónico aceptado: ${esc(venta.factura.documentoElectronico.numeroCompleto)}</div>`
+        : `<div class="center muted">Comprobante interno de pago. No equivale por sí solo a documento electrónico aceptado por DIAN.</div>`;
+    const cuerpo = `<div class="center"><div class="title">COMPROBANTE INTERNO POS</div><p>${esc(venta.sucursal.restaurante.nombre)}<br>NIT ${esc(venta.sucursal.restaurante.nit)}<br>${esc(venta.sucursal.nombre)}</p></div><hr class="sep"><div class="row"><span>Venta</span><strong>#${venta.id}</strong></div>${venta.pedido?.mesa ? `<div class="row"><span>Mesa</span><strong>${esc(venta.pedido.mesa.numero)}</strong></div>` : ''}<div class="row"><span>Fecha</span><strong>${esc(fechaLocalTermica(venta.fechaOperacion, cfg.zonaHoraria))}</strong></div><div class="row"><span>Cajero</span><strong>${esc(`${venta.usuario.nombres} ${venta.usuario.apellidos}`.trim())}</strong></div>${factura}<hr class="sep">${filas}<hr class="sep"><div class="row"><span>Subtotal</span><span>${dineroTermico(venta.subtotal, cfg.moneda)}</span></div>${Number(venta.descuentos) ? `<div class="row"><span>Descuentos</span><span>-${dineroTermico(venta.descuentos, cfg.moneda)}</span></div>` : ''}${Number(venta.impuestos) ? `<div class="row"><span>Impuestos</span><span>${dineroTermico(venta.impuestos, cfg.moneda)}</span></div>` : ''}${Number(venta.impoconsumo) ? `<div class="row"><span>Impoconsumo</span><span>${dineroTermico(venta.impoconsumo, cfg.moneda)}</span></div>` : ''}${Number(venta.domicilioCosto) ? `<div class="row"><span>Domicilio</span><span>${dineroTermico(venta.domicilioCosto, cfg.moneda)}</span></div>` : ''}${Number(venta.propina) ? `<div class="row"><span>Propina</span><span>${dineroTermico(venta.propina, cfg.moneda)}</span></div>` : ''}<div class="row total"><span>TOTAL</span><span>${dineroTermico(venta.total, cfg.moneda)}</span></div><hr class="sep"><div class="strong">PAGOS</div>${pagos}<div class="row"><span>Total aplicado</span><strong>${dineroTermico(totalPagado, cfg.moneda)}</strong></div>${pendiente > 0 ? `<div class="row"><span>Saldo pendiente</span><strong>${dineroTermico(pendiente, cfg.moneda)}</strong></div>` : '<div class="center strong">PAGADO</div>'}<hr class="sep">${fiscal}`;
+    return {
+      tipo: 'COMPROBANTE_POS',
+      ventaId: venta.id,
+      anchoPapel: cfg.ancho,
+      mediaType: 'text/html; charset=utf-8',
+      contenido: documentoTermicoHtml({
+        titulo: `Comprobante interno POS ${venta.id}`,
+        ancho: cfg.ancho,
+        cuerpo,
+      }),
+    };
   }
 }

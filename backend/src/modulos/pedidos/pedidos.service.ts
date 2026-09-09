@@ -30,6 +30,13 @@ import {
   normalizarClaveIdempotencia,
   validarReplayIdempotente,
 } from '../../plataforma/idempotencia';
+import {
+  configuracionImpresionTermica,
+  dineroTermico,
+  documentoTermicoHtml,
+  escaparHtml,
+  fechaLocalTermica,
+} from '../../plataforma/impresion-termica';
 
 type DetalleEntrada = {
   productoId: number;
@@ -1699,5 +1706,56 @@ export class PedidosService {
     }
 
     return pedido;
+  }
+
+  async representacionPrecuenta(id: number, usuarioActual: UsuarioAutenticado) {
+    const pedido = await this.prisma.pedido.findFirst({
+      where: { id, sucursal: this.filtroSucursal(usuarioActual) },
+      include: {
+        sucursal: { include: { restaurante: true } },
+        mesa: { include: { zona: true } },
+        mesero: { select: { nombres: true, apellidos: true } },
+        domicilio: true,
+        detalles: { include: { producto: true, modificadores: true } },
+        venta: true,
+      },
+    });
+    if (!pedido) throw new NotFoundException('Pedido no encontrado');
+    const cfg = await configuracionImpresionTermica(
+      this.prisma,
+      pedido.sucursal.restauranteId,
+      pedido.sucursalId,
+    );
+    const esc = escaparHtml;
+    const destino = pedido.mesa
+      ? `Mesa ${esc(pedido.mesa.numero)}${pedido.mesa.zona?.nombre ? ` · ${esc(pedido.mesa.zona.nombre)}` : ''}`
+      : pedido.tipo.replaceAll('_', ' ');
+    const filas = pedido.detalles
+      .map((d) => {
+        const mods = d.modificadores.length
+          ? `<div class="mods muted">${d.modificadores.map((m) => `+ ${esc(m.nombre)}${Number(m.precioUnitario) ? ` (${dineroTermico(m.subtotal, cfg.moneda)})` : ''}`).join('<br>')}</div>`
+          : '';
+        const nota = d.observaciones
+          ? `<div class="note muted">OBS: ${esc(d.observaciones)}</div>`
+          : '';
+        return `<div class="line"><div class="row"><span>${d.cantidad}× ${esc(d.producto.nombre)}</span><strong>${dineroTermico(d.subtotal, cfg.moneda)}</strong></div>${mods}${nota}</div>`;
+      })
+      .join('');
+    const domicilio = pedido.domicilio?.costo
+      ? Number(pedido.domicilio.costo)
+      : 0;
+    const total = pedido.venta?.total ?? pedido.total;
+    const cuerpo = `<div class="center"><div class="title">PRECUENTA</div><div class="badge">NO ES FACTURA</div><p>${esc(pedido.sucursal.restaurante.nombre)}<br>${esc(pedido.sucursal.nombre)}</p></div><hr class="sep"><div class="row"><span>${esc(destino)}</span><strong>Pedido #${pedido.id}</strong></div><div class="row"><span>Fecha</span><strong>${esc(fechaLocalTermica(pedido.creadoEn, cfg.zonaHoraria))}</strong></div>${pedido.mesero ? `<div class="row"><span>Mesero</span><strong>${esc(`${pedido.mesero.nombres} ${pedido.mesero.apellidos}`.trim())}</strong></div>` : ''}<hr class="sep">${filas}<hr class="sep">${domicilio > 0 ? `<div class="row"><span>Domicilio</span><strong>${dineroTermico(domicilio, cfg.moneda)}</strong></div>` : ''}<div class="row total"><span>TOTAL</span><span>${dineroTermico(total, cfg.moneda)}</span></div><hr class="sep"><div class="center muted">Documento informativo previo al cobro. No constituye factura ni comprobante de pago.</div>`;
+    return {
+      tipo: 'PRECUENTA',
+      pedidoId: pedido.id,
+      anchoPapel: cfg.ancho,
+      mediaType: 'text/html; charset=utf-8',
+      contenido: documentoTermicoHtml({
+        titulo: `Precuenta ${pedido.id}`,
+        ancho: cfg.ancho,
+        cuerpo,
+      }),
+    };
   }
 }

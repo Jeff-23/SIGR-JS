@@ -69,6 +69,15 @@ export class ComandasController {
     return this.comandasService.listarKds(request.user, sucursalId, estacionId);
   }
 
+  @Get('comandas/:id/representacion-impresa')
+  @Permisos('COMANDAS_VER')
+  representacionImpresa(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.comandasService.representacionImpresa(id, request.user);
+  }
+
   @Get('estaciones-preparacion')
   @Permisos('COMANDAS_VER')
   listarEstaciones(

@@ -228,6 +228,15 @@ export class PedidosController {
     return this.pedidosService.trazabilidad(id, request.user);
   }
 
+  @Get(':id/precuenta')
+  @Permisos('PEDIDOS_VER')
+  precuenta(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.pedidosService.representacionPrecuenta(id, request.user);
+  }
+
   @Get(':id')
   @Permisos('PEDIDOS_VER')
   findOne(

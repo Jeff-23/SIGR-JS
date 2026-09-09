@@ -11,6 +11,13 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateFacturaDto } from './dto/create-factura.dto';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import {
+  configuracionImpresionTermica,
+  dineroTermico,
+  documentoTermicoHtml,
+  escaparHtml,
+  fechaLocalTermica,
+} from '../../plataforma/impresion-termica';
 
 @Injectable()
 export class FacturasService {
@@ -319,83 +326,40 @@ export class FacturasService {
 
   async representacionImpresa(id: number, usuarioActual: UsuarioAutenticado) {
     const factura = await this.obtener(id, usuarioActual);
-    if (!factura.venta) {
+    if (!factura.venta)
       throw new BadRequestException('Factura histórica no representable');
-    }
     const venta = factura.venta;
-    const [
-      configMonedaSucursal,
-      configMonedaRestaurante,
-      configZonaSucursal,
-      configZonaRestaurante,
-    ] = await Promise.all([
-      this.prisma.configuracionSucursal.findUnique({
-        where: {
-          sucursalId_clave: {
-            sucursalId: venta.sucursalId,
-            clave: 'MONEDA',
-          },
-        },
-      }),
-      this.prisma.configuracionRestaurante.findUnique({
-        where: {
-          restauranteId_clave: {
-            restauranteId: venta.sucursal.restauranteId,
-            clave: 'MONEDA',
-          },
-        },
-      }),
-      this.prisma.configuracionSucursal.findUnique({
-        where: {
-          sucursalId_clave: {
-            sucursalId: venta.sucursalId,
-            clave: 'ZONA_HORARIA',
-          },
-        },
-      }),
-      this.prisma.configuracionRestaurante.findUnique({
-        where: {
-          restauranteId_clave: {
-            restauranteId: venta.sucursal.restauranteId,
-            clave: 'ZONA_HORARIA',
-          },
-        },
-      }),
-    ]);
-    const valorMoneda =
-      configMonedaSucursal?.valor ?? configMonedaRestaurante?.valor ?? 'COP';
-    const moneda = typeof valorMoneda === 'string' ? valorMoneda : 'COP';
-    const valorZona =
-      configZonaSucursal?.valor ??
-      configZonaRestaurante?.valor ??
-      'America/Bogota';
-    const zonaHoraria =
-      typeof valorZona === 'string' ? valorZona : 'America/Bogota';
-    const fechaLocal = new Intl.DateTimeFormat('es-CO', {
-      timeZone: zonaHoraria,
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    }).format(venta.fechaOperacion);
-    const esc = (valor: string | number | null | undefined) =>
-      String(valor ?? '')
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
+    const cfg = await configuracionImpresionTermica(
+      this.prisma,
+      venta.sucursal.restauranteId,
+      venta.sucursalId,
+    );
+    const esc = escaparHtml;
     const filas = venta.detalles
       .map(
         (d) =>
-          `<tr><td>${esc(d.producto.nombre)}</td><td>${d.cantidad}</td><td>${d.precioUnitario.toFixed(2)}</td><td>${d.subtotal.toFixed(2)}</td></tr>`,
+          `<div class="row line"><span>${d.cantidad}× ${esc(d.producto.nombre)}</span><strong>${dineroTermico(d.subtotal, cfg.moneda)}</strong></div>`,
       )
       .join('');
+    const pagos = venta.pagos.length
+      ? `<hr class="sep"><div class="strong">PAGOS</div>${venta.pagos.map((p) => `<div class="row"><span>${esc(p.metodoPago.nombre)}</span><strong>${dineroTermico(p.monto, cfg.moneda)}</strong></div>`).join('')}`
+      : '';
     const electronico = factura.documentoElectronico;
-    const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${esc(factura.numero)}</title><style>body{font-family:monospace;max-width:80mm;margin:auto}table{width:100%;border-collapse:collapse}td,th{text-align:right;padding:2px}td:first-child,th:first-child{text-align:left}</style></head><body><h1>${esc(venta.sucursal.restaurante.nombre)}</h1><p>NIT ${esc(venta.sucursal.restaurante.nit)}<br>${esc(venta.sucursal.nombre)}<br>Factura ${esc(factura.numero)}<br>${esc(fechaLocal)} (${esc(zonaHoraria)})</p><table><thead><tr><th>Producto</th><th>Cant.</th><th>Precio</th><th>Total</th></tr></thead><tbody>${filas}</tbody></table><p>Subtotal: ${venta.subtotal.toFixed(2)}<br>Impuestos: ${venta.impuestos.toFixed(2)}<br>Impoconsumo: ${venta.impoconsumo.toFixed(2)}<br>Domicilio: ${venta.domicilioCosto.toFixed(2)}<br>Propina: ${venta.propina.toFixed(2)}<br><strong>Total: ${venta.total.toFixed(2)} ${esc(moneda)}</strong></p>${electronico?.estado === 'ACEPTADO' ? `<p>Documento electrónico ${esc(electronico.numeroCompleto)}<br>CUFE ${esc(electronico.cufe)}<br>QR ${esc(electronico.qrCode)}</p>` : '<p>Representación interna; no equivale a aceptación DIAN.</p>'}</body></html>`;
+    const fiscal =
+      electronico?.estado === 'ACEPTADO'
+        ? `<hr class="sep"><div class="center muted">Documento electrónico aceptado<br>${esc(electronico.numeroCompleto)}<br>CUFE ${esc(electronico.cufe)}${electronico.qrCode ? `<br>QR ${esc(electronico.qrCode)}` : ''}</div>`
+        : '<hr class="sep"><div class="center muted">Representación interna; no equivale a aceptación DIAN.</div>';
+    const cuerpo = `<div class="center"><div class="title">FACTURA INTERNA</div><p>${esc(venta.sucursal.restaurante.nombre)}<br>NIT ${esc(venta.sucursal.restaurante.nit)}<br>${esc(venta.sucursal.nombre)}</p></div><hr class="sep"><div class="row"><span>Factura</span><strong>${esc(factura.numero)}</strong></div><div class="row"><span>Fecha</span><strong>${esc(fechaLocalTermica(venta.fechaOperacion, cfg.zonaHoraria))}</strong></div><hr class="sep">${filas}<hr class="sep"><div class="row"><span>Subtotal</span><span>${dineroTermico(venta.subtotal, cfg.moneda)}</span></div>${Number(venta.descuentos) ? `<div class="row"><span>Descuentos</span><span>-${dineroTermico(venta.descuentos, cfg.moneda)}</span></div>` : ''}${Number(venta.impuestos) ? `<div class="row"><span>Impuestos</span><span>${dineroTermico(venta.impuestos, cfg.moneda)}</span></div>` : ''}${Number(venta.impoconsumo) ? `<div class="row"><span>Impoconsumo</span><span>${dineroTermico(venta.impoconsumo, cfg.moneda)}</span></div>` : ''}${Number(venta.domicilioCosto) ? `<div class="row"><span>Domicilio</span><span>${dineroTermico(venta.domicilioCosto, cfg.moneda)}</span></div>` : ''}${Number(venta.propina) ? `<div class="row"><span>Propina</span><span>${dineroTermico(venta.propina, cfg.moneda)}</span></div>` : ''}<div class="row total"><span>TOTAL</span><span>${dineroTermico(venta.total, cfg.moneda)}</span></div>${pagos}${fiscal}`;
     return {
       facturaId: factura.id,
       numero: factura.numero,
+      anchoPapel: cfg.ancho,
       mediaType: 'text/html; charset=utf-8',
-      contenido: html,
+      contenido: documentoTermicoHtml({
+        titulo: factura.numero,
+        ancho: cfg.ancho,
+        cuerpo,
+      }),
       electronicaAceptada: electronico?.estado === 'ACEPTADO',
     };
   }

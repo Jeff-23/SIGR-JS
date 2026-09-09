@@ -150,6 +150,15 @@ export class VentasController {
    * dejar esta ruta después de
    * /corte-comercial.
    */
+  @Get(':id/comprobante-pos')
+  @Permisos('VENTAS_VER')
+  comprobantePos(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.ventasService.comprobantePos(id, request.user);
+  }
+
   @Get(':id')
   @Permisos('VENTAS_VER')
   findOne(

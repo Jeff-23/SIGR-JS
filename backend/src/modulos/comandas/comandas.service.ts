@@ -19,6 +19,12 @@ import { CrearComandaDto } from './dto/crear-comanda.dto';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import {
+  configuracionImpresionTermica,
+  documentoTermicoHtml,
+  escaparHtml,
+  fechaLocalTermica,
+} from '../../plataforma/impresion-termica';
+import {
   ActualizarEstacionDto,
   CrearEstacionDto,
 } from './dto/gestionar-estacion.dto';
@@ -822,5 +828,65 @@ export class ComandasService {
         },
       });
     }
+  }
+
+  async representacionImpresa(id: number, usuario: UsuarioAutenticado) {
+    const comanda = await this.prisma.comanda.findFirst({
+      where: { id, pedido: this.filtroPedido(usuario) },
+      include: {
+        estacion: true,
+        pedido: {
+          include: {
+            sucursal: { include: { restaurante: true } },
+            mesa: { include: { zona: true } },
+            mesero: { select: { nombres: true, apellidos: true } },
+          },
+        },
+        detalles: {
+          include: {
+            detallePedido: {
+              include: { producto: true, modificadores: true },
+            },
+          },
+        },
+      },
+    });
+    if (!comanda) throw new NotFoundException('Comanda no encontrada');
+    const cfg = await configuracionImpresionTermica(
+      this.prisma,
+      comanda.pedido.sucursal.restauranteId,
+      comanda.pedido.sucursalId,
+    );
+    const esc = escaparHtml;
+    const destino = comanda.pedido.mesa
+      ? `Mesa ${esc(comanda.pedido.mesa.numero)}${comanda.pedido.mesa.zona?.nombre ? ` · ${esc(comanda.pedido.mesa.zona.nombre)}` : ''}`
+      : comanda.pedido.tipo.replaceAll('_', ' ');
+    const lineas = comanda.detalles
+      .map((linea) => {
+        const detalle = linea.detallePedido;
+        const mods = detalle.modificadores.length
+          ? `<div class="mods">${detalle.modificadores.map((m) => `+ ${esc(m.cantidad > 1 ? `${m.cantidad}× ` : '')}${esc(m.nombre)}`).join('<br>')}</div>`
+          : '';
+        const nota = detalle.observaciones
+          ? `<div class="note">OBS: ${esc(detalle.observaciones)}</div>`
+          : '';
+        return `<div class="line"><div class="strong">${linea.cantidad}× ${esc(detalle.producto.nombre)}</div>${mods}${nota}</div>`;
+      })
+      .join('');
+    const mesero = comanda.pedido.mesero
+      ? `${comanda.pedido.mesero.nombres} ${comanda.pedido.mesero.apellidos}`.trim()
+      : 'Sin asignar';
+    const cuerpo = `<div class="center"><div class="title">COMANDA ${esc(comanda.estacion.nombre.toUpperCase())}</div><div class="badge">${esc(destino)}</div></div><hr class="sep"><div class="row"><span>Pedido</span><strong>#${comanda.pedido.id}</strong></div><div class="row"><span>Comanda</span><strong>#${comanda.id}</strong></div><div class="row"><span>Mesero</span><strong>${esc(mesero)}</strong></div><div class="row"><span>Enviada</span><strong>${esc(fechaLocalTermica(comanda.fechaEnvio, cfg.zonaHoraria))}</strong></div><hr class="sep">${lineas}<hr class="sep"><div class="center muted">${esc(comanda.pedido.sucursal.restaurante.nombre)} · ${esc(comanda.pedido.sucursal.nombre)}</div>`;
+    return {
+      tipo: 'COMANDA',
+      id: comanda.id,
+      anchoPapel: cfg.ancho,
+      mediaType: 'text/html; charset=utf-8',
+      contenido: documentoTermicoHtml({
+        titulo: `Comanda ${comanda.id}`,
+        ancho: cfg.ancho,
+        cuerpo,
+      }),
+    };
   }
 }

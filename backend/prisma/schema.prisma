@@ -14,6 +14,17 @@ enum EstadoMesa {
   FUERA_SERVICIO
 }
 
+enum FormaMesa {
+  REDONDA
+  CUADRADA
+  RECTANGULAR
+}
+
+enum OrientacionMesa {
+  HORIZONTAL
+  VERTICAL
+}
+
 enum EstadoReserva {
   PENDIENTE
   CONFIRMADA
@@ -92,6 +103,12 @@ enum PrioridadComanda {
   URGENTE
 }
 
+enum ModoOperacionEstacion {
+  KDS
+  IMPRESION
+  KDS_E_IMPRESION
+}
+
 enum EstadoDetalleComanda {
   PENDIENTE
   EN_PREPARACION
@@ -146,8 +163,14 @@ enum ModoOperacionDian {
 
 enum TipoDocumentoFiscal {
   FACTURA_VENTA
+  DOCUMENTO_EQUIVALENTE_POS
   NOTA_CREDITO
   NOTA_DEBITO
+}
+
+enum TipoNumeracionDian {
+  FACTURA_ELECTRONICA_VENTA
+  DOCUMENTO_EQUIVALENTE_ELECTRONICO_POS
 }
 
 enum EstadoOutboxFiscal {
@@ -449,6 +472,7 @@ model Usuario {
   movimientosPuntosRegistrados MovimientoPuntos[]
   solicitudesQrAceptadas       SolicitudPedidoQr[]        @relation("SolicitudQrAceptadaPor")
   comandasVistas               Comanda[]                  @relation("ComandaVistaPor")
+  comandasUltimaImpresion       Comanda[]                  @relation("ComandaUltimaImpresionPor")
   solicitudesCompraCreadas     SolicitudCompra[]
   ordenesCompraCreadas         OrdenCompra[]
   recepcionesCompraRegistradas RecepcionCompra[]
@@ -586,6 +610,9 @@ model Mesa {
   id                 Int        @id @default(autoincrement())
   numero             String     @db.VarChar(10)
   capacidad          Int        @default(4)
+  forma              FormaMesa  @default(CUADRADA)
+  orientacion        OrientacionMesa @default(HORIZONTAL)
+  tamanoVisual       Int        @default(2)
   situacion          EstadoMesa @default(LIBRE)
   estado             Boolean    @default(true)
   creadoEn           DateTime   @default(now())
@@ -731,6 +758,7 @@ model EstacionPreparacion {
   color                  String   @default("#F97316") @db.VarChar(7)
   orden                  Int      @default(0)
   objetivoPreparacionMin Int      @default(15)
+  modoOperacion          ModoOperacionEstacion @default(KDS_E_IMPRESION)
   estado                 Boolean  @default(true)
   creadoEn               DateTime @default(now())
 
@@ -902,6 +930,10 @@ model Comanda {
   fechaLista   DateTime?
   fechaEntrega DateTime?
 
+  solicitudesImpresion           Int      @default(0)
+  fechaUltimaSolicitudImpresion  DateTime?
+  ultimaSolicitudImpresionPorId  Int?
+
   metaPreparacionMin Int @default(15)
 
   pedidoId   Int
@@ -911,6 +943,7 @@ model Comanda {
   pedido               Pedido              @relation(fields: [pedidoId], references: [id], onDelete: Restrict)
   estacion             EstacionPreparacion @relation(fields: [estacionId], references: [id], onDelete: Restrict)
   vistoPor             Usuario?            @relation("ComandaVistaPor", fields: [vistoPorId], references: [id], onDelete: SetNull)
+  ultimaSolicitudImpresionPor Usuario?      @relation("ComandaUltimaImpresionPor", fields: [ultimaSolicitudImpresionPorId], references: [id], onDelete: SetNull)
   detalles             DetalleComanda[]
   eventosOperacionales EventoOperacional[]
 
@@ -919,6 +952,7 @@ model Comanda {
   @@index([estado])
   @@index([fechaEnvio])
   @@index([vistoPorId])
+  @@index([ultimaSolicitudImpresionPorId])
 }
 
 model DetalleComanda {
@@ -1944,7 +1978,9 @@ model PerfilFiscal {
   municipioCodigo       String            @db.VarChar(10)
   actividadEconomica    String?           @db.VarChar(20)
   softwareIdRef         String?           @db.VarChar(150)
+  pinSoftwareRef        String?           @db.VarChar(150)
   credencialRef         String?           @db.VarChar(150)
+  cuentaProveedorRef    String?           @db.VarChar(150)
   certificadoRef        String?           @db.VarChar(150)
   activo                Boolean           @default(false)
   creadoEn              DateTime          @default(now())
@@ -1955,12 +1991,14 @@ model PerfilFiscal {
 
 model ResolucionNumeracionDian {
   id               Int                    @id @default(autoincrement())
+  tipoNumeracion   TipoNumeracionDian     @default(FACTURA_ELECTRONICA_VENTA)
   numeroResolucion String                 @db.VarChar(100)
-  prefijo          String                 @db.VarChar(20)
+  prefijo          String                 @db.VarChar(4)
   rangoDesde       Int
   rangoHasta       Int
   siguienteNumero  Int
   claveTecnicaRef  String?                @db.VarChar(150)
+  fechaAutorizacion DateTime?              @db.Date
   vigenteDesde     DateTime               @db.Date
   vigenteHasta     DateTime               @db.Date
   activa           Boolean                @default(true)
@@ -1972,8 +2010,8 @@ model ResolucionNumeracionDian {
   sucursal         Sucursal?              @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
   documentos       DocumentoElectronico[]
 
-  @@unique([restauranteId, prefijo, numeroResolucion])
-  @@index([restauranteId, activa])
+  @@unique([restauranteId, tipoNumeracion, prefijo, numeroResolucion], map: "ResolucionNumeracionDian_rest_tipo_prefijo_resol_key")
+  @@index([restauranteId, tipoNumeracion, activa], map: "ResolucionNumeracionDian_rest_tipo_activa_idx")
   @@index([sucursalId])
 }
 

@@ -4,7 +4,12 @@
 @tailwind utilities;
 
 :root {
-  font-family: "Manrope", system-ui, sans-serif;
+  --sigr-steel: 10 22 18;
+  --sigr-denim: 26 41 48;
+  --sigr-marigold: 247 206 62;
+  --sigr-background: 244 242 236;
+  --sigr-font: "Manrope", system-ui, sans-serif;
+  font-family: var(--sigr-font);
   color-scheme: light;
 }
 * {
@@ -14,7 +19,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #f7f5ef;
+  background: rgb(var(--sigr-background));
 }
 button,
 input,
@@ -25,8 +30,21 @@ button {
   cursor: pointer;
 }
 ::selection {
-  background: #f7ce3e;
-  color: #0a1612;
+  background: rgb(var(--sigr-marigold));
+  color: rgb(var(--sigr-steel));
+}
+
+
+/* Identidad visual del restaurante: superficies de marca dinámicas.
+   Se usan variables CSS directas para que los cambios se reflejen en vivo
+   sin depender de colores compilados por Tailwind. */
+.theme-primary-surface {
+  background-color: rgb(var(--sigr-steel));
+  color: white;
+}
+.theme-accent-surface {
+  background-color: rgb(var(--sigr-marigold));
+  color: rgb(var(--sigr-steel));
 }
 
 @layer components {
@@ -34,7 +52,11 @@ button {
     @apply h-14 w-full rounded-2xl border border-denim/10 bg-white px-4 outline-none transition focus:border-marigold focus:ring-4 focus:ring-marigold/15;
   }
   .primary {
-    @apply flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-steel px-4 font-extrabold text-white shadow-glow transition hover:-translate-y-0.5 hover:bg-denim disabled:cursor-not-allowed disabled:opacity-40;
+    @apply flex h-14 w-full items-center justify-center gap-2 rounded-2xl px-4 font-extrabold text-white shadow-glow transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40;
+    background-color: rgb(var(--sigr-steel));
+  }
+  .primary:hover:not(:disabled) {
+    background-color: rgb(var(--sigr-denim));
   }
   .secondary {
     @apply flex h-14 w-full items-center justify-center gap-2 rounded-2xl border border-denim/10 bg-white px-4 font-extrabold transition hover:border-marigold;
@@ -82,7 +104,9 @@ button {
     @apply whitespace-nowrap rounded-xl border border-denim/10 bg-white px-4 py-2 text-xs font-extrabold transition hover:border-marigold;
   }
   .salon-filter.active {
-    @apply border-steel bg-steel text-white;
+    @apply text-white;
+    border-color: rgb(var(--sigr-steel));
+    background-color: rgb(var(--sigr-steel));
   }
   .status-pill {
     @apply shrink-0 rounded-full bg-marigold/25 px-3 py-1 text-[10px] font-black uppercase tracking-wide;

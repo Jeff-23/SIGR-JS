@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useApp } from "../store/app";
 import { useResource } from "../hooks/useResource";
 import { api, errorMessage } from "../lib/api";
@@ -73,8 +73,11 @@ function Fiscal() {
   );
 }
 function CommercialInvoices() {
-  const { session, hasPermission } = useApp();
-  const query = useResource<Row[]>("/facturas", []);
+  const { session, branchId, hasPermission } = useApp();
+  const invoicesPath = branchId
+    ? `/facturas?sucursalId=${branchId}`
+    : "/facturas";
+  const query = useResource<Row[]>(invoicesPath, []);
   const [sale, setSale] = useState(""),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState(""),
@@ -166,17 +169,32 @@ function CommercialInvoices() {
               Ver e imprimir
             </button>
             {hasPermission("FACTURAS_EMITIR") && !row.documentoElectronico && (
-              <button
-                className="secondary w-auto px-4"
-                disabled={busy}
-                onClick={() =>
-                  void execute("/documentos-electronicos/preparar", {
-                    facturaIds: [row.id],
-                  })
-                }
-              >
-                Preparar documento (sin enviar)
-              </button>
+              <>
+                <button
+                  className="secondary w-auto px-4"
+                  disabled={busy}
+                  onClick={() =>
+                    void execute("/documentos-electronicos/preparar", {
+                      facturaIds: [row.id],
+                      tipo: "FACTURA_VENTA",
+                    })
+                  }
+                >
+                  Preparar FEV (sin enviar)
+                </button>
+                <button
+                  className="secondary w-auto px-4"
+                  disabled={busy}
+                  onClick={() =>
+                    void execute("/documentos-electronicos/preparar", {
+                      facturaIds: [row.id],
+                      tipo: "DOCUMENTO_EQUIVALENTE_POS",
+                    })
+                  }
+                >
+                  Preparar POS electrónico (sin enviar)
+                </button>
+              </>
             )}
           </div>
         </article>
@@ -201,21 +219,41 @@ function CommercialInvoices() {
     </section>
   );
 }
+function fiscalStateLabel(value: unknown) {
+  const state = String(value ?? "");
+  if (state === "EN_COLA") return "PENDIENTE DE ENVÍO";
+  if (state === "ENVIANDO") return "ENVIANDO";
+  if (state === "ENVIADO") return "ENVIADO AL PROVEEDOR";
+  if (state === "ACEPTADO") return "ACEPTADO DIAN";
+  if (state === "RECHAZADO") return "RECHAZADO DIAN";
+  return display(value);
+}
+
 function ElectronicDocuments() {
-  const { session, hasPermission } = useApp();
-  const query = useResource<Row[]>("/documentos-electronicos", [], 15000);
+  const { session, branchId, hasPermission } = useApp();
+  const documentsPath = branchId
+    ? `/documentos-electronicos?sucursalId=${branchId}`
+    : "/documentos-electronicos";
+  const query = useResource<Row[]>(documentsPath, [], 15000);
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState(""),
-    [selected, setSelected] = useState<number | null>(null),
-    [resolution, setResolution] = useState("");
-  async function action(path: string, body: object = {}) {
+    [selected, setSelected] = useState<number | null>(null);
+  async function action(
+    path: string,
+    body: object = {},
+    successMessage?: string,
+  ) {
     if (busy || session?.demo) return;
     setBusy(true);
     setMessage("");
     try {
-      await api.post(path, body);
+      const response = await api.post(path, body);
+      const serverMessage =
+        typeof response.data?.mensaje === "string" ? response.data.mensaje : "";
       setMessage(
-        "Solicitud procesada. Consulta el estado devuelto por el proveedor; no implica aceptación.",
+        serverMessage ||
+          successMessage ||
+          "Operación fiscal registrada. Esto no implica aceptación DIAN.",
       );
       setSelected(null);
       query.refresh();
@@ -238,9 +276,14 @@ function ElectronicDocuments() {
                 "¿Procesar hasta 20 documentos pendientes? Puede transmitirlos al proveedor configurado.",
               )
             )
-              void action("/documentos-electronicos/procesar-cola", {
-                limite: 20,
-              });
+              void action(
+                "/documentos-electronicos/procesar-cola",
+                {
+                  limite: 20,
+                  ...(branchId ? { sucursalId: branchId } : {}),
+                },
+                "Cola fiscal procesada. Revisa el estado individual de cada documento.",
+              );
           }}
         >
           Procesar cola pendiente
@@ -255,7 +298,7 @@ function ElectronicDocuments() {
             {display(row.numeroCompleto)} · Documento #{row.id}
           </h3>
           <p>
-            Factura #{display(row.facturaId)} · {display(row.estado)} ·{" "}
+            Factura #{display(row.facturaId)} · {fiscalStateLabel(row.estado)} ·{" "}
             {display(row.ambiente)}
           </p>
           {row.cufe ? (
@@ -283,7 +326,11 @@ function ElectronicDocuments() {
                       `¿Encolar documento #${row.id} para transmisión?`,
                     )
                   )
-                    void action(`/documentos-electronicos/${row.id}/encolar`);
+                    void action(
+                      `/documentos-electronicos/${row.id}/encolar`,
+                      {},
+                      "Documento pendiente de envío. Aún no se ha transmitido a MATÍAS ni a DIAN.",
+                    );
                 }}
               >
                 Encolar envío
@@ -304,44 +351,109 @@ function ElectronicDocuments() {
         </article>
       ))}
       {selected && (
-        <Modal
-          title={`Numerar documento #${selected}`}
+        <NumerationModal
+          documentId={selected}
           busy={busy}
           onClose={() => setSelected(null)}
-        >
-          <form
-            className="space-y-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void action(`/documentos-electronicos/${selected}/numerar`, {
-                resolucionId: Number(resolution),
-              });
-            }}
-          >
-            <p>
-              Selecciona el ID de una resolución vigente del restaurante. La
-              numeración queda reservada de forma transaccional.
-            </p>
-            <label>
-              ID resolución
-              <input
-                className="input"
-                type="number"
-                min="1"
-                required
-                value={resolution}
-                onChange={(e) => setResolution(e.target.value)}
-              />
-            </label>
-            <button className="primary" disabled={busy}>
-              Asignar número
-            </button>
-          </form>
-        </Modal>
+          onAssign={(resolutionId) =>
+            action(`/documentos-electronicos/${selected}/numerar`, {
+              resolucionId: resolutionId,
+            })
+          }
+        />
       )}
     </section>
   );
 }
+type CompatibleResolution = {
+  id: number;
+  numeroResolucion: string;
+  prefijo: string;
+  siguienteNumero: number;
+  rangoHasta: number;
+  disponibles: number;
+  vigenteHasta: string;
+  sucursalId: number | null;
+};
+type CompatibleResolutionResponse = {
+  documentoId: number;
+  tipoNumeracion: string;
+  sucursal: { id: number; nombre: string };
+  resoluciones: CompatibleResolution[];
+};
+function NumerationModal({
+  documentId,
+  busy,
+  onClose,
+  onAssign,
+}: {
+  documentId: number;
+  busy: boolean;
+  onClose: () => void;
+  onAssign: (resolutionId: number) => void;
+}) {
+  const query = useResource<CompatibleResolutionResponse>(
+    `/documentos-electronicos/${documentId}/resoluciones-compatibles`,
+    {
+      documentoId: documentId,
+      tipoNumeracion: "",
+      sucursal: { id: 0, nombre: "" },
+      resoluciones: [],
+    },
+  );
+  const [resolutionId, setResolutionId] = useState("");
+  return (
+    <Modal title={`Numerar documento #${documentId}`} busy={busy} onClose={onClose}>
+      <form
+        className="space-y-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (resolutionId) onAssign(Number(resolutionId));
+        }}
+      >
+        {query.error ? (
+          <p role="alert" className="text-red-700">{query.error}</p>
+        ) : (
+          <>
+            <p>
+              Documento para <strong>{query.data.sucursal.nombre || "cargando…"}</strong>.
+              SIGR sólo muestra resoluciones vigentes, con rango disponible y compatibles con el tipo de documento.
+            </p>
+            <label>
+              Resolución disponible
+              <select
+                className="input"
+                required
+                value={resolutionId}
+                onChange={(event) => setResolutionId(event.target.value)}
+              >
+                <option value="">Selecciona una resolución</option>
+                {query.data.resoluciones.map((resolution) => (
+                  <option key={resolution.id} value={resolution.id}>
+                    {resolution.prefijo} · {resolution.numeroResolucion} · siguiente {resolution.siguienteNumero} · {resolution.disponibles} disponibles
+                  </option>
+                ))}
+              </select>
+            </label>
+            {!query.data.resoluciones.length && query.data.sucursal.id > 0 && (
+              <p role="status" className="rounded-xl bg-yellow-50 p-3">
+                No hay una resolución vigente y compatible para {query.data.sucursal.nombre}.
+                Revisa el tipo de documento, la sucursal, la vigencia y el rango disponible.
+              </p>
+            )}
+          </>
+        )}
+        <button
+          className="primary"
+          disabled={busy || Boolean(query.error) || !resolutionId}
+        >
+          Asignar número
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
 function FiscalProfile() {
   const { session } = useApp();
   const tenant = session?.user.restauranteId;
@@ -364,7 +476,7 @@ function TenantFiscal({ tenant }: { tenant: number }) {
     proveedorDiagnostico?: { mensaje: string };
   }>(`${base}/diagnostico`, { checks: {}, listoTransmision: false });
   const [editing, setEditing] = useState(false);
-  const profileResource: Resource = {
+  const profileResource = useMemo<Resource>(() => ({
     key: "perfil",
     title: "Perfil fiscal",
     path: `${base}/perfil`,
@@ -380,7 +492,10 @@ function TenantFiscal({ tenant }: { tenant: number }) {
         required: true,
         options: ["PROVEEDOR_TECNOLOGICO", "SOFTWARE_PROPIO"],
       }),
-      field("proveedorCodigo", "Código proveedor", { maxLength: 50 }),
+      field("proveedorCodigo", "Proveedor fiscal", {
+        maxLength: 50,
+        options: ["MATIAS"],
+      }),
       field("responsabilidadFiscal", "Responsabilidad fiscal", {
         required: true,
         maxLength: 20,
@@ -390,13 +505,15 @@ function TenantFiscal({ tenant }: { tenant: number }) {
         maxLength: 5,
       }),
       field("actividadEconomica", "Actividad económica", { maxLength: 20 }),
-      field("softwareIdRef", "Referencia software secret://…"),
-      field("credencialRef", "Referencia credencial secret://…"),
-      field("certificadoRef", "Referencia certificado secret://…"),
+      field("softwareIdRef", "Software ID · referencia secret://…"),
+      field("pinSoftwareRef", "PIN software · referencia secret://…"),
+      field("credencialRef", "Credencial API · referencia secret://…"),
+      field("cuentaProveedorRef", "Cuenta MATÍAS · referencia secret://…"),
+      field("certificadoRef", "Certificado digital · referencia secret://…"),
       field("activo", "Activo", { type: "checkbox" }),
     ],
-  };
-  const resolutions: Resource = {
+  }), [base]);
+  const resolutions = useMemo<Resource>(() => ({
     key: "resoluciones",
     title: "Resoluciones",
     path: `${base}/resoluciones`,
@@ -404,19 +521,29 @@ function TenantFiscal({ tenant }: { tenant: number }) {
     create: "CONFIGURACION_GESTIONAR",
     columns: [
       field("id", "ID"),
+      field("tipoNumeracion", "Tipo"),
       field("numeroResolucion", "Resolución"),
       field("prefijo", "Prefijo"),
       field("rangoDesde", "Desde"),
       field("rangoHasta", "Hasta"),
       field("siguienteNumero", "Siguiente"),
       field("vigenteHasta", "Vencimiento"),
+      field("estadoOperativo", "Estado"),
+      field("restantes", "Disponibles"),
     ],
     fields: [
+      field("tipoNumeracion", "Tipo de numeración", {
+        required: true,
+        options: [
+          "FACTURA_ELECTRONICA_VENTA",
+          "DOCUMENTO_EQUIVALENTE_ELECTRONICO_POS",
+        ],
+      }),
       field("numeroResolucion", "Número resolución", {
         required: true,
         maxLength: 100,
       }),
-      field("prefijo", "Prefijo", { maxLength: 20 }),
+      field("prefijo", "Prefijo DIAN (0–4 alfanuméricos)", { maxLength: 4 }),
       field("rangoDesde", "Rango inicial", {
         type: "number",
         min: 1,
@@ -428,6 +555,7 @@ function TenantFiscal({ tenant }: { tenant: number }) {
         required: true,
       }),
       field("siguienteNumero", "Siguiente número", { type: "number", min: 1 }),
+      field("fechaAutorizacion", "Fecha autorización", { type: "date" }),
       field("vigenteDesde", "Vigencia desde", { type: "date", required: true }),
       field("vigenteHasta", "Vigencia hasta", { type: "date", required: true }),
       field("sucursalId", "Sucursal (vacío: restaurante)", {
@@ -435,7 +563,7 @@ function TenantFiscal({ tenant }: { tenant: number }) {
       }),
       field("claveTecnicaRef", "Referencia clave técnica secret://…"),
     ],
-  };
+  }), [base]);
   return (
     <section className="space-y-5">
       <article className="card">
@@ -468,8 +596,10 @@ function TenantFiscal({ tenant }: { tenant: number }) {
           </button>
         )}
         <p className="mt-3 text-xs">
-          Sólo referencias a secretos; no escribas contraseñas ni certificados
-          en estos campos.
+          Sólo referencias <code>secret://</code>; no escribas PIN, tokens,
+          contraseñas ni certificados reales en estos campos. MATÍAS queda
+          preparado pero la transmisión seguirá bloqueada hasta conectar el
+          Sandbox y confirmar el contrato API oficial.
         </p>
       </article>
       <ResourcePanel resource={resolutions} />

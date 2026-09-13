@@ -25,6 +25,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { ErrorState, LoadingState } from "../components/AsyncState";
 import { PrintableDocumentModal } from "../components/PrintableDocumentModal";
+import { Modal } from "../components/Modal";
 import { SalonExperiencePanel } from "../features/salon/SalonExperiencePanel";
 import {
   activeOrder,
@@ -75,6 +76,104 @@ type QuickAction =
   | "waiter"
   | "split"
   | null;
+type TableForm = {
+  id?: number;
+  numero: string;
+  capacidad: string;
+  zonaId: string;
+  forma: "REDONDA" | "CUADRADA" | "RECTANGULAR";
+  orientacion: "HORIZONTAL" | "VERTICAL";
+  tamanoVisual: string;
+};
+const emptyTableForm: TableForm = {
+  numero: "",
+  capacidad: "4",
+  zonaId: "",
+  forma: "CUADRADA",
+  orientacion: "HORIZONTAL",
+  tamanoVisual: "2",
+};
+
+function TableSilhouette({ table, order }: { table: ApiTable; order?: ApiOrder }) {
+  const forma = table.forma ?? "CUADRADA";
+  const orientacion = table.orientacion ?? "HORIZONTAL";
+  const capacity = Math.max(1, Math.min(10, table.capacidad));
+  const ready = order ? stationSummary(order).reduce((sum, station) => sum + station.ready, 0) : 0;
+  const total = order ? stationSummary(order).reduce((sum, station) => sum + station.total, 0) : 0;
+  // La preparación nunca debe cambiar la condición comercial de la mesa.
+  // Mientras exista un consumo activo sin pagar, la mesa se representa ocupada.
+  const state = order
+    ? table.situacion === "PENDIENTE_PAGO" || order.venta?.estado === "PENDIENTE_PAGO"
+      ? "PENDIENTE_PAGO"
+      : order.venta?.estado === "PAGADA"
+        ? table.situacion
+        : "OCUPADA"
+    : table.situacion;
+  const preparationState = total > 0 && ready === total ? "LISTA" : ready > 0 ? "PARCIAL" : "PENDIENTE";
+  const visualSize = Math.max(1, Math.min(3, table.tamanoVisual ?? 2));
+  const palette: Record<string, { fill: string; stroke: string; chair: string }> = {
+    LIBRE: { fill: "#ecfdf5", stroke: "#10b981", chair: "#a7f3d0" },
+    OCUPADA: { fill: "#fff7ed", stroke: "#f97316", chair: "#fed7aa" },
+    PARCIAL: { fill: "#fffbeb", stroke: "#f59e0b", chair: "#fde68a" },
+    LISTA: { fill: "#ecfdf5", stroke: "#059669", chair: "#6ee7b7" },
+    RESERVADA: { fill: "#eff6ff", stroke: "#3b82f6", chair: "#bfdbfe" },
+    PENDIENTE_PAGO: { fill: "#fef2f2", stroke: "#ef4444", chair: "#fecaca" },
+    FUERA_SERVICIO: { fill: "#f3f4f6", stroke: "#6b7280", chair: "#d1d5db" },
+  };
+  const colors = palette[state] ?? palette.LIBRE;
+  const horizontal = forma !== "RECTANGULAR" || orientacion === "HORIZONTAL";
+  const tableBox = forma === "REDONDA"
+    ? { x: 55, y: 25, w: 70, h: 70, rx: 35 }
+    : forma === "RECTANGULAR" && horizontal
+      ? { x: 38, y: 31, w: 104, h: 58, rx: 16 }
+      : forma === "RECTANGULAR"
+        ? { x: 58, y: 16, w: 64, h: 88, rx: 16 }
+        : { x: 50, y: 25, w: 80, h: 70, rx: 14 };
+  const chairs: Array<{ x: number; y: number; rotate?: number }> = [];
+  const topCount = Math.ceil(capacity / 4);
+  const addRow = (count: number, y: number, startX: number, endX: number) => {
+    for (let i = 0; i < count; i++) chairs.push({ x: count === 1 ? (startX + endX) / 2 : startX + ((endX - startX) * i) / (count - 1), y });
+  };
+  addRow(Math.min(topCount, capacity), 12, tableBox.x + 10, tableBox.x + tableBox.w - 10);
+  const remainingAfterTop = capacity - Math.min(topCount, capacity);
+  const bottomCount = Math.min(topCount, remainingAfterTop);
+  addRow(bottomCount, 108, tableBox.x + 10, tableBox.x + tableBox.w - 10);
+  let remaining = remainingAfterTop - bottomCount;
+  const leftCount = Math.ceil(remaining / 2);
+  const rightCount = remaining - leftCount;
+  for (let i = 0; i < leftCount; i++) chairs.push({ x: 20, y: 45 + i * 26, rotate: 90 });
+  for (let i = 0; i < rightCount; i++) chairs.push({ x: 160, y: 45 + i * 26, rotate: 90 });
+  return (
+    <svg
+      viewBox="0 0 180 120"
+      className="h-auto w-full"
+      style={{ maxWidth: `${180 + (visualSize - 1) * 34}px` }}
+      aria-label={`Mesa ${table.numero}, ${forma.toLowerCase()}, ${table.capacidad} puestos`}
+    >
+      <defs>
+        <filter id={`shadow-${table.id}`} x="-20%" y="-20%" width="140%" height="150%">
+          <feDropShadow dx="0" dy="5" stdDeviation="4" floodOpacity="0.16" />
+        </filter>
+      </defs>
+      {chairs.slice(0, capacity).map((chair, index) => (
+        <rect key={index} x={chair.x - 9} y={chair.y - 6} width="18" height="12" rx="4" fill={colors.chair} stroke={colors.stroke} strokeWidth="1.5" transform={chair.rotate ? `rotate(${chair.rotate} ${chair.x} ${chair.y})` : undefined} />
+      ))}
+      <rect x={tableBox.x} y={tableBox.y} width={tableBox.w} height={tableBox.h} rx={tableBox.rx} fill={colors.fill} stroke={colors.stroke} strokeWidth="3" filter={`url(#shadow-${table.id})`} />
+      <rect x={tableBox.x + 6} y={tableBox.y + 5} width={Math.max(0, tableBox.w - 12)} height={5} rx="3" fill="white" opacity="0.65" />
+      <text x="90" y="59" textAnchor="middle" fontSize="14.5" fontWeight="900" fill="#10252d">Mesa {table.numero}</text>
+      <text x="90" y="77" textAnchor="middle" fontSize="10" fontWeight="800" fill="#52666d">{table.capacidad} puestos</text>
+      {preparationState !== "PENDIENTE" && (
+        <g>
+          <circle cx="140" cy="27" r="8" fill={preparationState === "LISTA" ? "#10b981" : "#f59e0b"}>
+            {preparationState === "LISTA" && <animate attributeName="r" values="7;9;7" dur="1.5s" repeatCount="indefinite" />}
+          </circle>
+          <path d="M136.5 27l2.2 2.2 4.5-5" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </g>
+      )}
+    </svg>
+  );
+}
+
 
 function sentQuantity(detail: OrderDetail) {
   return (detail.comandas ?? [])
@@ -116,6 +215,11 @@ export function RealSalonPage() {
     referencias: "",
     costo: 0,
   });
+  const [tableManagerOpen, setTableManagerOpen] = useState(false);
+  const [managedTables, setManagedTables] = useState<ApiTable[]>([]);
+  const [managedZones, setManagedZones] = useState<Array<{ id: number; nombre: string }>>([]);
+  const [tableForm, setTableForm] = useState<TableForm>(emptyTableForm);
+  const [tableManagerBusy, setTableManagerBusy] = useState(false);
 
   const load = useCallback(
     async (quiet = false) => {
@@ -187,14 +291,25 @@ export function RealSalonPage() {
           .includes(term))
     );
   });
+  const tableById = new Map(tables.map((table) => [table.id, table] as const));
+
   const orderByTable = new Map(
-    orders.flatMap((order) =>
-      order.mesasVinculadas?.length
+    orders.flatMap((order) => {
+      // Regla del salón: una mesa que el backend ya declara LIBRE no puede
+      // conservar en pantalla un pedido histórico. Esto evita que pedidos
+      // pagados/entregados sigan apareciendo por relaciones antiguas.
+      // La trazabilidad del pedido no se elimina; únicamente deja de vincularse
+      // a la representación operativa de la mesa libre.
+      if (order.venta?.estado === "PAGADA") return [];
+
+      const links = order.mesasVinculadas?.length
         ? order.mesasVinculadas.map((link) => [link.mesa.id, order] as const)
         : order.mesa
           ? [[order.mesa.id, order] as const]
-          : [],
-    ),
+          : [];
+
+      return links.filter(([tableId]) => tableById.get(tableId)?.situacion !== "LIBRE");
+    }),
   );
 
   const openNew = (type: OrderType, table: ApiTable | null = null) => {
@@ -576,6 +691,68 @@ export function RealSalonPage() {
       false,
     ).then(() => load(true));
 
+  const loadTableManager = useCallback(async () => {
+    if (!branchId) return;
+    const [mesaResponse, zonaResponse] = await Promise.all([
+      api.get<ApiTable[]>("/mesas", {
+        params: { sucursalId: branchId, incluirInactivas: true },
+      }),
+      api.get<Array<{ id: number; nombre: string }>>(`/zonas/sucursal/${branchId}`),
+    ]);
+    setManagedTables(mesaResponse.data);
+    setManagedZones(zonaResponse.data);
+    setTableForm((current) => ({
+      ...current,
+      zonaId: current.zonaId || String(zonaResponse.data[0]?.id ?? ""),
+    }));
+  }, [branchId]);
+
+  const openTableManager = async () => {
+    setTableManagerOpen(true);
+    try {
+      await loadTableManager();
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  };
+
+  const saveTable = async () => {
+    if (!tableForm.numero.trim() || !tableForm.zonaId) return;
+    setTableManagerBusy(true);
+    try {
+      const payload = {
+        numero: tableForm.numero.trim(),
+        capacidad: Number(tableForm.capacidad),
+        zonaId: Number(tableForm.zonaId),
+        forma: tableForm.forma,
+        orientacion: tableForm.orientacion,
+        tamanoVisual: Number(tableForm.tamanoVisual),
+      };
+      if (tableForm.id) await api.patch(`/mesas/${tableForm.id}`, payload);
+      else await api.post("/mesas", payload);
+      toast.success(tableForm.id ? "Mesa actualizada" : "Mesa creada");
+      setTableForm({ ...emptyTableForm, zonaId: tableForm.zonaId });
+      await Promise.all([loadTableManager(), load(true)]);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setTableManagerBusy(false);
+    }
+  };
+
+  const toggleTableActive = async (table: ApiTable & { estado?: boolean }) => {
+    setTableManagerBusy(true);
+    try {
+      await api.patch(`/mesas/${table.id}/estado`, { activo: table.estado === false });
+      toast.success(table.estado === false ? "Mesa reactivada" : "Mesa desactivada");
+      await Promise.all([loadTableManager(), load(true)]);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setTableManagerBusy(false);
+    }
+  };
+
   if (loading) return <LoadingState label="Cargando salón, carta y pedidos…" />;
   if (failure)
     return (
@@ -609,6 +786,15 @@ export function RealSalonPage() {
               </button>
             ),
           )}
+          {(hasPermission("MESAS_CREAR") || hasPermission("MESAS_EDITAR")) && (
+            <button
+              className="secondary h-11 w-auto px-4 text-sm"
+              onClick={() => void openTableManager()}
+            >
+              <Plus size={16} />
+              Gestionar mesas
+            </button>
+          )}
           <button
             className="secondary h-11 w-11 px-0"
             aria-label="Actualizar"
@@ -637,18 +823,33 @@ export function RealSalonPage() {
         ))}
       </div>
 
-      <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3 lg:gap-4 xl:grid-cols-4 2xl:gap-5">
         {visibleTables.map((table) => {
-          const order = orderByTable.get(table.id);
+          // Guardia final: una mesa que el backend declara LIBRE jamás puede
+          // mostrar consumo, mesero, total ni preparación de un pedido histórico.
+          const order = table.situacion === "LIBRE" ? undefined : orderByTable.get(table.id);
           const stations = order ? stationSummary(order) : [];
           const minutes = occupiedMinutes(order, table);
+          const unpaidConsumption = Boolean(order && order.venta?.estado !== "PAGADA");
+          const visualSituation = unpaidConsumption
+            ? order?.venta?.estado === "PENDIENTE_PAGO"
+              ? "PENDIENTE_PAGO"
+              : "OCUPADA"
+            : table.situacion;
+          const visualStateClass = visualSituation.toLowerCase();
+          const isFree = !order && visualSituation === "LIBRE";
+
           return (
             <article
-              className={`table-card ${table.situacion.toLowerCase()} !items-stretch !text-left`}
+              className={
+                isFree
+                  ? "group relative flex min-h-[190px] flex-col items-center justify-center rounded-[28px] border border-white/70 bg-white/45 px-3 py-4 shadow-[0_8px_26px_rgba(16,37,45,0.05)] transition duration-200 hover:-translate-y-1 hover:border-denim/10 hover:bg-white/70 hover:shadow-[0_14px_34px_rgba(16,37,45,0.10)] lg:min-h-[225px] lg:px-5 lg:py-5"
+                  : `table-card ${visualStateClass} !min-h-0 !items-stretch !p-3 !text-left lg:!p-4`
+              }
               key={table.id}
             >
               <button
-                className="text-left"
+                className="w-full text-left"
                 onClick={() =>
                   order
                     ? void openExisting(order)
@@ -657,110 +858,188 @@ export function RealSalonPage() {
                       : undefined
                 }
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-45">
-                      {table.zona.nombre}
-                    </span>
-                    <strong className="mt-1 block text-2xl font-black">
-                      Mesa {table.numero}
-                    </strong>
-                  </div>
+                <div className="relative flex justify-center py-1 lg:py-2">
+                  <TableSilhouette table={table} order={order} />
                   {minutes > 0 && (
-                    <span className="rounded-full bg-white/70 px-2 py-1 text-xs font-black">
-                      <Clock3 className="mr-1 inline" size={12} />
+                    <span className="absolute right-1 top-1 rounded-full bg-white/90 px-2 py-1 text-[11px] font-black shadow-sm">
+                      <Clock3 className="mr-1 inline" size={11} />
                       {minutes} min
                     </span>
                   )}
                 </div>
+
                 {order ? (
-                  <>
-                    <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-denim/60">
-                      <span>
-                        <UserRound className="mr-1 inline" size={12} />
-                        {order.mesero
-                          ? `${order.mesero.nombres} ${order.mesero.apellidos}`
-                          : "Sin mesero"}
-                      </span>
-                      <span>
-                        <Users className="mr-1 inline" size={12} />
-                        {order.personas ?? table.capacidad} personas
-                      </span>
+                  <div className="mt-1 rounded-2xl bg-white/70 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-denim/45">{table.zona.nombre}</span>
+                      <span className="rounded-full bg-denim/5 px-2 py-1 text-[10px] font-black">{visualSituation.replaceAll("_", " ")}</span>
                     </div>
-                    <strong className="mt-3 block text-xl">
-                      {money.format(Number(order.total))}
-                    </strong>
-                    <div className="mt-3 space-y-1">
-                      {stations.length ? (
-                        stations.map((station) => (
-                          <div
-                            className="flex items-center justify-between text-xs"
-                            key={station.name}
-                          >
-                            <span>
-                              {station.ready === station.total
-                                ? "🟢"
-                                : station.ready
-                                  ? "🟡"
-                                  : "⚪"}{" "}
-                              {station.name}
-                            </span>
-                            <b>
-                              {station.ready}/{station.total} listas
-                            </b>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="text-xs text-denim/45">
-                          Sin comandas enviadas
-                        </div>
-                      )}
+                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-denim/60">
+                      <span><UserRound className="mr-1 inline" size={11} />{order.mesero ? `${order.mesero.nombres} ${order.mesero.apellidos}` : "Sin mesero"}</span>
+                      <span><Users className="mr-1 inline" size={11} />{order.personas ?? table.capacidad} personas</span>
                     </div>
-                    <div
-                      className={`mt-3 rounded-xl px-3 py-2 text-xs font-black ${suggestedAction(order).startsWith("Retirar") ? "bg-amber-100 text-amber-800" : "bg-denim/5 text-denim/70"}`}
-                    >
-                      Acción sugerida: {suggestedAction(order)}
+                    <strong className="mt-2 block text-lg">{money.format(Number(order.total))}</strong>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {stations.length ? stations.map((station) => (
+                        <span
+                          className={`rounded-full px-2 py-1 text-[10px] font-black ${station.ready === station.total ? "bg-emerald-100 text-emerald-800" : station.ready ? "bg-amber-100 text-amber-800" : "bg-denim/5 text-denim/60"}`}
+                          key={station.name}
+                        >
+                          {station.name} {station.ready}/{station.total}
+                        </span>
+                      )) : <span className="text-[10px] text-denim/45">Sin comandas enviadas</span>}
                     </div>
-                  </>
+                    <div className={`mt-2 rounded-xl px-2.5 py-2 text-[11px] font-black ${suggestedAction(order).startsWith("Retirar") ? "bg-amber-100 text-amber-800" : "bg-denim/5 text-denim/70"}`}>
+                      {suggestedAction(order)}
+                    </div>
+                  </div>
                 ) : (
-                  <>
-                    <span className="mt-3 flex items-center gap-1 text-xs opacity-55">
-                      <Users size={13} />
-                      {table.capacidad} puestos
-                    </span>
-                    <span className="mt-4 block text-xs font-extrabold">
-                      {table.situacion === "LIBRE"
-                        ? "Disponible · tocar para abrir"
-                        : table.situacion.replaceAll("_", " ")}
-                    </span>
-                  </>
+                  <div className="mt-2 text-center lg:mt-3">
+                    <div className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-denim/50 lg:text-[11px]">{table.zona.nombre}</div>
+                    <div className="mt-1 text-sm font-black text-denim lg:text-base">
+                      {table.situacion === "LIBRE" ? "Disponible" : table.situacion.replaceAll("_", " ")} · {table.capacidad} puestos
+                    </div>
+                    {table.situacion === "LIBRE" && <div className="mt-1 text-[11px] font-medium text-denim/55 lg:text-xs">Tocar la mesa para abrir</div>}
+                  </div>
                 )}
               </button>
-              {!order &&
-                table.situacion === "LIBRE" &&
-                hasPermission("MESAS_EDITAR") && (
-                  <button
-                    className="mt-3 text-xs font-bold text-denim/55"
-                    onClick={() => void occupy(table)}
-                  >
-                    Ocupar sin pedido
-                  </button>
-                )}
-              {!order &&
-                table.ocupacionManual &&
-                hasPermission("MESAS_EDITAR") && (
-                  <button
-                    className="mt-3 flex items-center gap-1 text-xs font-bold text-emerald-700"
-                    onClick={() => void release(table)}
-                  >
-                    <Unlock size={13} />
-                    Liberar sin consumo
-                  </button>
-                )}
+
+              {!order && table.situacion === "LIBRE" && hasPermission("MESAS_EDITAR") && (
+                <button
+                  className="mt-2 text-center text-[11px] font-bold text-denim/55 hover:text-denim lg:text-xs"
+                  onClick={() => void occupy(table)}
+                >
+                  Ocupar sin pedido
+                </button>
+              )}
+              {!order && table.ocupacionManual && hasPermission("MESAS_EDITAR") && (
+                <button
+                  className="mt-2 flex items-center justify-center gap-1 text-xs font-bold text-emerald-700"
+                  onClick={() => void release(table)}
+                >
+                  <Unlock size={13} />
+                  Liberar sin consumo
+                </button>
+              )}
             </article>
           );
         })}
       </div>
+
+      {tableManagerOpen && (
+        <Modal title="Gestionar mesas" onClose={() => setTableManagerOpen(false)}>
+          <div className="space-y-4">
+            <p className="text-sm text-denim/55">
+              Las mesas se ordenan de forma natural y ahora pueden representar la distribución real del salón. Configura forma, orientación y tamaño visual; desactivar conserva todo el historial.
+            </p>
+            {(hasPermission("MESAS_CREAR") || (tableForm.id && hasPermission("MESAS_EDITAR"))) && (
+              <div className="grid gap-3 rounded-2xl border border-denim/10 p-4 sm:grid-cols-3">
+                <label className="text-sm font-bold">
+                  Número / nombre
+                  <input
+                    className="input mt-1"
+                    maxLength={10}
+                    value={tableForm.numero}
+                    onChange={(event) => setTableForm({ ...tableForm, numero: event.target.value })}
+                    placeholder="Ej. 16 o Terraza 1"
+                  />
+                </label>
+                <label className="text-sm font-bold">
+                  Puestos
+                  <input
+                    className="input mt-1"
+                    type="number"
+                    min="1"
+                    value={tableForm.capacidad}
+                    onChange={(event) => setTableForm({ ...tableForm, capacidad: event.target.value })}
+                  />
+                </label>
+                <label className="text-sm font-bold">
+                  Zona
+                  <select
+                    className="input mt-1"
+                    value={tableForm.zonaId}
+                    onChange={(event) => setTableForm({ ...tableForm, zonaId: event.target.value })}
+                  >
+                    {managedZones.map((item) => (
+                      <option key={item.id} value={item.id}>{item.nombre}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm font-bold">
+                  Forma
+                  <select className="input mt-1" value={tableForm.forma} onChange={(event) => setTableForm({ ...tableForm, forma: event.target.value as TableForm["forma"] })}>
+                    <option value="CUADRADA">Cuadrada</option>
+                    <option value="REDONDA">Redonda</option>
+                    <option value="RECTANGULAR">Rectangular</option>
+                  </select>
+                </label>
+                <label className="text-sm font-bold">
+                  Orientación
+                  <select className="input mt-1" value={tableForm.orientacion} disabled={tableForm.forma !== "RECTANGULAR"} onChange={(event) => setTableForm({ ...tableForm, orientacion: event.target.value as TableForm["orientacion"] })}>
+                    <option value="HORIZONTAL">Horizontal</option>
+                    <option value="VERTICAL">Vertical</option>
+                  </select>
+                </label>
+                <label className="text-sm font-bold">
+                  Tamaño visual
+                  <select className="input mt-1" value={tableForm.tamanoVisual} onChange={(event) => setTableForm({ ...tableForm, tamanoVisual: event.target.value })}>
+                    <option value="1">Compacta</option>
+                    <option value="2">Normal</option>
+                    <option value="3">Grande</option>
+                  </select>
+                </label>
+                <div className="flex gap-2 sm:col-span-3">
+                  <button
+                    className="primary h-11 w-auto px-5"
+                    disabled={tableManagerBusy || !tableForm.numero.trim() || !tableForm.zonaId}
+                    onClick={() => void saveTable()}
+                  >
+                    {tableForm.id ? "Guardar cambios" : "Añadir mesa"}
+                  </button>
+                  {tableForm.id && (
+                    <button
+                      className="secondary h-11 w-auto px-5"
+                      onClick={() => setTableForm({ ...emptyTableForm, zonaId: tableForm.zonaId })}
+                    >
+                      Cancelar edición
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+            <div className="max-h-[420px] space-y-2 overflow-y-auto">
+              {managedTables.map((table) => (
+                <div key={table.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-denim/10 p-3">
+                  <div>
+                    <strong>Mesa {table.numero}</strong>
+                    <p className="text-xs text-denim/50">{table.zona.nombre} · {table.capacidad} puestos · {(table.forma ?? "CUADRADA").toLowerCase()} · {(table as ApiTable & { estado?: boolean }).estado === false ? "Inactiva" : "Activa"}</p>
+                  </div>
+                  {hasPermission("MESAS_EDITAR") && (
+                    <div className="flex gap-2">
+                      {(table as ApiTable & { estado?: boolean }).estado !== false && (
+                        <button
+                          className="secondary h-10 w-auto px-3 text-xs"
+                          onClick={() => setTableForm({ id: table.id, numero: table.numero, capacidad: String(table.capacidad), zonaId: String(table.zona.id), forma: table.forma ?? "CUADRADA", orientacion: table.orientacion ?? "HORIZONTAL", tamanoVisual: String(table.tamanoVisual ?? 2) })}
+                        >
+                          Editar
+                        </button>
+                      )}
+                      <button
+                        className="secondary h-10 w-auto px-3 text-xs"
+                        disabled={tableManagerBusy}
+                        onClick={() => void toggleTableActive(table as ApiTable & { estado?: boolean })}
+                      >
+                        {(table as ApiTable & { estado?: boolean }).estado === false ? "Reactivar" : "Desactivar"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {branchId && (
         <div className="mt-8">

@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -16,6 +18,8 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 
 import { CrearComandaDto } from './dto/crear-comanda.dto';
+import { AuditoriaService } from '../auditoria/auditoria.service';
+import { ContextoAuditoria } from '../auditoria/auditoria-contexto';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import {
@@ -31,7 +35,10 @@ import {
 
 @Injectable()
 export class ComandasService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditoria?: AuditoriaService,
+  ) {}
 
   private esSuperadmin(usuario: UsuarioAutenticado) {
     return usuario.rol === 'SUPERADMIN' && usuario.restauranteId === null;
@@ -253,8 +260,14 @@ export class ComandasService {
             data: {
               pedidoId: pedido.id,
               estacionId,
+              estado: EstadoComanda.PENDIENTE,
               metaPreparacionMin: estacion.objetivoPreparacionMin,
-              detalles: { create: detalles },
+              detalles: {
+                create: detalles.map((detalle) => ({
+                  ...detalle,
+                  estado: EstadoDetalleComanda.PENDIENTE,
+                })),
+              },
             },
             include: {
               estacion: true,
@@ -387,6 +400,50 @@ export class ComandasService {
     return this.prisma.estacionPreparacion.update({
       where: { id },
       data: { ...data, ...(data.nombre ? { nombre: data.nombre.trim() } : {}) },
+    });
+  }
+
+  async actualizarModoOperacionEstacion(
+    id: number,
+    modoOperacion: 'KDS' | 'IMPRESION' | 'KDS_E_IMPRESION',
+    usuario: UsuarioAutenticado,
+    contexto: ContextoAuditoria,
+  ) {
+    if (!['ADMIN', 'ADMIN_SEDE'].includes(usuario.rol)) {
+      throw new ForbiddenException(
+        'Sólo un administrador puede cambiar el modo de operación de una estación',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const estacion = await tx.estacionPreparacion.findFirst({
+        where: { id, sucursal: this.filtroSucursal(usuario) },
+        select: { id: true, nombre: true, sucursalId: true, modoOperacion: true },
+      });
+      if (!estacion) throw new NotFoundException('Estación no encontrada');
+
+      const actualizada = await tx.estacionPreparacion.update({
+        where: { id },
+        data: { modoOperacion },
+      });
+
+      if (this.auditoria) {
+        await this.auditoria.registrar(
+          tx,
+          {
+            accion: 'MODO_OPERACION_ESTACION_ACTUALIZADO',
+            recurso: 'ESTACION_PREPARACION',
+            recursoId: id,
+            restauranteId: usuario.restauranteId,
+            sucursalId: estacion.sucursalId,
+            antes: { modoOperacion: estacion.modoOperacion },
+            despues: { modoOperacion },
+          },
+          contexto,
+        );
+      }
+
+      return actualizada;
     });
   }
 
@@ -830,6 +887,95 @@ export class ComandasService {
     }
   }
 
+  async registrarImpresion(
+    id: number,
+    reimpresion: boolean,
+    usuario: UsuarioAutenticado,
+    contexto: ContextoAuditoria,
+  ) {
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const comanda = await tx.comanda.findFirst({
+        where: { id, pedido: this.filtroPedido(usuario) },
+        include: {
+          estacion: true,
+          pedido: { select: { sucursalId: true } },
+        },
+      });
+      if (!comanda) throw new NotFoundException('Comanda no encontrada');
+
+      if (!reimpresion && comanda.solicitudesImpresion > 0) {
+        throw new ConflictException(
+          'La comanda ya tiene una solicitud de impresión. Usa reimpresión para evitar duplicados accidentales',
+        );
+      }
+
+      if (!reimpresion) {
+        const primera = await tx.comanda.updateMany({
+          where: { id, solicitudesImpresion: 0 },
+          data: {
+            solicitudesImpresion: { increment: 1 },
+            fechaUltimaSolicitudImpresion: new Date(),
+            ultimaSolicitudImpresionPorId: usuario.id,
+          },
+        });
+        if (primera.count !== 1) {
+          throw new ConflictException(
+            'La comanda ya fue enviada a impresión por otro usuario. Recarga antes de reimprimir',
+          );
+        }
+      } else {
+        await tx.comanda.update({
+          where: { id },
+          data: {
+            solicitudesImpresion: { increment: 1 },
+            fechaUltimaSolicitudImpresion: new Date(),
+            ultimaSolicitudImpresionPorId: usuario.id,
+          },
+        });
+      }
+
+      const actualizado = await tx.comanda.findUniqueOrThrow({
+        where: { id },
+        select: {
+          id: true,
+          solicitudesImpresion: true,
+          fechaUltimaSolicitudImpresion: true,
+          ultimaSolicitudImpresionPorId: true,
+        },
+      });
+
+      const estacionImpresion = comanda.estacion as typeof comanda.estacion & {
+        modoOperacion: string;
+      };
+      const actualizadoImpresion = actualizado as typeof actualizado & {
+        solicitudesImpresion: number;
+      };
+
+      if (this.auditoria) {
+        await this.auditoria.registrar(
+          tx,
+          {
+            accion: reimpresion ? 'COMANDA_REIMPRESA' : 'COMANDA_IMPRESA',
+            recurso: 'COMANDA',
+            recursoId: id,
+            restauranteId: usuario.restauranteId,
+            sucursalId: comanda.pedido.sucursalId,
+            despues: {
+              estacionId: comanda.estacionId,
+              estacion: comanda.estacion.nombre,
+              modoOperacion: estacionImpresion.modoOperacion,
+              solicitudesImpresion: actualizadoImpresion.solicitudesImpresion,
+              reimpresion,
+            },
+          },
+          contexto,
+        );
+      }
+
+      return actualizado;
+    });
+  }
+
   async representacionImpresa(id: number, usuario: UsuarioAutenticado) {
     const comanda = await this.prisma.comanda.findFirst({
       where: { id, pedido: this.filtroPedido(usuario) },
@@ -877,6 +1023,58 @@ export class ComandasService {
       ? `${comanda.pedido.mesero.nombres} ${comanda.pedido.mesero.apellidos}`.trim()
       : 'Sin asignar';
     const cuerpo = `<div class="center"><div class="title">COMANDA ${esc(comanda.estacion.nombre.toUpperCase())}</div><div class="badge">${esc(destino)}</div></div><hr class="sep"><div class="row"><span>Pedido</span><strong>#${comanda.pedido.id}</strong></div><div class="row"><span>Comanda</span><strong>#${comanda.id}</strong></div><div class="row"><span>Mesero</span><strong>${esc(mesero)}</strong></div><div class="row"><span>Enviada</span><strong>${esc(fechaLocalTermica(comanda.fechaEnvio, cfg.zonaHoraria))}</strong></div><hr class="sep">${lineas}<hr class="sep"><div class="center muted">${esc(comanda.pedido.sucursal.restaurante.nombre)} · ${esc(comanda.pedido.sucursal.nombre)}</div>`;
+    const anchoCaracteres = cfg.ancho === 58 ? 32 : 48;
+    const separador = '-'.repeat(anchoCaracteres);
+    const envolver = (texto: string, prefijo = '') => {
+      const limpio = texto.replace(/\s+/g, ' ').trim();
+      const disponible = Math.max(8, anchoCaracteres - prefijo.length);
+      const palabras = limpio.split(' ').filter(Boolean);
+      const resultado: string[] = [];
+      let linea = '';
+      for (const palabra of palabras) {
+        if (!linea) {
+          linea = palabra;
+        } else if (`${linea} ${palabra}`.length <= disponible) {
+          linea += ` ${palabra}`;
+        } else {
+          resultado.push(`${prefijo}${linea}`);
+          linea = palabra;
+        }
+      }
+      if (linea) resultado.push(`${prefijo}${linea}`);
+      return resultado;
+    };
+    const lineasTexto = comanda.detalles.flatMap((linea) => {
+      const detalle = linea.detallePedido;
+      const salida = envolver(`${linea.cantidad}x ${detalle.producto.nombre}`);
+      for (const modificador of detalle.modificadores) {
+        salida.push(
+          ...envolver(
+            `+ ${modificador.cantidad > 1 ? `${modificador.cantidad}x ` : ''}${modificador.nombre}`,
+            '  ',
+          ),
+        );
+      }
+      if (detalle.observaciones) {
+        salida.push(...envolver(`OBS: ${detalle.observaciones}`, '  '));
+      }
+      salida.push('');
+      return salida;
+    });
+    const contenidoTexto = [
+      `COMANDA ${comanda.estacion.nombre.toUpperCase()}`,
+      String(destino).replace(/&middot;|·/g, '-'),
+      separador,
+      `Pedido: #${comanda.pedido.id}`,
+      `Comanda: #${comanda.id}`,
+      `Mesero: ${mesero}`,
+      `Enviada: ${fechaLocalTermica(comanda.fechaEnvio, cfg.zonaHoraria)}`,
+      separador,
+      ...lineasTexto,
+      separador,
+      `${comanda.pedido.sucursal.restaurante.nombre} - ${comanda.pedido.sucursal.nombre}`,
+      '',
+    ].join('\n');
     return {
       tipo: 'COMANDA',
       id: comanda.id,
@@ -887,6 +1085,7 @@ export class ComandasService {
         ancho: cfg.ancho,
         cuerpo,
       }),
+      contenidoTexto,
     };
   }
 }

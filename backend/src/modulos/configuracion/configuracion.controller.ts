@@ -19,12 +19,34 @@ import {
 import { AuditoriaDetallada } from '../auditoria/auditoria-detallada.decorator';
 import { ConfiguracionService } from './configuracion.service';
 import { ActualizarConfiguracionDto } from './dto/actualizar-configuracion.dto';
+import { ActualizarTemaDto } from './dto/actualizar-tema.dto';
 
 @Controller('configuracion')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @AuditoriaDetallada()
 export class ConfiguracionController {
   constructor(private readonly configuracionService: ConfiguracionService) {}
+
+  @Get('tema/:sucursalId')
+  obtenerTema(
+    @Param('sucursalId', ParseIntPipe) sucursalId: number,
+    @Req() request: RequestAuditable,
+  ) {
+    return this.configuracionService.obtenerTema(sucursalId, request.user);
+  }
+
+  @Patch('tema')
+  @Permisos('CONFIGURACION_GESTIONAR')
+  actualizarTema(
+    @Body() data: ActualizarTemaDto,
+    @Req() request: RequestAuditable,
+  ) {
+    return this.configuracionService.actualizarTema(
+      data,
+      request.user,
+      construirContextoAuditoria(request),
+    );
+  }
 
   @Get('restaurante')
   @Permisos('CONFIGURACION_VER')

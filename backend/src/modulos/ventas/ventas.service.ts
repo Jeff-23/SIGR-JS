@@ -1439,7 +1439,12 @@ export class VentasService {
         const pedido = venta.pedidoId
           ? await tx.pedido.findUnique({
               where: { id: venta.pedidoId },
-              select: { id: true, mesaId: true, estado: true },
+              select: {
+                id: true,
+                mesaId: true,
+                estado: true,
+                mesasVinculadas: { select: { mesaId: true } },
+              },
             })
           : null;
 
@@ -1653,31 +1658,40 @@ export class VentasService {
           }
 
           /*
-           * Si la venta proviene de un pedido
-           * asociado a una mesa, completar
-           * el pago libera la mesa.
+           * El pago completo es la fuente de verdad comercial para cerrar
+           * la ocupacion que ya fue enviada a Caja. No dependemos del estado
+           * local del dispositivo que atendio la mesa ni de que ese mismo
+           * dispositivo haya marcado antes el pedido como ENTREGADO.
+           *
+           * Solo liberamos mesas que siguen en PENDIENTE_PAGO, por lo que un
+           * pago anticipado no libera una mesa que todavia continua OCUPADA.
+           * Tambien se liberan las mesas vinculadas de una union.
            */
-          if (
-            pedido?.mesaId !== null &&
-            pedido?.mesaId !== undefined &&
-            pedido.estado === EstadoPedido.ENTREGADO
-          ) {
-            await tx.mesa.updateMany({
-              where: {
-                id: pedido.mesaId,
+          if (pedido) {
+            const mesaIds = [
+              ...new Set(
+                [
+                  pedido.mesaId,
+                  ...pedido.mesasVinculadas.map((item) => item.mesaId),
+                ].filter((id): id is number => id !== null),
+              ),
+            ];
 
-                estado: true,
-
-                situacion: EstadoMesa.PENDIENTE_PAGO,
-              },
-
-              data: {
-                situacion: EstadoMesa.LIBRE,
-                ocupacionManual: false,
-                ocupadaManualEn: null,
-                ocupadaManualPorId: null,
-              },
-            });
+            if (mesaIds.length > 0) {
+              await tx.mesa.updateMany({
+                where: {
+                  id: { in: mesaIds },
+                  estado: true,
+                  situacion: EstadoMesa.PENDIENTE_PAGO,
+                },
+                data: {
+                  situacion: EstadoMesa.LIBRE,
+                  ocupacionManual: false,
+                  ocupadaManualEn: null,
+                  ocupadaManualPorId: null,
+                },
+              });
+            }
           }
         }
 

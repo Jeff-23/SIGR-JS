@@ -2,6 +2,7 @@ export type KdsState = "PENDIENTE" | "EN_PREPARACION" | "LISTA";
 export type KdsLineState = "PENDIENTE" | "EN_PREPARACION" | "LISTA";
 export type KdsPriority = "NORMAL" | "ALTA" | "URGENTE";
 export type ServiceRisk = "low" | "medium" | "high" | "late";
+export type StationMode = "KDS" | "IMPRESION" | "KDS_E_IMPRESION";
 
 export type Station = {
   id: number;
@@ -10,6 +11,7 @@ export type Station = {
   color: string;
   orden: number;
   objetivoPreparacionMin: number;
+  modoOperacion: StationMode;
 };
 
 export type CommandModifier = {
@@ -40,6 +42,9 @@ export type Command = {
   fechaInicio?: string | null;
   fechaLista?: string | null;
   metaPreparacionMin: number;
+  solicitudesImpresion: number;
+  fechaUltimaSolicitudImpresion?: string | null;
+  ultimaSolicitudImpresionPorId?: number | null;
   estacion: Station;
   pedido: {
     id: number;

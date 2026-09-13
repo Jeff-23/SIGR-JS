@@ -12,6 +12,7 @@ import {
   CATALOGO_CONFIGURACION,
   validarConfiguracion,
 } from './configuracion.catalogo';
+import { ActualizarTemaDto } from './dto/actualizar-tema.dto';
 
 @Injectable()
 export class ConfiguracionService {
@@ -19,6 +20,96 @@ export class ConfiguracionService {
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
   ) {}
+
+  private readonly temaPredeterminado = {
+    colorPrimario: '#0A1612',
+    colorSecundario: '#1A2930',
+    colorAcento: '#F7CE3E',
+    colorFondo: '#F4F2EC',
+    tipografia: 'MANROPE',
+  } as const;
+
+  private readonly clavesTema = {
+    colorPrimario: 'TEMA_COLOR_PRIMARIO',
+    colorSecundario: 'TEMA_COLOR_SECUNDARIO',
+    colorAcento: 'TEMA_COLOR_ACENTO',
+    colorFondo: 'TEMA_COLOR_FONDO',
+    tipografia: 'TEMA_TIPOGRAFIA',
+  } as const;
+
+  async obtenerTema(sucursalId: number, usuario: UsuarioAutenticado) {
+    const restauranteId = this.obtenerRestauranteId(usuario);
+    await this.validarSucursal(sucursalId, usuario);
+    const items = await this.prisma.configuracionRestaurante.findMany({
+      where: { restauranteId, clave: { in: Object.values(this.clavesTema) } },
+    });
+    const byKey = new Map(items.map((item) => [item.clave, item.valor]));
+    return {
+      ...this.temaPredeterminado,
+      ...Object.fromEntries(
+        Object.entries(this.clavesTema).map(([campo, clave]) => [
+          campo,
+          byKey.get(clave) ?? this.temaPredeterminado[campo as keyof typeof this.temaPredeterminado],
+        ]),
+      ),
+    };
+  }
+
+  async actualizarTema(
+    data: ActualizarTemaDto,
+    usuario: UsuarioAutenticado,
+    contexto: ContextoAuditoria,
+  ) {
+    const restauranteId = this.obtenerRestauranteId(usuario);
+    if (usuario.sucursalId !== null) {
+      throw new ForbiddenException(
+        'La identidad visual se administra a nivel de restaurante',
+      );
+    }
+    const entries = Object.entries(data).filter(([, value]) => value !== undefined);
+    if (!entries.length) return this.temaPredeterminado;
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const [campo, value] of entries) {
+        const clave = this.clavesTema[campo as keyof typeof this.clavesTema];
+        if (!clave) continue;
+        const anterior = await tx.configuracionRestaurante.findUnique({
+          where: { restauranteId_clave: { restauranteId, clave } },
+        });
+        const resultado = await tx.configuracionRestaurante.upsert({
+          where: { restauranteId_clave: { restauranteId, clave } },
+          update: { valor: value as never },
+          create: { restauranteId, clave, valor: value as never },
+        });
+        await this.auditoria.registrar(
+          tx,
+          {
+            accion: anterior ? 'IDENTIDAD_VISUAL_ACTUALIZADA' : 'IDENTIDAD_VISUAL_CREADA',
+            recurso: 'CONFIGURACION_RESTAURANTE',
+            recursoId: resultado.id,
+            restauranteId,
+            antes: anterior ? { clave, valor: anterior.valor } : null,
+            despues: { clave, valor: resultado.valor },
+          },
+          contexto,
+        );
+      }
+    });
+
+    const items = await this.prisma.configuracionRestaurante.findMany({
+      where: { restauranteId, clave: { in: Object.values(this.clavesTema) } },
+    });
+    const byKey = new Map(items.map((item) => [item.clave, item.valor]));
+    return {
+      ...this.temaPredeterminado,
+      ...Object.fromEntries(
+        Object.entries(this.clavesTema).map(([campo, clave]) => [
+          campo,
+          byKey.get(clave) ?? this.temaPredeterminado[campo as keyof typeof this.temaPredeterminado],
+        ]),
+      ),
+    };
+  }
 
   listarRestaurante(usuario: UsuarioAutenticado) {
     const restauranteId = this.obtenerRestauranteId(usuario);

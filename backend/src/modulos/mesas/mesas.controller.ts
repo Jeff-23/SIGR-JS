@@ -18,6 +18,7 @@ import { PermissionsGuard } from '../auth/permissions.guard';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { CambiarOcupacionMesaDto } from './dto/cambiar-ocupacion-mesa.dto';
 import { CreateMesaDto } from './dto/create-mesa.dto';
+import { ActualizarMesaDto } from './dto/actualizar-mesa.dto';
 import { MesasService } from './mesas.service';
 
 type RequestAutenticada = { user: UsuarioAutenticado };
@@ -43,8 +44,33 @@ export class MesasController {
     @Req() request: RequestAutenticada,
     @Query('sucursalId', new ParseIntPipe({ optional: true }))
     sucursalId?: number,
+    @Query('incluirInactivas') incluirInactivas?: string,
   ) {
-    return this.mesasService.findAll(request.user, sucursalId);
+    return this.mesasService.findAll(
+      request.user,
+      sucursalId,
+      incluirInactivas === 'true',
+    );
+  }
+
+  @Patch(':id')
+  @Permisos('MESAS_EDITAR')
+  actualizar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: ActualizarMesaDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.mesasService.actualizar(id, data, request.user);
+  }
+
+  @Patch(':id/estado')
+  @Permisos('MESAS_EDITAR')
+  cambiarEstado(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: { activo: boolean },
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.mesasService.cambiarEstado(id, Boolean(data.activo), request.user);
   }
 
   @Patch(':id/ocupar-sin-pedido')

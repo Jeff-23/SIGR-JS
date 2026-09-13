@@ -1,0 +1,3 @@
+-- Migracion intencionalmente vacia.
+-- Los cambios de Salon Visual ya fueron aplicados por
+-- 20260912230000_salon_visual_inteligente.

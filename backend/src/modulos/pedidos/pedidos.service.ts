@@ -1278,6 +1278,12 @@ export class PedidosService {
             total: true,
           },
         },
+        eventosOperacionales: {
+          where: { tipo: TipoEventoOperacional.CUENTA_SOLICITADA },
+          select: { id: true, tipo: true, ocurridoEn: true },
+          orderBy: { ocurridoEn: 'desc' },
+          take: 1,
+        },
       },
 
       orderBy: {

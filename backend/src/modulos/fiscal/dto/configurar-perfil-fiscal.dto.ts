@@ -8,6 +8,8 @@ import {
   MaxLength,
 } from 'class-validator';
 
+const REFERENCIA_SECRETA = /^secret:\/\/[a-zA-Z0-9/_-]+$/;
+
 export class ConfigurarPerfilFiscalDto {
   @IsEnum(AmbienteDian)
   ambiente: AmbienteDian;
@@ -32,15 +34,23 @@ export class ConfigurarPerfilFiscalDto {
   @IsOptional()
   actividadEconomica?: string;
 
-  @Matches(/^secret:\/\/[a-zA-Z0-9/_-]+$/)
+  @Matches(REFERENCIA_SECRETA)
   @IsOptional()
   softwareIdRef?: string;
 
-  @Matches(/^secret:\/\/[a-zA-Z0-9/_-]+$/)
+  @Matches(REFERENCIA_SECRETA)
+  @IsOptional()
+  pinSoftwareRef?: string;
+
+  @Matches(REFERENCIA_SECRETA)
   @IsOptional()
   credencialRef?: string;
 
-  @Matches(/^secret:\/\/[a-zA-Z0-9/_-]+$/)
+  @Matches(REFERENCIA_SECRETA)
+  @IsOptional()
+  cuentaProveedorRef?: string;
+
+  @Matches(REFERENCIA_SECRETA)
   @IsOptional()
   certificadoRef?: string;
 

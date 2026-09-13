@@ -5,6 +5,7 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -22,6 +23,7 @@ import { Permisos } from '../auth/permisos.decorator';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { NumerarDocumentoDto } from './dto/numerar-documento.dto';
 import { ProcesarColaFiscalDto } from './dto/procesar-cola-fiscal.dto';
+import { ListarDocumentosElectronicosDto } from './dto/listar-documentos-electronicos.dto';
 
 type RequestAutenticada = {
   user: UsuarioAutenticado;
@@ -43,6 +45,7 @@ export class DocumentosElectronicosController {
     return this.documentosService.procesarPendientes(
       data.limite ?? 20,
       request.user,
+      data.sucursalId,
     );
   }
 
@@ -62,7 +65,20 @@ export class DocumentosElectronicosController {
     @Req()
     request: RequestAutenticada,
   ) {
-    return this.documentosService.preparar(data.facturaIds, request.user);
+    return this.documentosService.preparar(
+      data.facturaIds,
+      request.user,
+      data.tipo ?? 'FACTURA_VENTA',
+    );
+  }
+
+  @Get(':id/resoluciones-compatibles')
+  @Permisos('FACTURAS_VER')
+  resolucionesCompatibles(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.documentosService.resolucionesCompatibles(id, request.user);
   }
 
   @Post(':id/numerar')
@@ -96,10 +112,10 @@ export class DocumentosElectronicosController {
   @Get()
   @Permisos('FACTURAS_VER')
   findAll(
-    @Req()
-    request: RequestAutenticada,
+    @Query() filtros: ListarDocumentosElectronicosDto,
+    @Req() request: RequestAutenticada,
   ) {
-    return this.documentosService.findAll(request.user);
+    return this.documentosService.findAll(request.user, filtros.sucursalId);
   }
 
   @Get(':id')

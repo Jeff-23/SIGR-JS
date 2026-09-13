@@ -38,6 +38,7 @@ export class FacturasService {
    */
   private filtroSucursal(
     usuarioActual: UsuarioAutenticado,
+    sucursalIdSolicitada?: number,
   ): Prisma.SucursalWhereInput {
     return {
       estado: true,
@@ -56,7 +57,9 @@ export class FacturasService {
         ? {
             id: usuarioActual.sucursalId,
           }
-        : {}),
+        : sucursalIdSolicitada !== undefined
+          ? { id: sucursalIdSolicitada }
+          : {}),
     };
   }
 
@@ -289,9 +292,16 @@ export class FacturasService {
     });
   }
 
-  listar(usuarioActual: UsuarioAutenticado) {
+  listar(
+    usuarioActual: UsuarioAutenticado,
+    sucursalIdSolicitada?: number,
+  ) {
     return this.prisma.factura.findMany({
-      where: { venta: { sucursal: this.filtroSucursal(usuarioActual) } },
+      where: {
+        venta: {
+          sucursal: this.filtroSucursal(usuarioActual, sucursalIdSolicitada),
+        },
+      },
       include: {
         venta: {
           select: { estado: true, fechaOperacion: true, cliente: true },

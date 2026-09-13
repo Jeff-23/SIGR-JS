@@ -26,8 +26,10 @@ import { NavLink, Outlet } from "react-router-dom";
 import { Brand } from "../components/Brand";
 import { Connection } from "../components/Connection";
 import { OperationsNotice } from "../components/OperationsNotice";
+import { ServiceReadyNotice } from "../components/ServiceReadyNotice";
 import { useApp } from "../store/app";
 import { api } from "../lib/api";
+import { applyRestaurantTheme, DEFAULT_THEME, type RestaurantTheme } from "../lib/theme";
 import { GuidedTour } from "../components/GuidedTour";
 import { pendingCommandCount, type Command } from "../features/kds/contracts";
 import { hasAnyPermission } from "../lib/access";
@@ -242,6 +244,29 @@ export function AppShell() {
     hasCapability,
     orders,
   } = useApp();
+  useEffect(() => {
+    if (!branchId || session?.demo) {
+      applyRestaurantTheme(DEFAULT_THEME);
+      return;
+    }
+    let active = true;
+    const loadTheme = async () => {
+      try {
+        const { data } = await api.get<RestaurantTheme>(`/configuracion/tema/${branchId}`);
+        if (active) applyRestaurantTheme(data);
+      } catch {
+        if (active) applyRestaurantTheme(DEFAULT_THEME);
+      }
+    };
+    const refresh = () => void loadTheme();
+    window.addEventListener("sigr:theme-refresh", refresh);
+    void loadTheme();
+    return () => {
+      active = false;
+      window.removeEventListener("sigr:theme-refresh", refresh);
+    };
+  }, [branchId, session?.demo, session?.user.id]);
+
   const demoKitchenPending = useMemo(
     () =>
       orders.filter(
@@ -287,12 +312,12 @@ export function AppShell() {
       ? pendingKitchenCommands
       : 0;
   return (
-    <div className="min-h-screen bg-[#f4f2ec] text-denim">
+    <div className="min-h-screen bg-[rgb(var(--sigr-background))] text-denim">
       <a href="#contenido-principal" className="skip-link">
         Saltar al contenido principal
       </a>
       <aside
-        className={`fixed inset-y-0 left-0 z-40 w-72 bg-steel p-5 text-white transition-transform lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}
+        className={`fixed inset-y-0 left-0 z-40 w-72 bg-[rgb(var(--sigr-steel))] p-5 text-white transition-transform lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}
       >
         <div className="flex items-center justify-between">
           <Brand />
@@ -367,7 +392,7 @@ export function AppShell() {
                 to={to}
                 onClick={() => setOpen(false)}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 rounded-2xl px-4 py-3.5 text-sm font-bold transition ${isActive ? "bg-marigold text-steel" : "text-white/58 hover:bg-white/7 hover:text-white"}`
+                  `flex items-center gap-3 rounded-2xl px-4 py-3.5 text-sm font-bold transition ${isActive ? "bg-[rgb(var(--sigr-marigold))] text-[rgb(var(--sigr-steel))]" : "text-white/70 hover:bg-white/10 hover:text-white"}`
                 }
               >
                 <Icon size={19} />
@@ -386,7 +411,7 @@ export function AppShell() {
         </nav>
         <div className="absolute bottom-5 left-5 right-5 rounded-2xl border border-white/10 bg-white/5 p-4">
           <div className="flex items-center gap-3">
-            <span className="grid h-10 w-10 place-items-center rounded-xl bg-marigold font-black text-steel">
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-[rgb(var(--sigr-marigold))] font-black text-[rgb(var(--sigr-steel))]">
               {session?.user.nombres[0]}
             </span>
             <div className="min-w-0 flex-1">
@@ -403,13 +428,13 @@ export function AppShell() {
       </aside>
       {open && (
         <button
-          className="fixed inset-0 z-30 bg-steel/50 lg:hidden"
+          className="fixed inset-0 z-30 bg-[rgb(var(--sigr-steel)/0.5)] lg:hidden"
           onClick={() => setOpen(false)}
           aria-label="Cerrar menú"
         />
       )}
       <div className="lg:pl-72">
-        <header className="sticky top-0 z-20 flex h-20 items-center gap-4 border-b border-denim/8 bg-[#f4f2ec]/90 px-4 backdrop-blur sm:px-7">
+        <header className="sticky top-0 z-20 flex h-20 items-center gap-4 border-b border-denim/8 bg-[rgb(var(--sigr-background))]/90 px-4 backdrop-blur sm:px-7">
           <button
             aria-label="Abrir navegación"
             onClick={() => setOpen(true)}
@@ -462,6 +487,7 @@ export function AppShell() {
         </header>
         <main id="contenido-principal" tabIndex={-1} className="p-4 sm:p-7">
           <OperationsNotice />
+          <ServiceReadyNotice />
           <Outlet />
         </main>
       </div>

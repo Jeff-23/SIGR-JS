@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, ResolucionNumeracionDian } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { ConfigurarPerfilFiscalDto } from './dto/configurar-perfil-fiscal.dto';
@@ -34,12 +34,17 @@ export class FiscalService {
       (r) =>
         r.vigenteDesde <= hoy &&
         r.vigenteHasta >= hoy &&
-        r.siguienteNumero <= r.rangoHasta &&
-        Boolean(r.claveTecnicaRef?.startsWith('secret://')),
+        r.siguienteNumero <= r.rangoHasta,
     );
     const adapter = this.proveedores.obtener(perfil?.proveedorCodigo);
     const referenciasSeguras = perfil
-      ? [perfil.credencialRef, perfil.certificadoRef, perfil.softwareIdRef]
+      ? [
+          perfil.credencialRef,
+          perfil.certificadoRef,
+          perfil.softwareIdRef,
+          perfil.pinSoftwareRef,
+          perfil.cuentaProveedorRef,
+        ]
           .filter((ref): ref is string => Boolean(ref))
           .every((ref) => ref.startsWith('secret://'))
       : false;
@@ -51,6 +56,14 @@ export class FiscalService {
       ),
       referenciasSecretasSeguras: referenciasSeguras,
       resolucionVigenteDisponible: resolucionesVigentes.length > 0,
+      resolucionFevVigente: resolucionesVigentes.some(
+        (resolucion) =>
+          resolucion.tipoNumeracion === 'FACTURA_ELECTRONICA_VENTA',
+      ),
+      resolucionPosVigente: resolucionesVigentes.some(
+        (resolucion) =>
+          resolucion.tipoNumeracion === 'DOCUMENTO_EQUIVALENTE_ELECTRONICO_POS',
+      ),
       proveedorConfigurado: Boolean(perfil?.proveedorCodigo),
       proveedorSoportado: Boolean(adapter),
     };
@@ -81,6 +94,17 @@ export class FiscalService {
         proveedorDiagnostico.disponible,
       proveedorDiagnostico,
       resolucionesVigentes: resolucionesVigentes.length,
+      resolucionesPorTipo: Object.fromEntries(
+        [
+          'FACTURA_ELECTRONICA_VENTA',
+          'DOCUMENTO_EQUIVALENTE_ELECTRONICO_POS',
+        ].map((tipo) => [
+          tipo,
+          resolucionesVigentes.filter(
+            (resolucion) => resolucion.tipoNumeracion === tipo,
+          ).length,
+        ]),
+      ),
     };
   }
 
@@ -148,10 +172,19 @@ export class FiscalService {
     if (
       data.activo &&
       data.modoOperacion === 'SOFTWARE_PROPIO' &&
-      (!data.softwareIdRef || !data.certificadoRef)
+      (!data.softwareIdRef || !data.pinSoftwareRef || !data.certificadoRef)
     ) {
       throw new BadRequestException(
-        'Software propio activo requiere softwareIdRef y certificadoRef',
+        'Software propio activo requiere softwareIdRef, pinSoftwareRef y certificadoRef',
+      );
+    }
+    if (
+      data.activo &&
+      data.proveedorCodigo?.trim().toUpperCase() === 'MATIAS' &&
+      (!data.credencialRef || data.modoOperacion !== 'SOFTWARE_PROPIO')
+    ) {
+      throw new BadRequestException(
+        'MATÍAS requiere SOFTWARE_PROPIO y una referencia segura para la credencial API',
       );
     }
     const restaurante = await this.prisma.restaurante.findFirst({
@@ -167,10 +200,22 @@ export class FiscalService {
 
   async listarResoluciones(restauranteId: number, usuario: UsuarioAutenticado) {
     this.autorizarRestaurante(restauranteId, usuario);
-    return this.prisma.resolucionNumeracionDian.findMany({
+    const resoluciones = await this.prisma.resolucionNumeracionDian.findMany({
       where: { restauranteId },
-      orderBy: [{ activa: 'desc' }, { vigenteHasta: 'desc' }],
+      orderBy: [
+        { activa: 'desc' },
+        { tipoNumeracion: 'asc' },
+        { vigenteHasta: 'desc' },
+      ],
     });
+    return resoluciones.map((resolucion) => ({
+      ...resolucion,
+      estadoOperativo: this.estadoResolucion(resolucion),
+      restantes: Math.max(
+        0,
+        resolucion.rangoHasta - resolucion.siguienteNumero + 1,
+      ),
+    }));
   }
 
   async crearResolucion(
@@ -187,6 +232,9 @@ export class FiscalService {
         'El rango y el siguiente número no son coherentes',
       );
     }
+    const fechaAutorizacion = data.fechaAutorizacion
+      ? new Date(data.fechaAutorizacion)
+      : null;
     const vigenteDesde = new Date(data.vigenteDesde);
     const vigenteHasta = new Date(data.vigenteHasta);
     if (vigenteDesde > vigenteHasta)
@@ -208,6 +256,7 @@ export class FiscalService {
           where: {
             restauranteId,
             prefijo: data.prefijo,
+            tipoNumeracion: data.tipoNumeracion,
             activa: true,
             vigenteDesde: { lte: vigenteHasta },
             vigenteHasta: { gte: vigenteDesde },
@@ -229,6 +278,7 @@ export class FiscalService {
             rangoDesde: desde,
             rangoHasta: hasta,
             siguienteNumero: siguiente,
+            fechaAutorizacion,
             vigenteDesde,
             vigenteHasta,
             restauranteId,
@@ -244,5 +294,42 @@ export class FiscalService {
       }
       throw error;
     }
+  }
+
+  async desactivarResolucion(
+    restauranteId: number,
+    resolucionId: number,
+    usuario: UsuarioAutenticado,
+  ) {
+    this.autorizarRestaurante(restauranteId, usuario);
+    const resolucion = await this.prisma.resolucionNumeracionDian.findFirst({
+      where: { id: resolucionId, restauranteId },
+    });
+    if (!resolucion)
+      throw new NotFoundException('Resolución de numeración no encontrada');
+    if (!resolucion.activa) return resolucion;
+    return this.prisma.resolucionNumeracionDian.update({
+      where: { id: resolucionId },
+      data: { activa: false },
+    });
+  }
+
+  private estadoResolucion(resolucion: ResolucionNumeracionDian) {
+    if (!resolucion.activa) return 'INACTIVA';
+    const hoy = new Date();
+    hoy.setUTCHours(0, 0, 0, 0);
+    if (resolucion.siguienteNumero > resolucion.rangoHasta) return 'AGOTADA';
+    if (hoy > resolucion.vigenteHasta) return 'VENCIDA';
+    if (hoy < resolucion.vigenteDesde) return 'PROGRAMADA';
+    const diasRestantes = Math.ceil(
+      (resolucion.vigenteHasta.getTime() - hoy.getTime()) / 86_400_000,
+    );
+    const numerosRestantes =
+      resolucion.rangoHasta - resolucion.siguienteNumero + 1;
+    const totalRango = resolucion.rangoHasta - resolucion.rangoDesde + 1;
+    if (diasRestantes <= 30) return 'POR_VENCER';
+    if (numerosRestantes <= Math.max(25, Math.ceil(totalRango * 0.1)))
+      return 'AGOTANDOSE';
+    return 'VIGENTE';
   }
 }

@@ -79,4 +79,17 @@ export class FiscalController {
   ) {
     return this.fiscal.crearResolucion(id, dto, req.user);
   }
+  @Put('resoluciones/:resolucionId/desactivar')
+  @Permisos('CONFIGURACION_GESTIONAR')
+  desactivarResolucion(
+    @Param('restauranteId', ParseIntPipe) restauranteId: number,
+    @Param('resolucionId', ParseIntPipe) resolucionId: number,
+    @Req() req: RequestAutenticada,
+  ) {
+    return this.fiscal.desactivarResolucion(
+      restauranteId,
+      resolucionId,
+      req.user,
+    );
+  }
 }

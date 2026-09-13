@@ -3,6 +3,7 @@ import { enqueue, pending, removePending } from "./offline";
 import { frontendConfig } from "./config";
 import { mayQueue, operationScope, sameScope } from "./offline-policy";
 import type { Session } from "../types";
+import { createClientId } from "./client-id";
 
 export const api = axios.create({ baseURL: frontendConfig.apiUrl, timeout: 10000, headers: { Accept: "application/json" } });
 export type ApiFailure = { message: string; requestId?: string; status?: number; kind: "unauthorized" | "forbidden" | "unavailable" | "validation" | "unknown" };
@@ -43,7 +44,7 @@ export function errorMessage(error: unknown) {
   return `${failure.message}${failure.requestId ? ` · Solicitud ${failure.requestId}` : ""}`;
 }
 export async function mutation(method: "POST" | "PATCH", path: string, body: unknown) {
-  const id = crypto.randomUUID();
+  const id = createClientId();
   const scope = currentScope();
   try { return await api.request({ method, url: path, data: body, headers: { "Idempotency-Key": id } }); }
   catch (error) {

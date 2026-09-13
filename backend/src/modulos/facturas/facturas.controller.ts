@@ -5,6 +5,7 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -15,6 +16,7 @@ import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { CreateFacturaDto } from './dto/create-factura.dto';
 import { CreateFacturaVentaDto } from './dto/create-factura-venta.dto';
 import { FacturasService } from './facturas.service';
+import { ListarFacturasDto } from './dto/listar-facturas.dto';
 
 type RequestAutenticada = { user: UsuarioAutenticado };
 
@@ -43,8 +45,11 @@ export class FacturasController {
 
   @Get()
   @Permisos('FACTURAS_VER')
-  listar(@Req() request: RequestAutenticada) {
-    return this.facturasService.listar(request.user);
+  listar(
+    @Query() filtros: ListarFacturasDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.facturasService.listar(request.user, filtros.sucursalId);
   }
 
   @Get(':id')

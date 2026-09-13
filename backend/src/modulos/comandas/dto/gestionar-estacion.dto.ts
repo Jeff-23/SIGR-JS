@@ -3,6 +3,7 @@ import {
   IsHexColor,
   IsInt,
   IsOptional,
+  IsIn,
   IsString,
   Matches,
   MaxLength,
@@ -33,6 +34,10 @@ export class CrearEstacionDto {
   @IsInt()
   @Min(1)
   objetivoPreparacionMin?: number;
+
+  @IsOptional()
+  @IsIn(['KDS', 'IMPRESION', 'KDS_E_IMPRESION'])
+  modoOperacion?: 'KDS' | 'IMPRESION' | 'KDS_E_IMPRESION';
 }
 
 export class ActualizarEstacionDto {
@@ -53,6 +58,10 @@ export class ActualizarEstacionDto {
   @IsInt()
   @Min(1)
   objetivoPreparacionMin?: number;
+
+  @IsOptional()
+  @IsIn(['KDS', 'IMPRESION', 'KDS_E_IMPRESION'])
+  modoOperacion?: 'KDS' | 'IMPRESION' | 'KDS_E_IMPRESION';
 
   @IsOptional()
   @IsBoolean()

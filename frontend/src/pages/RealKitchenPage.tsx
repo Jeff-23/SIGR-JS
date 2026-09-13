@@ -32,21 +32,39 @@ import {
   type KdsState,
   type ServiceRisk,
   type Station,
+  type StationMode,
 } from "../features/kds/contracts";
 import { api, apiFailure, errorMessage } from "../lib/api";
+import {
+  listLocalPrinters,
+  printAgentHealth,
+  printWithLocalAgent,
+  readStationPrinterMap,
+  saveStationPrinterMap,
+  type LocalPrinter,
+} from "../lib/print-agent";
 import { useApp } from "../store/app";
 
-function beep(frequency: number, duration = 0.15) {
+function beep(frequency: number, duration = 0.22, volume = 0.2) {
   const context = new window.AudioContext();
   const oscillator = context.createOscillator();
   const gain = context.createGain();
   oscillator.connect(gain);
   gain.connect(context.destination);
+  oscillator.type = "square";
   oscillator.frequency.value = frequency;
-  gain.gain.value = 0.08;
+  gain.gain.setValueAtTime(0.0001, context.currentTime);
+  gain.gain.exponentialRampToValueAtTime(volume, context.currentTime + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + duration);
   oscillator.start();
   oscillator.stop(context.currentTime + duration);
   oscillator.onended = () => void context.close();
+}
+
+function kitchenAlarm() {
+  beep(980, 0.24, 0.22);
+  window.setTimeout(() => beep(1180, 0.24, 0.22), 330);
+  window.setTimeout(() => beep(980, 0.3, 0.22), 660);
 }
 
 const riskLabel: Record<ServiceRisk, string> = {
@@ -81,12 +99,21 @@ export function RealKitchenPage() {
   const [printDocument, setPrintDocument] = useState<{
     title: string;
     html: string;
+    text: string;
+    widthMm: 58 | 80;
+    stationId: number;
+    commandId: number;
+    reprint: boolean;
   } | null>(null);
+  const [printAgentOnline, setPrintAgentOnline] = useState(false);
+  const [localPrinters, setLocalPrinters] = useState<LocalPrinter[]>([]);
+  const [stationPrinters, setStationPrinters] = useState<Record<number, string>>({});
   const [newStation, setNewStation] = useState({
     codigo: "",
     nombre: "",
     color: "#8B5CF6",
     objetivoPreparacionMin: 15,
+    modoOperacion: "KDS_E_IMPRESION" as StationMode,
   });
   const known = useRef(new Set<number>());
   const ready = useRef(new Set<number>());
@@ -98,6 +125,38 @@ export function RealKitchenPage() {
       : session?.user.rol === "BAR"
         ? "BAR"
         : null;
+
+  useEffect(() => {
+    if (!branchId) return;
+    const controller = new AbortController();
+    void Promise.resolve().then(() => {
+      if (!controller.signal.aborted) {
+        setStationPrinters(readStationPrinterMap(branchId));
+      }
+    });
+    void Promise.all([
+      printAgentHealth(controller.signal),
+      listLocalPrinters(controller.signal),
+    ])
+      .then(([, printers]) => {
+        setPrintAgentOnline(true);
+        setLocalPrinters(printers);
+      })
+      .catch(() => {
+        setPrintAgentOnline(false);
+        setLocalPrinters([]);
+      });
+    return () => controller.abort();
+  }, [branchId]);
+
+  const setStationPrinter = (stationId: number, printerName: string) => {
+    if (!branchId) return;
+    const next = { ...stationPrinters };
+    if (printerName) next[stationId] = printerName;
+    else delete next[stationId];
+    setStationPrinters(next);
+    saveStationPrinterMap(branchId, next);
+  };
 
   const load = useCallback(
     async (quiet = false) => {
@@ -123,14 +182,14 @@ export function RealKitchenPage() {
             icon: "🔔",
             duration: 6000,
           });
-          if (soundEnabled.current) beep(880);
+          if (soundEnabled.current) kitchenAlarm();
         }
         if (newlyReady.length && ready.current.size > 0) {
           toast.success(
             `${newlyReady.length} comanda(s) lista(s) para servicio`,
             { icon: "✅" },
           );
-          if (soundEnabled.current) beep(660, 0.22);
+          if (soundEnabled.current) beep(760, 0.28, 0.18);
         }
 
         incoming.forEach((command) => {
@@ -210,14 +269,28 @@ export function RealKitchenPage() {
     [scopedCommands],
   );
 
+  useEffect(() => {
+    if (!sound || counters.pending <= 0) return;
+    kitchenAlarm();
+    const timer = window.setInterval(kitchenAlarm, 5500);
+    return () => window.clearInterval(timer);
+  }, [counters.pending, sound]);
+
   const printCommand = async (command: Command) => {
     try {
-      const { data } = await api.get<{ contenido: string }>(
-        `/comandas/${command.id}/representacion-impresa`,
-      );
+      const { data } = await api.get<{
+        contenido: string;
+        contenidoTexto: string;
+        anchoPapel: 58 | 80;
+      }>(`/comandas/${command.id}/representacion-impresa`);
       setPrintDocument({
         title: `Comanda #${command.id} · ${command.estacion.nombre}`,
         html: data.contenido,
+        text: data.contenidoTexto,
+        widthMm: data.anchoPapel,
+        stationId: command.estacion.id,
+        commandId: command.id,
+        reprint: command.solicitudesImpresion > 0,
       });
     } catch (error) {
       toast.error(errorMessage(error));
@@ -284,13 +357,29 @@ export function RealKitchenPage() {
       api.patch(`/comandas/${command.id}/prioridad`, { prioridad }),
     );
 
+  const canManageStationMode =
+    hasPermission("CONFIGURACION_GESTIONAR") || session?.user.rol === "ADMIN_SEDE";
+
+  const updateStationMode = async (station: Station, modoOperacion: StationMode) => {
+    try {
+      const path = hasPermission("CONFIGURACION_GESTIONAR")
+        ? `/estaciones-preparacion/${station.id}`
+        : `/estaciones-preparacion/${station.id}/modo-operacion`;
+      await api.patch(path, { modoOperacion });
+      toast.success(`${station.nombre}: política actualizada`);
+      await load(true);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  };
+
   const toggleSound = () => {
     const next = !sound;
     soundEnabled.current = next;
     setSound(next);
     if (next) {
-      beep(720, 0.1);
-      toast.success("Alertas sonoras activadas");
+      kitchenAlarm();
+      toast.success("Alarma sonora activada. Se repetirá mientras haya comandas pendientes.");
     }
   };
 
@@ -311,6 +400,7 @@ export function RealKitchenPage() {
         nombre: "",
         color: "#8B5CF6",
         objetivoPreparacionMin: 15,
+        modoOperacion: "KDS_E_IMPRESION",
       });
       await load(true);
     } catch (error) {
@@ -372,7 +462,7 @@ export function RealKitchenPage() {
           )}
           <button onClick={toggleSound} className="secondary h-11 w-auto px-4">
             {sound ? <Volume2 size={17} /> : <VolumeX size={17} />}{" "}
-            {sound ? "Sonido activo" : "Sin sonido"}
+            {sound ? "Alarma activa" : "Activar alarma"}
           </button>
           <button
             onClick={() => void load()}
@@ -401,7 +491,7 @@ export function RealKitchenPage() {
       )}
 
       {stationForm && (
-        <div className="card mt-4 grid gap-3 md:grid-cols-[1fr_1.4fr_110px_130px_auto]">
+        <div className="card mt-4 grid gap-3 md:grid-cols-[1fr_1.4fr_150px_110px_130px_auto]">
           <input
             className="input h-11"
             maxLength={40}
@@ -420,6 +510,21 @@ export function RealKitchenPage() {
               setNewStation({ ...newStation, nombre: event.target.value })
             }
           />
+          <select
+            aria-label="Modo operativo"
+            className="input h-11"
+            value={newStation.modoOperacion}
+            onChange={(event) =>
+              setNewStation({
+                ...newStation,
+                modoOperacion: event.target.value as StationMode,
+              })
+            }
+          >
+            <option value="KDS">Sólo KDS</option>
+            <option value="IMPRESION">Papel (impresión manual)</option>
+            <option value="KDS_E_IMPRESION">KDS + impresión</option>
+          </select>
           <input
             aria-label="Color de estación"
             className="h-11 w-full rounded-xl bg-white p-1"
@@ -494,10 +599,78 @@ export function RealKitchenPage() {
               className="mr-2 inline-block h-2 w-2 rounded-full"
               style={{ background: station.color }}
             />
-            {station.nombre} · {station.objetivoPreparacionMin} min
+            {station.nombre} · {station.objetivoPreparacionMin} min · {station.modoOperacion.replaceAll("_", " + ")}
           </button>
         ))}
       </div>
+
+      {canManageStationMode && scopedStations.length > 0 && (
+        <div className="card mt-3">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <strong>Política híbrida por estación</strong>
+              <p className="text-xs text-denim/55">
+                Define si la estación opera con pantalla, papel o ambos. El estado digital de la comanda se conserva en todos los modos.
+              </p>
+            </div>
+            <span
+              className={[
+                "rounded-full px-2.5 py-1 text-[10px] font-black uppercase",
+                printAgentOnline
+                  ? "bg-emerald-100 text-emerald-800"
+                  : "bg-amber-100 text-amber-900",
+              ].join(" ")}
+            >
+              Agente de impresión: {printAgentOnline ? "conectado" : "no detectado"}
+            </span>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {scopedStations.map((station) => (
+              <label key={`mode-${station.id}`} className="rounded-xl border border-denim/10 p-3 text-xs font-black">
+                {station.nombre}
+                <select
+                  className="input mt-2 h-10"
+                  value={station.modoOperacion}
+                  onChange={(event) =>
+                    void updateStationMode(station, event.target.value as StationMode)
+                  }
+                >
+                  <option value="KDS">Sólo KDS</option>
+                  <option value="IMPRESION">Papel (impresión manual)</option>
+                  <option value="KDS_E_IMPRESION">KDS + impresión</option>
+                </select>
+                {station.modoOperacion !== "KDS" && (
+                  <>
+                    <span className="mt-3 block text-[10px] uppercase text-denim/45">
+                      Impresora local de esta estación
+                    </span>
+                    <select
+                      className="input mt-1 h-10"
+                      disabled={!printAgentOnline}
+                      value={stationPrinters[station.id] ?? ""}
+                      onChange={(event) =>
+                        setStationPrinter(station.id, event.target.value)
+                      }
+                    >
+                      <option value="">
+                        {printAgentOnline
+                          ? "Usar impresión del navegador"
+                          : "Inicia el agente de impresión de SIGR"}
+                      </option>
+                      {localPrinters.map((printer) => (
+                        <option key={printer.name} value={printer.name}>
+                          {printer.name}{printer.default ? " · predeterminada" : ""}
+                          {printer.available ? "" : " · no disponible"}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                )}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-3 flex flex-wrap gap-2">
         {(["all", "PENDIENTE", "EN_PREPARACION", "LISTA"] as const).map(
@@ -554,6 +727,58 @@ export function RealKitchenPage() {
         <PrintableDocumentModal
           html={printDocument.html}
           title={printDocument.title}
+          printLabel={
+            stationPrinters[printDocument.stationId] && printAgentOnline
+              ? printDocument.reprint
+                ? "Reimprimir directo"
+                : "Imprimir directo"
+              : printDocument.reprint
+                ? "Reimprimir"
+                : "Imprimir"
+          }
+          onPrint={async () => {
+            const printerName = stationPrinters[printDocument.stationId];
+            if (!printerName || !printAgentOnline) return "browser";
+            try {
+              const result = await printWithLocalAgent({
+                printerName,
+                jobName: `SIGR Comanda ${printDocument.commandId}`,
+                content: printDocument.text,
+                widthMm: printDocument.widthMm,
+              });
+              if (!result.ok || result.status !== "completed") {
+                throw new Error(result.error || "No se confirmó la impresión física");
+              }
+              await api.post(`/comandas/${printDocument.commandId}/impresiones`, {
+                reimpresion: printDocument.reprint,
+              });
+              toast.success(
+                printDocument.reprint
+                  ? "Reimpresión física confirmada y auditada"
+                  : "Impresión física confirmada y auditada",
+              );
+              await load(true);
+              return "handled";
+            } catch (error) {
+              toast.error(
+                error instanceof Error
+                  ? error.message
+                  : "No se pudo imprimir con el agente local de SIGR",
+              );
+              return "handled";
+            }
+          }}
+          onBrowserPrintConfirmed={async () => {
+            await api.post(`/comandas/${printDocument.commandId}/impresiones`, {
+              reimpresion: printDocument.reprint,
+            });
+            toast.success(
+              printDocument.reprint
+                ? "Reimpresión manual confirmada y auditada"
+                : "Impresión manual confirmada y auditada",
+            );
+            await load(true);
+          }}
           onClose={() => setPrintDocument(null)}
         />
       )}
@@ -597,6 +822,8 @@ function CommandCard({
   const pendingLines = command.detalles.some(
     (line) => line.estado === "PENDIENTE",
   );
+  const paperOnly = command.estacion.modoOperacion === "IMPRESION";
+  const canOperateKds = canEdit && !paperOnly;
 
   return (
     <article
@@ -650,7 +877,7 @@ function CommandCard({
               line={line}
               command={command}
               busy={busy === `line-${line.id}`}
-              canEdit={canEdit}
+              canEdit={canOperateKds}
               updateLineState={updateLineState}
             />
           ))}
@@ -658,17 +885,31 @@ function CommandCard({
       </div>
 
       <footer className="border-t border-denim/8 bg-white p-4">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <span
-            className={[
-              "status-pill",
-              command.estado === "LISTA"
-                ? "bg-emerald-100 text-emerald-800"
-                : "",
-            ].join(" ")}
-          >
-            {command.estado.replaceAll("_", " ")}
-          </span>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={[
+                "status-pill",
+                command.estado === "LISTA"
+                  ? "bg-emerald-100 text-emerald-800"
+                  : "",
+              ].join(" ")}
+            >
+              {command.estado.replaceAll("_", " ")}
+            </span>
+            {command.estacion.modoOperacion !== "KDS" &&
+              command.solicitudesImpresion === 0 && (
+                <span className="rounded-full bg-amber-100 px-2.5 py-1.5 text-[10px] font-black uppercase text-amber-900">
+                  Pendiente de impresión
+                </span>
+              )}
+            {command.solicitudesImpresion > 0 && (
+              <span className="rounded-full bg-emerald-100 px-2.5 py-1.5 text-[10px] font-black uppercase text-emerald-800">
+                Impreso · {command.solicitudesImpresion}{" "}
+                {command.solicitudesImpresion === 1 ? "vez" : "veces"}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             {canEdit && (
               <select
@@ -685,11 +926,16 @@ function CommandCard({
               </select>
             )}
             <button
-              aria-label="Imprimir comanda"
-              className="rounded-lg border border-denim/10 bg-white p-2"
+              aria-label={
+                command.solicitudesImpresion > 0
+                  ? "Reimprimir comanda"
+                  : "Imprimir comanda"
+              }
+              className="flex items-center gap-1.5 rounded-lg border border-denim/10 bg-white px-3 py-2 text-[11px] font-black text-denim"
               onClick={() => void printCommand(command)}
             >
               <Printer size={16} />
+              {command.solicitudesImpresion > 0 ? "Reimprimir" : "Imprimir"}
             </button>
           </div>
         </div>
@@ -704,7 +950,7 @@ function CommandCard({
           </button>
         )}
 
-        {canEdit && command.estado !== "LISTA" && pendingLines && (
+        {canOperateKds && command.estado !== "LISTA" && pendingLines && (
           <button
             disabled={Boolean(busy)}
             onClick={() => void startAll(command)}
@@ -714,7 +960,7 @@ function CommandCard({
           </button>
         )}
 
-        {canEdit && command.estado === "EN_PREPARACION" && (
+        {canOperateKds && command.estado === "EN_PREPARACION" && (
           <button
             disabled={Boolean(busy)}
             onClick={() => void updateCommandState(command, "LISTA")}
@@ -724,7 +970,7 @@ function CommandCard({
           </button>
         )}
 
-        {canEdit && command.estado === "LISTA" && (
+        {canOperateKds && command.estado === "LISTA" && (
           <button
             disabled={Boolean(busy)}
             onClick={() => void updateCommandState(command, "ENTREGADA")}
@@ -732,6 +978,49 @@ function CommandCard({
           >
             <Check size={20} /> Retirar para servicio
           </button>
+        )}
+
+        {paperOnly && canEdit && (
+          <div className="space-y-2">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-center text-xs font-black text-amber-900">
+              Operación en papel · actualiza aquí el estado general de la comanda
+            </div>
+
+            {command.estado === "PENDIENTE" && (
+              <button
+                disabled={Boolean(busy)}
+                onClick={() => void startAll(command)}
+                className="kds-action bg-steel text-white"
+              >
+                <Play size={20} /> Iniciar preparación
+              </button>
+            )}
+
+            {command.estado === "EN_PREPARACION" && (
+              <button
+                disabled={Boolean(busy)}
+                onClick={() => void updateCommandState(command, "LISTA")}
+                className="kds-action bg-emerald-700 text-white"
+              >
+                <CheckCircle2 size={20} /> Marcar comanda lista
+              </button>
+            )}
+
+            {command.estado === "LISTA" && (
+              <>
+                <div className="rounded-xl bg-emerald-50 px-3 py-2 text-center text-xs font-black text-emerald-800">
+                  Comanda lista · pendiente de retiro por servicio
+                </div>
+                <button
+                  disabled={Boolean(busy)}
+                  onClick={() => void updateCommandState(command, "ENTREGADA")}
+                  className="kds-action bg-emerald-700 text-white"
+                >
+                  <Check size={20} /> Retirado por servicio
+                </button>
+              </>
+            )}
+          </div>
         )}
 
         {!canEdit && (

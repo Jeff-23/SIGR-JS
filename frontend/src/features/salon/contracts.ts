@@ -5,6 +5,7 @@ export type ApiTable = {
   numero: string;
   capacidad: number;
   situacion: "LIBRE" | "OCUPADA" | "RESERVADA" | "PENDIENTE_PAGO" | "FUERA_SERVICIO";
+  estado?: boolean;
   ocupacionManual: boolean;
   ocupadaManualEn?: string | null;
   zona: { id: number; nombre: string; sucursalId: number };
@@ -60,6 +61,7 @@ export type ApiOrder = {
   detalles: OrderDetail[];
   comandas: ApiCommand[];
   venta?: { id: number; estado: string; total: string | number } | null;
+  eventosOperacionales?: Array<{ id: number; tipo: string; ocurridoEn: string }>;
   mesero?: { id: number; nombres: string; apellidos: string } | null;
   mesasVinculadas?: Array<{ principal: boolean; mesa: ApiTable }>;
 };

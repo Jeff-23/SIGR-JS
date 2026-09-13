@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useApp } from "../store/app";
 import { useResource } from "../hooks/useResource";
 import { api, errorMessage } from "../lib/api";
+import { applyRestaurantTheme, DEFAULT_THEME, type RestaurantTheme } from "../lib/theme";
 type Config = {
   valores: Record<string, string | number | boolean>;
   origenes: Record<string, string>;
@@ -22,6 +23,36 @@ function Settings() {
     >({}),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
+  const [theme, setTheme] = useState<RestaurantTheme>(DEFAULT_THEME);
+  const [themeBusy, setThemeBusy] = useState(false);
+  const canEditTheme =
+    hasPermission("CONFIGURACION_GESTIONAR") && session?.user.sucursalId === null;
+
+  useEffect(() => {
+    if (!branchId || session?.demo) return;
+    let active = true;
+    api.get<RestaurantTheme>(`/configuracion/tema/${branchId}`)
+      .then(({ data }) => { if (active) setTheme(data); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [branchId, session?.demo]);
+
+  const saveTheme = async () => {
+    if (!canEditTheme || session?.demo) return;
+    setThemeBusy(true);
+    try {
+      const { data } = await api.patch<RestaurantTheme>("/configuracion/tema", theme);
+      setTheme(data);
+      applyRestaurantTheme(data);
+      window.dispatchEvent(new Event("sigr:theme-refresh"));
+      setMessage("Identidad visual guardada para todo el restaurante.");
+    } catch (error) {
+      setMessage(errorMessage(error));
+    } finally {
+      setThemeBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
       <h1 className="page-title">Configuración efectiva</h1>
@@ -34,6 +65,81 @@ function Settings() {
         <Link to="/administracion">Usuarios y accesos</Link>
       </div>
       {query.error && <p role="alert">{query.error}</p>}
+      <section className="card max-w-4xl space-y-4">
+        <div>
+          <h2 className="text-xl font-black">Identidad visual del restaurante</h2>
+          <p className="text-sm text-denim/55">
+            Personaliza la marca en PC, tablet y celular. Los colores de alertas y estados operativos conservan su significado.
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            ["colorPrimario", "Color principal"],
+            ["colorSecundario", "Color secundario"],
+            ["colorAcento", "Color de acento"],
+            ["colorFondo", "Fondo"],
+          ].map(([key, label]) => (
+            <label key={key} className="text-sm font-bold">
+              {label}
+              <input
+                className="mt-2 h-12 w-full rounded-xl border border-denim/10 bg-white p-1"
+                type="color"
+                disabled={!canEditTheme || themeBusy}
+                value={theme[key as keyof RestaurantTheme] as string}
+                onChange={(event) => {
+                  const next = { ...theme, [key]: event.target.value };
+                  setTheme(next);
+                  applyRestaurantTheme(next);
+                }}
+              />
+            </label>
+          ))}
+        </div>
+        <label className="block max-w-sm text-sm font-bold">
+          Tipografía
+          <select
+            className="input mt-1"
+            disabled={!canEditTheme || themeBusy}
+            value={theme.tipografia}
+            onChange={(event) => {
+              const next = { ...theme, tipografia: event.target.value as RestaurantTheme["tipografia"] };
+              setTheme(next);
+              applyRestaurantTheme(next);
+            }}
+          >
+            <option value="MANROPE">Manrope (SIGR)</option>
+            <option value="SYSTEM">Sistema</option>
+            <option value="ARIAL">Arial</option>
+            <option value="VERDANA">Verdana</option>
+            <option value="TREBUCHET">Trebuchet MS</option>
+            <option value="GEORGIA">Georgia</option>
+          </select>
+        </label>
+        <div className="rounded-2xl border border-denim/10 p-4">
+          <p className="eyebrow">Vista previa</p>
+          <strong className="mt-1 block text-2xl">{session?.user.restauranteNombre ?? "Tu restaurante"}</strong>
+          <div className="mt-3 flex gap-2">
+            <span className="rounded-xl bg-steel px-3 py-2 text-xs font-black text-white">Acción principal</span>
+            <span className="rounded-xl bg-marigold px-3 py-2 text-xs font-black text-steel">Acento</span>
+          </div>
+        </div>
+        {canEditTheme ? (
+          <div className="flex flex-wrap gap-2">
+            <button className="primary h-11 w-auto px-5" disabled={themeBusy} onClick={() => void saveTheme()}>
+              Guardar identidad visual
+            </button>
+            <button
+              className="secondary h-11 w-auto px-5"
+              disabled={themeBusy}
+              onClick={() => { setTheme(DEFAULT_THEME); applyRestaurantTheme(DEFAULT_THEME); }}
+            >
+              Restaurar vista previa SIGR
+            </button>
+          </div>
+        ) : (
+          <p className="text-xs text-denim/50">La identidad visual global la administra el administrador general del restaurante.</p>
+        )}
+      </section>
       <form
         className="card max-w-4xl space-y-5"
         onSubmit={async (e) => {

@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import { Prisma } from '@prisma/client';
+import { Prisma, TipoDocumentoFiscal } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -41,7 +41,31 @@ export class DocumentosElectronicosService {
     });
     if (!documento)
       throw new NotFoundException('Documento electrónico no encontrado');
-    if (documento.outbox) return documento.outbox;
+    if (documento.outbox) {
+      if (documento.estado === 'NUMERADO') {
+        const estadoReconciliado =
+          documento.outbox.estado === 'PROCESANDO'
+            ? 'ENVIANDO'
+            : documento.outbox.estado === 'FALLIDO'
+              ? 'ERROR'
+              : 'EN_COLA';
+        await this.prisma.documentoElectronico.update({
+          where: { id },
+          data: {
+            estado: estadoReconciliado,
+            historial: {
+              create: {
+                estado: estadoReconciliado,
+                actorId: usuarioActual.id,
+                detalle:
+                  'Estado fiscal reconciliado con una cola de envío ya existente',
+              },
+            },
+          },
+        });
+      }
+      return documento.outbox;
+    }
     if (documento.estado !== 'NUMERADO') {
       throw new BadRequestException(
         'Sólo un documento NUMERADO puede encolarse',
@@ -87,14 +111,34 @@ export class DocumentosElectronicosService {
     });
   }
 
-  async procesarPendientes(limite: number, usuarioActual: UsuarioAutenticado) {
+  async procesarPendientes(
+    limite: number,
+    usuarioActual: UsuarioAutenticado,
+    sucursalIdSolicitada?: number,
+  ) {
+    const diagnostico = await this.diagnosticarTransmision(
+      usuarioActual,
+      sucursalIdSolicitada,
+    );
+    if (!diagnostico.disponible) {
+      return {
+        procesados: 0,
+        bloqueado: true,
+        mensaje: diagnostico.mensaje,
+        resultados: [],
+      };
+    }
+
     const resultados: Array<{
       documentoId: number;
       estado: string;
       mensaje?: string;
     }> = [];
     for (let indice = 0; indice < limite; indice += 1) {
-      const item = await this.reclamarSiguiente(usuarioActual);
+      const item = await this.reclamarSiguiente(
+        usuarioActual,
+        sucursalIdSolicitada,
+      );
       if (!item) break;
       resultados.push(await this.procesarItem(item.id, item.documentoId));
     }
@@ -170,14 +214,58 @@ export class DocumentosElectronicosService {
     };
   }
 
-  private async reclamarSiguiente(usuarioActual: UsuarioAutenticado) {
+  private async diagnosticarTransmision(
+    usuarioActual: UsuarioAutenticado,
+    sucursalIdSolicitada?: number,
+  ) {
+    let restauranteId = usuarioActual.restauranteId;
+    if (sucursalIdSolicitada !== undefined) {
+      const sucursal = await this.prisma.sucursal.findFirst({
+        where: this.filtroSucursal(usuarioActual, sucursalIdSolicitada),
+        select: { restauranteId: true },
+      });
+      if (!sucursal) {
+        return {
+          disponible: false,
+          mensaje:
+            'La sucursal seleccionada no está disponible para este usuario',
+        };
+      }
+      restauranteId = sucursal.restauranteId;
+    }
+    if (restauranteId === null) {
+      return {
+        disponible: false,
+        mensaje:
+          'Selecciona una sucursal concreta antes de procesar la cola fiscal',
+      };
+    }
+    const perfil = await this.prisma.perfilFiscal.findUnique({
+      where: { restauranteId },
+    });
+    const adapter = this.proveedores.obtener(perfil?.proveedorCodigo);
+    if (!perfil?.activo || !adapter) {
+      return {
+        disponible: false,
+        mensaje: 'Perfil o adaptador fiscal no disponible',
+      };
+    }
+    return adapter.diagnosticar(perfil);
+  }
+
+  private async reclamarSiguiente(
+    usuarioActual: UsuarioAutenticado,
+    sucursalIdSolicitada?: number,
+  ) {
     return this.prisma.transaccionSerializable(async (tx) => {
       const candidato = await tx.outboxFiscal.findFirst({
         where: {
           estado: 'PENDIENTE',
           disponibleEn: { lte: new Date() },
           documento: {
-            factura: { is: this.filtroFacturaTenant(usuarioActual) },
+            factura: {
+              is: this.filtroFacturaTenant(usuarioActual, sucursalIdSolicitada),
+            },
           },
         },
         orderBy: [{ disponibleEn: 'asc' }, { id: 'asc' }],
@@ -323,6 +411,64 @@ export class DocumentosElectronicosService {
     return { documentoId, estado: agotado ? 'ERROR' : 'REINTENTO', mensaje };
   }
 
+  async resolucionesCompatibles(id: number, usuarioActual: UsuarioAutenticado) {
+    const documento = await this.prisma.documentoElectronico.findFirst({
+      where: { id, factura: { is: this.filtroFacturaTenant(usuarioActual) } },
+      include: {
+        factura: {
+          include: {
+            venta: { include: { sucursal: true } },
+            pedido: { include: { sucursal: true } },
+          },
+        },
+      },
+    });
+    if (!documento) {
+      throw new NotFoundException('Documento electrónico no encontrado');
+    }
+    const sucursal =
+      documento.factura.venta?.sucursal ?? documento.factura.pedido?.sucursal;
+    if (!sucursal) {
+      throw new BadRequestException(
+        'El documento no tiene una sucursal fiscal identificable',
+      );
+    }
+    const tipoNumeracion =
+      documento.tipo === 'DOCUMENTO_EQUIVALENTE_POS'
+        ? 'DOCUMENTO_EQUIVALENTE_ELECTRONICO_POS'
+        : 'FACTURA_ELECTRONICA_VENTA';
+    const hoy = new Date();
+    hoy.setUTCHours(0, 0, 0, 0);
+    const resoluciones = await this.prisma.resolucionNumeracionDian.findMany({
+      where: {
+        restauranteId: sucursal.restauranteId,
+        activa: true,
+        tipoNumeracion,
+        OR: [{ sucursalId: null }, { sucursalId: sucursal.id }],
+        vigenteDesde: { lte: hoy },
+        vigenteHasta: { gte: hoy },
+      },
+      orderBy: [{ sucursalId: 'desc' }, { vigenteHasta: 'asc' }, { id: 'asc' }],
+    });
+    return {
+      documentoId: documento.id,
+      tipoNumeracion,
+      sucursal: { id: sucursal.id, nombre: sucursal.nombre },
+      resoluciones: resoluciones
+        .filter((r) => r.siguienteNumero <= r.rangoHasta)
+        .map((r) => ({
+          id: r.id,
+          numeroResolucion: r.numeroResolucion,
+          prefijo: r.prefijo,
+          siguienteNumero: r.siguienteNumero,
+          rangoHasta: r.rangoHasta,
+          disponibles: r.rangoHasta - r.siguienteNumero + 1,
+          vigenteHasta: r.vigenteHasta,
+          sucursalId: r.sucursalId,
+        })),
+    };
+  }
+
   async numerar(
     id: number,
     resolucionId: number,
@@ -395,6 +541,14 @@ export class DocumentosElectronicosService {
       if (resolucion.siguienteNumero > resolucion.rangoHasta)
         throw new BadRequestException(
           'La resolución agotó su rango autorizado',
+        );
+      const tipoNumeracionEsperado =
+        documento.tipo === 'DOCUMENTO_EQUIVALENTE_POS'
+          ? 'DOCUMENTO_EQUIVALENTE_ELECTRONICO_POS'
+          : 'FACTURA_ELECTRONICA_VENTA';
+      if (resolucion.tipoNumeracion !== tipoNumeracionEsperado)
+        throw new BadRequestException(
+          'La resolución seleccionada no corresponde al tipo de documento fiscal',
         );
       const numeroFiscal = resolucion.siguienteNumero;
       const numeroCompleto = `${resolucion.prefijo}${numeroFiscal}`;
@@ -474,6 +628,7 @@ export class DocumentosElectronicosService {
 
   private filtroSucursal(
     usuarioActual: UsuarioAutenticado,
+    sucursalIdSolicitada?: number,
   ): Prisma.SucursalWhereInput {
     return {
       estado: true,
@@ -492,7 +647,9 @@ export class DocumentosElectronicosService {
         ? {
             id: usuarioActual.sucursalId,
           }
-        : {}),
+        : sucursalIdSolicitada !== undefined
+          ? { id: sucursalIdSolicitada }
+          : {}),
     };
   }
 
@@ -507,8 +664,9 @@ export class DocumentosElectronicosService {
    */
   private filtroFacturaTenant(
     usuarioActual: UsuarioAutenticado,
+    sucursalIdSolicitada?: number,
   ): Prisma.FacturaWhereInput {
-    const sucursal = this.filtroSucursal(usuarioActual);
+    const sucursal = this.filtroSucursal(usuarioActual, sucursalIdSolicitada);
 
     return {
       OR: [
@@ -541,7 +699,11 @@ export class DocumentosElectronicosService {
    * de facturas internas en documentos PREPARADOS.
    * =====================================================
    */
-  async preparar(facturaIds: number[], usuarioActual: UsuarioAutenticado) {
+  async preparar(
+    facturaIds: number[],
+    usuarioActual: UsuarioAutenticado,
+    tipo: TipoDocumentoFiscal = 'FACTURA_VENTA',
+  ) {
     const idsUnicos = [...new Set(facturaIds)];
 
     await this.prisma.transaccionSerializable(async (tx) => {
@@ -581,7 +743,7 @@ export class DocumentosElectronicosService {
       await tx.documentoElectronico.createMany({
         data: facturas
           .filter((factura) => factura.documentoElectronico === null)
-          .map((factura) => ({ facturaId: factura.id })),
+          .map((factura) => ({ facturaId: factura.id, tipo })),
         skipDuplicates: true,
       });
     });
@@ -595,11 +757,14 @@ export class DocumentosElectronicosService {
     });
   }
 
-  async findAll(usuarioActual: UsuarioAutenticado) {
+  async findAll(
+    usuarioActual: UsuarioAutenticado,
+    sucursalIdSolicitada?: number,
+  ) {
     return this.prisma.documentoElectronico.findMany({
       where: {
         factura: {
-          is: this.filtroFacturaTenant(usuarioActual),
+          is: this.filtroFacturaTenant(usuarioActual, sucursalIdSolicitada),
         },
       },
 

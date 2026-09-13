@@ -17,6 +17,8 @@ import { CrearComandaDto } from './dto/crear-comanda.dto';
 import { ActualizarEstadoComandaDto } from './dto/actualizar-estado-comanda.dto';
 import { ActualizarPrioridadComandaDto } from './dto/actualizar-prioridad-comanda.dto';
 import { ActualizarEstadoDetalleComandaDto } from './dto/actualizar-estado-detalle-comanda.dto';
+import { RegistrarImpresionComandaDto } from './dto/registrar-impresion-comanda.dto';
+import { ActualizarModoOperacionEstacionDto } from './dto/actualizar-modo-operacion-estacion.dto';
 import {
   ActualizarEstacionDto,
   CrearEstacionDto,
@@ -30,9 +32,12 @@ import { CapabilitiesGuard } from '../auth/capabilities.guard';
 import { Capacidades } from '../auth/capacidades.decorator';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import { construirContextoAuditoria } from '../auditoria/auditoria-contexto';
 
 type RequestAutenticada = {
   user: UsuarioAutenticado;
+  ip?: string;
+  headers: Record<string, string | string[] | undefined>;
 };
 
 @Controller()
@@ -78,6 +83,21 @@ export class ComandasController {
     return this.comandasService.representacionImpresa(id, request.user);
   }
 
+  @Post('comandas/:id/impresiones')
+  @Permisos('COMANDAS_VER')
+  registrarImpresion(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: RegistrarImpresionComandaDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.comandasService.registrarImpresion(
+      id,
+      Boolean(data.reimpresion),
+      request.user,
+      construirContextoAuditoria(request),
+    );
+  }
+
   @Get('estaciones-preparacion')
   @Permisos('COMANDAS_VER')
   listarEstaciones(
@@ -95,6 +115,21 @@ export class ComandasController {
     @Req() request: RequestAutenticada,
   ) {
     return this.comandasService.crearEstacion(data, request.user);
+  }
+
+  @Patch('estaciones-preparacion/:id/modo-operacion')
+  @Permisos('COMANDAS_VER')
+  actualizarModoOperacionEstacion(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: ActualizarModoOperacionEstacionDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.comandasService.actualizarModoOperacionEstacion(
+      id,
+      data.modoOperacion,
+      request.user,
+      construirContextoAuditoria(request),
+    );
   }
 
   @Patch('estaciones-preparacion/:id')

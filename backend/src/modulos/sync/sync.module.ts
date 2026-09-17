@@ -10,9 +10,19 @@ import { SyncBusinessApplyService } from './sync-business-apply.service';
 import { SyncBusinessCertService } from './sync-business-cert.service';
 import { SyncConflictService } from './sync-conflict.service';
 import { SyncConflictsController } from './sync-conflicts.controller';
+import {
+  SyncStatusCertificationController,
+  SyncStatusController,
+} from './sync-status.controller';
+import { SyncStatusService } from './sync-status.service';
 
 @Module({
-  controllers: [SyncController, SyncConflictsController],
+  controllers: [
+    SyncController,
+    SyncConflictsController,
+    SyncStatusController,
+    SyncStatusCertificationController,
+  ],
   providers: [
     SyncOutboxService,
     SyncInboxService,
@@ -23,6 +33,7 @@ import { SyncConflictsController } from './sync-conflicts.controller';
     SyncBusinessApplyService,
     SyncBusinessCertService,
     SyncConflictService,
+    SyncStatusService,
   ],
   exports: [SyncOutboxService, SyncBusinessService, SyncConflictService],
 })

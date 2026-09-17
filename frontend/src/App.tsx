@@ -355,7 +355,7 @@ function ApplicationRoutes() {
         <Route
           path="continuidad"
           element={
-            <RouteGuard permission="PEDIDOS_CREAR">
+            <RouteGuard permission="AUDITORIA_VER">
               <ContinuityPage />
             </RouteGuard>
           }

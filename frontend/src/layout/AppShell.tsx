@@ -111,7 +111,7 @@ const nav: NavItem[] = [
     to: "/continuidad",
     label: "Sincronización",
     icon: ClipboardList,
-    permission: "PEDIDOS_CREAR",
+    permission: "AUDITORIA_VER",
     capability: null,
   },
   {

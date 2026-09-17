@@ -16,10 +16,14 @@ import { ActualizarClienteDto } from './dto/actualizar-cliente.dto';
 import { CambiarEstadoClienteDto } from './dto/cambiar-estado-cliente.dto';
 import { ListarClientesDto } from './dto/listar-clientes.dto';
 import { respuestaPaginada } from '../../plataforma/paginacion';
+import { SyncBusinessService } from '../sync/sync-business.service';
 
 @Injectable()
 export class ClientesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly syncBusiness: SyncBusinessService,
+  ) {}
 
   private esSuperadmin(usuarioActual: UsuarioAutenticado) {
     return (
@@ -210,25 +214,22 @@ export class ClientesService {
 
     await this.validarDocumentoDisponible(restauranteId, numeroDocumento);
 
-    return this.prisma.cliente.create({
-      data: {
-        restauranteId,
-
-        tipoDocumento: this.normalizarDocumento(data.tipoDocumento),
-
-        numeroDocumento,
-        nombres,
-
-        apellidos: this.normalizarTextoOpcional(data.apellidos),
-
-        telefono: this.normalizarTextoOpcional(data.telefono),
-
-        correo: this.normalizarCorreo(data.correo),
-
-        direccion: this.normalizarTextoOpcional(data.direccion),
-
-        fechaNacimiento: this.normalizarFechaNacimiento(data.fechaNacimiento),
-      },
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const cliente = await tx.cliente.create({
+        data: {
+          restauranteId,
+          tipoDocumento: this.normalizarDocumento(data.tipoDocumento),
+          numeroDocumento,
+          nombres,
+          apellidos: this.normalizarTextoOpcional(data.apellidos),
+          telefono: this.normalizarTextoOpcional(data.telefono),
+          correo: this.normalizarCorreo(data.correo),
+          direccion: this.normalizarTextoOpcional(data.direccion),
+          fechaNacimiento: this.normalizarFechaNacimiento(data.fechaNacimiento),
+        },
+      });
+      await this.syncBusiness.encolarCliente(tx, cliente.id);
+      return cliente;
     });
   }
 
@@ -394,12 +395,10 @@ export class ClientesService {
     }
 
     try {
-      return await this.prisma.cliente.update({
-        where: {
-          id,
-        },
-
-        data: cambios,
+      return await this.prisma.transaccionSerializable(async (tx) => {
+        const actualizado = await tx.cliente.update({ where: { id }, data: cambios });
+        await this.syncBusiness.encolarCliente(tx, actualizado.id);
+        return actualizado;
       });
     } catch (error) {
       if (
@@ -422,14 +421,10 @@ export class ClientesService {
   ) {
     await this.buscarDentroDelAlcance(id, usuarioActual);
 
-    return this.prisma.cliente.update({
-      where: {
-        id,
-      },
-
-      data: {
-        estado: data.estado,
-      },
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const actualizado = await tx.cliente.update({ where: { id }, data: { estado: data.estado } });
+      await this.syncBusiness.encolarCliente(tx, actualizado.id);
+      return actualizado;
     });
   }
 }

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   ParseIntPipe,
@@ -70,26 +71,44 @@ export class MesasController {
     @Body() data: { activo: boolean },
     @Req() request: RequestAutenticada,
   ) {
-    return this.mesasService.cambiarEstado(id, Boolean(data.activo), request.user);
+    return this.mesasService.cambiarEstado(
+      id,
+      Boolean(data.activo),
+      request.user,
+    );
   }
 
   @Patch(':id/ocupar-sin-pedido')
-  @Permisos('MESAS_EDITAR')
   ocuparSinPedido(
     @Param('id', ParseIntPipe) id: number,
     @Body() data: CambiarOcupacionMesaDto,
     @Req() request: RequestAutenticada,
   ) {
+    this.validarOperacionManual(request.user);
     return this.mesasService.ocuparSinPedido(id, data.motivo, request.user);
   }
 
   @Patch(':id/liberar-sin-consumo')
-  @Permisos('MESAS_EDITAR')
   liberarSinConsumo(
     @Param('id', ParseIntPipe) id: number,
     @Body() data: CambiarOcupacionMesaDto,
     @Req() request: RequestAutenticada,
   ) {
+    this.validarOperacionManual(request.user);
     return this.mesasService.liberarSinConsumo(id, data.motivo, request.user);
+  }
+
+  private validarOperacionManual(usuario: UsuarioAutenticado) {
+    const esSuperadmin =
+      usuario.rol === 'SUPERADMIN' && usuario.restauranteId === null;
+    const puedeOperar =
+      usuario.permisos.includes('MESAS_EDITAR') ||
+      usuario.permisos.includes('PEDIDOS_CREAR');
+
+    if (!esSuperadmin && !puedeOperar) {
+      throw new ForbiddenException(
+        'No tienes permisos para ocupar o liberar mesas sin consumo',
+      );
+    }
   }
 }

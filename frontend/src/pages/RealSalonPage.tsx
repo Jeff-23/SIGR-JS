@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   Clock3,
   Heart,
+  ImageIcon,
   Merge,
   Minus,
   MoveRight,
@@ -21,12 +22,13 @@ import {
   Utensils,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { ErrorState, LoadingState } from "../components/AsyncState";
 import { PrintableDocumentModal } from "../components/PrintableDocumentModal";
 import { Modal } from "../components/Modal";
 import { SalonExperiencePanel } from "../features/salon/SalonExperiencePanel";
+import { filterCatalogProducts, paginateCatalogProducts } from "../features/salon/catalog";
 import {
   activeOrder,
   cartTotal,
@@ -43,6 +45,7 @@ import {
   type OrderType,
 } from "../features/salon/contracts";
 import { api, apiFailure, errorMessage, mutation } from "../lib/api";
+import { productImageUrl } from "../lib/product-media";
 import { useApp } from "../store/app";
 
 const money = new Intl.NumberFormat("es-CO", {
@@ -50,6 +53,22 @@ const money = new Intl.NumberFormat("es-CO", {
   currency: "COP",
   maximumFractionDigits: 0,
 });
+
+function readPosImagePreference() {
+  try {
+    return window.localStorage.getItem("sigr:pos-product-images") !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function writePosImagePreference(enabled: boolean) {
+  try {
+    window.localStorage.setItem("sigr:pos-product-images", enabled ? "1" : "0");
+  } catch {
+    // La preferencia es opcional; la operación no debe depender de localStorage.
+  }
+}
 const typeLabels: Record<OrderType, string> = {
   MESA: "Mesa",
   MOSTRADOR: "Mostrador",
@@ -138,7 +157,7 @@ function TableSilhouette({ table, order }: { table: ApiTable; order?: ApiOrder }
   const remainingAfterTop = capacity - Math.min(topCount, capacity);
   const bottomCount = Math.min(topCount, remainingAfterTop);
   addRow(bottomCount, 108, tableBox.x + 10, tableBox.x + tableBox.w - 10);
-  let remaining = remainingAfterTop - bottomCount;
+  const remaining = remainingAfterTop - bottomCount;
   const leftCount = Math.ceil(remaining / 2);
   const rightCount = remaining - leftCount;
   for (let i = 0; i < leftCount; i++) chairs.push({ x: 20, y: 45 + i * 26, rotate: 90 });
@@ -198,6 +217,11 @@ export function RealSalonPage() {
     "favorites",
   );
   const [search, setSearch] = useState("");
+  const [showProductImages, setShowProductImages] = useState(readPosImagePreference);
+  const [selectedProduct, setSelectedProduct] = useState<ApiProduct | null>(null);
+  const deferredSearch = useDeferredValue(search);
+  const [productLimit, setProductLimit] = useState(60);
+  const cartPanelRef = useRef<HTMLDivElement | null>(null);
   const [saving, setSaving] = useState(false);
   const [quickAction, setQuickAction] = useState<QuickAction>(null);
   const [printDocument, setPrintDocument] = useState<{
@@ -276,21 +300,14 @@ export function RealSalonPage() {
   const visibleTables = tables.filter(
     (table) => zone === "all" || table.zona.id === zone,
   );
-  const visibleProducts = products.filter((product) => {
-    const matchesCategory =
-      category === "all" ||
-      (category === "favorites"
-        ? product.favorito
-        : product.categoria.id === category);
-    const term = search.trim().toLowerCase();
-    return (
-      matchesCategory &&
-      (!term ||
-        `${product.nombre} ${product.categoria.nombre}`
-          .toLowerCase()
-          .includes(term))
-    );
-  });
+  const visibleProducts = useMemo(
+    () => filterCatalogProducts(products, category, deferredSearch),
+    [category, deferredSearch, products],
+  );
+  const renderedProducts = useMemo(
+    () => paginateCatalogProducts(visibleProducts, productLimit),
+    [productLimit, visibleProducts],
+  );
   const tableById = new Map(tables.map((table) => [table.id, table] as const));
 
   const orderByTable = new Map(
@@ -316,6 +333,7 @@ export function RealSalonPage() {
     setCart([]);
     setCategory("favorites");
     setSearch("");
+    setProductLimit(60);
     setContextPeople(String(Math.min(table?.capacidad ?? 2, 2)));
     setContextNotes("");
     setDetailNotes({});
@@ -328,6 +346,7 @@ export function RealSalonPage() {
       setCart([]);
       setCategory("favorites");
       setSearch("");
+      setProductLimit(60);
       setContextPeople(String(data.personas ?? data.mesa?.capacidad ?? 2));
       setContextNotes(data.observaciones ?? "");
       setDetailNotes(
@@ -541,8 +560,7 @@ export function RealSalonPage() {
         api.patch(`/mesas/${table.id}/ocupar-sin-pedido`, {
           motivo: "Cliente ubicado sin pedido",
         }),
-      `Mesa ${table.numero} ocupada`,
-      false,
+      `Mesa ${table.numero} ocupada sin consumo`,
     );
   const release = async (table: ApiTable) =>
     run(
@@ -551,7 +569,6 @@ export function RealSalonPage() {
           motivo: "Cliente se retiró sin consumo",
         }),
       `Mesa ${table.numero} liberada`,
-      false,
     );
 
   const markDelivered = async (order: ApiOrder) => {
@@ -831,13 +848,16 @@ export function RealSalonPage() {
           const stations = order ? stationSummary(order) : [];
           const minutes = occupiedMinutes(order, table);
           const unpaidConsumption = Boolean(order && order.venta?.estado !== "PAGADA");
+          const manualOccupied = !order && table.ocupacionManual;
           const visualSituation = unpaidConsumption
             ? order?.venta?.estado === "PENDIENTE_PAGO"
               ? "PENDIENTE_PAGO"
               : "OCUPADA"
-            : table.situacion;
+            : manualOccupied
+              ? "OCUPADA"
+              : table.situacion;
           const visualStateClass = visualSituation.toLowerCase();
-          const isFree = !order && visualSituation === "LIBRE";
+          const isFree = !order && !manualOccupied && visualSituation === "LIBRE";
 
           return (
             <article
@@ -853,7 +873,7 @@ export function RealSalonPage() {
                 onClick={() =>
                   order
                     ? void openExisting(order)
-                    : table.situacion === "LIBRE"
+                    : table.situacion === "LIBRE" || table.ocupacionManual
                       ? openNew("MESA", table)
                       : undefined
                 }
@@ -897,29 +917,44 @@ export function RealSalonPage() {
                   <div className="mt-2 text-center lg:mt-3">
                     <div className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-denim/50 lg:text-[11px]">{table.zona.nombre}</div>
                     <div className="mt-1 text-sm font-black text-denim lg:text-base">
-                      {table.situacion === "LIBRE" ? "Disponible" : table.situacion.replaceAll("_", " ")} · {table.capacidad} puestos
+                      {manualOccupied ? "Ocupada sin consumo" : table.situacion === "LIBRE" ? "Disponible" : table.situacion.replaceAll("_", " ")} · {table.capacidad} puestos
                     </div>
-                    {table.situacion === "LIBRE" && <div className="mt-1 text-[11px] font-medium text-denim/55 lg:text-xs">Tocar la mesa para abrir</div>}
+                    {!manualOccupied && table.situacion === "LIBRE" && <div className="mt-1 text-[11px] font-medium text-denim/55 lg:text-xs">Tocar la mesa para abrir</div>}
+                    {table.ocupacionManual && (
+                      <div className="mt-2 rounded-lg bg-amber-100 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-amber-900 lg:text-[11px]">
+                        Ocupada sin consumo · puedes tomar pedido o liberar
+                      </div>
+                    )}
                   </div>
                 )}
               </button>
 
-              {!order && table.situacion === "LIBRE" && hasPermission("MESAS_EDITAR") && (
+              {!order && table.situacion === "LIBRE" && (hasPermission("MESAS_EDITAR") || hasPermission("PEDIDOS_CREAR")) && (
                 <button
-                  className="mt-2 text-center text-[11px] font-bold text-denim/55 hover:text-denim lg:text-xs"
+                  className="mt-3 w-full rounded-xl border border-denim/15 bg-white/80 px-3 py-2 text-center text-xs font-black text-denim transition hover:border-marigold hover:bg-marigold/10"
                   onClick={() => void occupy(table)}
                 >
                   Ocupar sin pedido
                 </button>
               )}
-              {!order && table.ocupacionManual && hasPermission("MESAS_EDITAR") && (
-                <button
-                  className="mt-2 flex items-center justify-center gap-1 text-xs font-bold text-emerald-700"
-                  onClick={() => void release(table)}
-                >
-                  <Unlock size={13} />
-                  Liberar sin consumo
-                </button>
+              {!order && table.ocupacionManual && (hasPermission("MESAS_EDITAR") || hasPermission("PEDIDOS_CREAR")) && (
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {hasPermission("PEDIDOS_CREAR") && (
+                    <button
+                      className="rounded-xl bg-steel px-3 py-2 text-xs font-black text-white transition hover:bg-denim"
+                      onClick={() => openNew("MESA", table)}
+                    >
+                      Tomar pedido
+                    </button>
+                  )}
+                  <button
+                    className="flex items-center justify-center gap-1 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-800 transition hover:bg-emerald-100"
+                    onClick={() => void release(table)}
+                  >
+                    <Unlock size={13} />
+                    Liberar sin consumo
+                  </button>
+                </div>
               )}
             </article>
           );
@@ -1059,7 +1094,7 @@ export function RealSalonPage() {
 
       {draft && (
         <div className="fixed inset-0 z-50 flex justify-end bg-steel/45">
-          <section className="h-full w-full max-w-5xl overflow-y-auto bg-[#f7f5ef] p-4 sm:p-6 lg:p-8">
+          <section className="h-full w-full max-w-5xl overflow-y-auto bg-[#f7f5ef] p-4 pb-24 sm:p-6 sm:pb-24 lg:p-8">
             <div className="section-title">
               <div>
                 <p className="eyebrow">
@@ -1593,207 +1628,362 @@ export function RealSalonPage() {
               </div>
             )}
 
-            <div className="mt-6 flex gap-2 overflow-x-auto pb-2">
-              <button
-                className={`salon-filter ${category === "favorites" ? "active" : ""}`}
-                onClick={() => setCategory("favorites")}
-              >
-                <Heart size={13} /> Favoritos
-              </button>
-              <button
-                className={`salon-filter ${category === "all" ? "active" : ""}`}
-                onClick={() => setCategory("all")}
-              >
-                Toda la carta
-              </button>
-              {categories.map((item) => (
-                <button
-                  className={`salon-filter ${category === item.id ? "active" : ""}`}
-                  onClick={() => setCategory(item.id)}
-                  key={item.id}
-                >
-                  {item.nombre}
-                </button>
-              ))}
-            </div>
-            <div className="relative mt-3">
-              <Search
-                className="absolute left-3 top-3 text-denim/35"
-                size={18}
-              />
-              <input
-                className="input pl-10"
-                placeholder="Buscar producto, categoría…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {visibleProducts.map((product) => (
-                <article
-                  className={`card p-4 ${product.disponible === false ? "opacity-50" : ""}`}
-                  key={product.id}
-                >
-                  <button
-                    className="flex w-full items-center gap-3 text-left"
-                    onClick={() => add(product)}
-                    disabled={product.disponible === false}
-                  >
-                    <span
-                      className={`h-10 w-1 rounded-full ${product.estacion?.codigo === "BAR" ? "bg-blue-400" : "bg-orange-400"}`}
-                    />
-                    <span className="min-w-0 flex-1">
-                      <strong className="block truncate">
-                        {product.nombre}
-                      </strong>
-                      <small className="text-denim/45">
-                        {product.categoria.nombre}
-                        {product.estacion
-                          ? ` · ${product.estacion.nombre}`
-                          : ""}
-                      </small>
-                    </span>
-                    <b>{money.format(Number(product.precio))}</b>
-                  </button>
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      aria-label="Favorito"
-                      className="secondary h-8 w-9 px-0"
-                      onClick={() => void toggleFavorite(product)}
-                    >
-                      <Heart
-                        size={14}
-                        fill={product.favorito ? "currentColor" : "none"}
-                      />
-                    </button>
-                    {hasPermission("PRODUCTOS_EDITAR") && (
-                      <button
-                        className="secondary h-8 flex-1 px-2 text-xs"
-                        onClick={() => void toggleAvailability(product)}
-                      >
-                        {product.disponible === false ? (
-                          <>
-                            <CheckCircle2 size={13} />
-                            Reactivar
-                          </>
-                        ) : (
-                          <>
-                            <AlertTriangle size={13} />
-                            Marcar agotado
-                          </>
-                        )}
-                      </button>
-                    )}
-                  </div>
-                  {product.disponible === false && (
-                    <p className="mt-2 text-xs font-bold text-rose-600">
-                      Agotado temporalmente
-                    </p>
-                  )}
-                </article>
-              ))}
-            </div>
-
-            <div className="mt-6 card p-4">
-              <div className="flex items-center gap-2">
-                <ShoppingBag />
-                <h3 className="text-lg font-black">
-                  {draft.existing ? "Líneas nuevas" : "Pedido"}
-                </h3>
-              </div>
-              {!cart.length ? (
-                <p className="py-8 text-center text-sm text-denim/40">
-                  Selecciona productos de la carta.
-                </p>
-              ) : (
-                <div className="mt-3 divide-y divide-denim/10">
-                  {cart.map((line, index) => (
-                    <div className="py-3" key={`${line.product.id}-${index}`}>
-                      <div className="flex items-center gap-3">
-                        <span className="flex-1 font-bold">
-                          {line.product.nombre}
-                        </span>
-                        <button
-                          className="qty"
-                          onClick={() => change(index, -1)}
-                        >
-                          <Minus size={14} />
-                        </button>
-                        <b>{line.quantity}</b>
-                        <button
-                          className="qty"
-                          onClick={() => change(index, 1)}
-                        >
-                          <Plus size={14} />
-                        </button>
-                        <b className="w-28 text-right">
-                          {money.format(lineUnitPrice(line) * line.quantity)}
-                        </b>
-                      </div>
-                      {(line.product.modificadores?.length ?? 0) > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {line.product.modificadores!.map((modifier) => (
-                            <label
-                              className={`cursor-pointer rounded-full border px-3 py-1 text-xs ${(line.modifierIds ?? []).includes(modifier.id) ? "border-marigold bg-marigold/20 font-bold" : "border-denim/10"}`}
-                              key={modifier.id}
-                            >
-                              <input
-                                className="sr-only"
-                                type="checkbox"
-                                checked={(line.modifierIds ?? []).includes(
-                                  modifier.id,
-                                )}
-                                onChange={() =>
-                                  toggleModifier(index, modifier.id)
-                                }
-                              />
-                              {modifier.nombre}
-                              {Number(modifier.precio)
-                                ? ` +${money.format(Number(modifier.precio))}`
-                                : ""}
-                            </label>
-                          ))}
-                        </div>
-                      )}
-                      <input
-                        className="mt-2 w-full rounded-xl border border-denim/10 bg-denim/[.02] px-3 py-2 text-sm"
-                        maxLength={300}
-                        placeholder="Observaciones: sin cebolla, término medio…"
-                        value={line.notes}
-                        onChange={(e) => setNotes(index, e.target.value)}
-                      />
+            <div className="mt-6 grid items-start gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(330px,0.65fr)]">
+              <div className="min-w-0 rounded-[24px] border border-denim/10 bg-white/50 p-3 sm:p-4">
+                <div className="sticky top-0 z-10 -mx-1 bg-[#f7f5ef]/95 px-1 pb-3 backdrop-blur">
+                  <div className="flex flex-wrap items-end justify-between gap-2">
+                    <div>
+                      <p className="eyebrow">Carta operativa</p>
+                      <h3 className="text-lg font-black">
+                        {visibleProducts.length} producto{visibleProducts.length === 1 ? "" : "s"}
+                      </h3>
                     </div>
-                  ))}
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        className={`secondary h-9 w-auto px-3 text-xs ${showProductImages ? "bg-marigold/20" : ""}`}
+                        onClick={() => {
+                          const next = !showProductImages;
+                          setShowProductImages(next);
+                          writePosImagePreference(next);
+                        }}
+                        title="Mostrar u ocultar fotos en este dispositivo"
+                      >
+                        <ImageIcon size={14} /> Fotos {showProductImages ? "sí" : "no"}
+                      </button>
+                      {search.trim() && (
+                        <button
+                          className="secondary h-9 w-auto px-3 text-xs"
+                          onClick={() => setSearch("")}
+                        >
+                          Limpiar búsqueda
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-2 sm:hidden">
+                    <span className="text-[11px] font-bold uppercase tracking-wide text-denim/45">Categorías</span>
+                    <span className="text-[11px] font-semibold text-denim/35">Desliza para ver más →</span>
+                  </div>
+                  <div className="mt-2 flex snap-x snap-mandatory gap-2 overflow-x-auto pb-2 sm:mt-3">
+                    <button
+                      className={`salon-filter shrink-0 snap-start ${category === "favorites" ? "active" : ""}`}
+                      onClick={() => { setCategory("favorites"); setProductLimit(60); }}
+                    >
+                      <Heart size={13} /> Favoritos
+                    </button>
+                    <button
+                      className={`salon-filter shrink-0 snap-start ${category === "all" ? "active" : ""}`}
+                      onClick={() => { setCategory("all"); setProductLimit(60); }}
+                    >
+                      Toda la carta
+                    </button>
+                    {categories.map((item) => (
+                      <button
+                        className={`salon-filter shrink-0 snap-start ${category === item.id ? "active" : ""}`}
+                        onClick={() => { setCategory(item.id); setProductLimit(60); }}
+                        key={item.id}
+                      >
+                        {item.nombre}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="relative">
+                    <Search
+                      className="absolute left-3 top-3 text-denim/35"
+                      size={18}
+                    />
+                    <input
+                      className="input pl-10"
+                      placeholder="Buscar producto, categoría o estación…"
+                      value={search}
+                      onChange={(e) => { setSearch(e.target.value); setProductLimit(60); }}
+                    />
+                  </div>
                 </div>
-              )}
-              <div className="mt-4 flex items-center justify-between border-t border-denim/10 pt-4">
-                <span className="text-sm text-denim/45">
-                  Total de líneas nuevas
-                </span>
-                <strong className="text-xl">
-                  {money.format(cartTotal(cart))}
-                </strong>
+
+                <div className="max-h-[54vh] overflow-y-auto pr-1 lg:max-h-[calc(100vh-19rem)]">
+                  {!visibleProducts.length ? (
+                    <div className="grid min-h-48 place-items-center rounded-2xl border border-dashed border-denim/15 bg-white/60 p-6 text-center">
+                      <div>
+                        <Search className="mx-auto text-denim/25" size={30} />
+                        <p className="mt-3 font-black">No encontramos productos</p>
+                        <p className="mt-1 text-sm text-denim/45">
+                          Cambia la categoría o prueba otra búsqueda.
+                        </p>
+                        {category === "favorites" && (
+                          <button
+                            className="secondary mt-4 h-10 w-auto px-4"
+                            onClick={() => setCategory("all")}
+                          >
+                            Ver toda la carta
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+                        {renderedProducts.map((product) => (
+                          <article
+                            className={`card flex min-h-[116px] flex-col justify-between p-3 ${product.disponible === false ? "opacity-55" : ""}`}
+                            key={product.id}
+                          >
+                            <button
+                              className="w-full text-left"
+                              title={`Ver detalle de ${product.nombre}`}
+                              onClick={() => setSelectedProduct(product)}
+                            >
+                              <div className="flex items-start gap-3">
+                                <span
+                                  className={`mt-1 h-10 w-1 shrink-0 rounded-full ${product.estacion?.codigo === "BAR" ? "bg-blue-400" : "bg-orange-400"}`}
+                                />
+                                <span className="min-w-0 flex-1">
+                                  <strong className="block min-h-10 overflow-hidden leading-5">
+                                    {product.nombre}
+                                  </strong>
+                                  <small className="mt-1 block truncate text-denim/45">
+                                    {product.categoria.nombre}
+                                    {product.estacion ? ` · ${product.estacion.nombre}` : ""}
+                                  </small>
+                                </span>
+                              </div>
+                              <div className="mt-2 flex items-center justify-between gap-3 border-t border-denim/5 pt-2">
+                                <span className="text-[11px] font-semibold text-denim/40">Ver detalle</span>
+                                <b className="shrink-0 text-sm">{money.format(Number(product.precio))}</b>
+                              </div>
+                            </button>
+                            <div className="mt-2 flex gap-2">
+                              <button
+                                aria-label="Favorito"
+                                className="secondary h-8 w-9 px-0"
+                                onClick={() => void toggleFavorite(product)}
+                              >
+                                <Heart
+                                  size={14}
+                                  fill={product.favorito ? "currentColor" : "none"}
+                                />
+                              </button>
+                              {hasPermission("PRODUCTOS_EDITAR") && (
+                                <button
+                                  className="secondary h-8 flex-1 px-2 text-xs"
+                                  onClick={() => void toggleAvailability(product)}
+                                >
+                                  {product.disponible === false ? (
+                                    <>
+                                      <CheckCircle2 size={13} />
+                                      Reactivar
+                                    </>
+                                  ) : (
+                                    <>
+                                      <AlertTriangle size={13} />
+                                      Agotado
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                            {product.disponible === false && (
+                              <p className="mt-2 text-xs font-bold text-rose-600">
+                                Agotado temporalmente
+                              </p>
+                            )}
+                          </article>
+                        ))}
+                      </div>
+                      {renderedProducts.length < visibleProducts.length && (
+                        <button
+                          className="secondary mt-4"
+                          onClick={() => setProductLimit((value) => value + 60)}
+                        >
+                          Mostrar 60 más · quedan {visibleProducts.length - renderedProducts.length}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
-              <button
-                className="primary mt-4"
-                disabled={!cart.length || saving}
-                onClick={() => void submit()}
-              >
-                {draft.existing ? (
-                  <>
-                    <Send size={16} />
-                    Agregar y enviar sólo líneas nuevas
-                  </>
+
+              <div ref={cartPanelRef} className="card scroll-mt-6 p-4 lg:sticky lg:top-6">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <ShoppingBag />
+                    <div>
+                      <h3 className="text-lg font-black">
+                        {draft.existing ? "Líneas nuevas" : "Pedido"}
+                      </h3>
+                      {draft.existing && (
+                        <p className="text-xs font-semibold text-emerald-700">
+                          Sólo estas líneas se enviarán a preparación
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {cart.length > 0 && (
+                    <span className="status-pill">
+                      {cart.reduce((sum, line) => sum + line.quantity, 0)} ítems
+                    </span>
+                  )}
+                </div>
+                {!cart.length ? (
+                  <p className="py-8 text-center text-sm text-denim/40">
+                    Selecciona productos de la carta.
+                  </p>
                 ) : (
-                  <>
-                    <CheckCircle2 size={16} />
-                    Crear pedido y enviar
-                  </>
+                  <div className="mt-3 max-h-[42vh] divide-y divide-denim/10 overflow-y-auto pr-1 lg:max-h-[calc(100vh-27rem)]">
+                    {cart.map((line, index) => (
+                      <div className="py-3" key={`${line.product.id}-${index}`}>
+                        <div className="flex items-center gap-2">
+                          <span className="min-w-0 flex-1 font-bold">
+                            {line.product.nombre}
+                          </span>
+                          <button className="qty" onClick={() => change(index, -1)}>
+                            <Minus size={14} />
+                          </button>
+                          <b>{line.quantity}</b>
+                          <button className="qty" onClick={() => change(index, 1)}>
+                            <Plus size={14} />
+                          </button>
+                          <b className="w-24 text-right text-sm">
+                            {money.format(lineUnitPrice(line) * line.quantity)}
+                          </b>
+                        </div>
+                        {(line.product.modificadores?.length ?? 0) > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {line.product.modificadores!.map((modifier) => (
+                              <label
+                                className={`cursor-pointer rounded-full border px-3 py-1 text-xs ${(line.modifierIds ?? []).includes(modifier.id) ? "border-marigold bg-marigold/20 font-bold" : "border-denim/10"}`}
+                                key={modifier.id}
+                              >
+                                <input
+                                  className="sr-only"
+                                  type="checkbox"
+                                  checked={(line.modifierIds ?? []).includes(modifier.id)}
+                                  onChange={() => toggleModifier(index, modifier.id)}
+                                />
+                                {modifier.nombre}
+                                {Number(modifier.precio) ? ` +${money.format(Number(modifier.precio))}` : ""}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                        <input
+                          className="mt-2 w-full rounded-xl border border-denim/10 bg-denim/[.02] px-3 py-2 text-sm"
+                          title={line.notes || "Observaciones del producto"}
+                          maxLength={300}
+                          placeholder="Observaciones: sin cebolla, término medio…"
+                          value={line.notes}
+                          onChange={(e) => setNotes(index, e.target.value)}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 )}
-              </button>
+                <div className="mt-4 flex items-center justify-between border-t border-denim/10 pt-4">
+                  <span className="text-sm text-denim/45">Total de líneas nuevas</span>
+                  <strong className="text-xl">{money.format(cartTotal(cart))}</strong>
+                </div>
+                <button
+                  className="primary mt-4"
+                  disabled={!cart.length || saving}
+                  onClick={() => void submit()}
+                >
+                  {draft.existing ? (
+                    <>
+                      <Send size={16} />
+                      Enviar sólo líneas nuevas
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={16} />
+                      Crear pedido y enviar
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
+            {cart.length > 0 && (
+              <button
+                className="fixed bottom-4 left-4 right-4 z-[60] flex items-center justify-between rounded-2xl bg-steel px-4 py-3 text-left text-white shadow-2xl lg:hidden"
+                onClick={() => cartPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              >
+                <span>
+                  <span className="block text-xs font-bold uppercase tracking-wide text-white/65">Pedido en curso</span>
+                  <strong>{cart.reduce((sum, line) => sum + line.quantity, 0)} ítems · {money.format(cartTotal(cart))}</strong>
+                </span>
+                <span className="rounded-xl bg-white/10 px-3 py-2 text-xs font-black">Ver pedido</span>
+              </button>
+            )}
           </section>
         </div>
+      )}
+      {selectedProduct && (
+        <Modal title={selectedProduct.nombre} onClose={() => setSelectedProduct(null)}>
+          <div className="grid gap-5 md:grid-cols-[minmax(0,320px)_1fr]">
+            <div className="overflow-hidden rounded-3xl border border-denim/10 bg-white">
+              {showProductImages && selectedProduct.imagenPrincipal ? (
+                <div className="aspect-square bg-denim/5">
+                  <img
+                    src={productImageUrl(selectedProduct.imagenPrincipal, "medium")}
+                    alt={selectedProduct.nombre}
+                    loading="eager"
+                    decoding="async"
+                    className="h-full w-full object-cover"
+                    onError={(event) => {
+                      const image = event.currentTarget;
+                      image.hidden = true;
+                      image.nextElementSibling?.classList.remove("hidden");
+                    }}
+                  />
+                  <div className="hidden h-full w-full place-items-center p-6 text-center text-denim/40">
+                    <div>
+                      <ImageIcon className="mx-auto mb-2" size={34} />
+                      <p className="font-bold">Imagen no disponible</p>
+                      <p className="mt-1 text-xs">El producto sigue disponible para la venta.</p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid aspect-square place-items-center p-6 text-center text-denim/40">
+                  <div>
+                    <ImageIcon className="mx-auto mb-2" size={34} />
+                    <p className="font-bold">Sin foto</p>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="eyebrow">{selectedProduct.categoria.nombre}{selectedProduct.estacion ? ` · ${selectedProduct.estacion.nombre}` : ""}</p>
+                  <h3 className="mt-1 text-2xl font-black">{selectedProduct.nombre}</h3>
+                </div>
+                <strong className="text-2xl">{money.format(Number(selectedProduct.precio))}</strong>
+              </div>
+              {selectedProduct.descripcion && (
+                <p className="mt-4 text-sm leading-6 text-denim/65">{selectedProduct.descripcion}</p>
+              )}
+              {(selectedProduct.modificadores?.length ?? 0) > 0 && (
+                <div className="mt-5 rounded-2xl bg-white p-4">
+                  <p className="text-sm font-black">Este producto tiene opciones</p>
+                  <p className="mt-1 text-xs text-denim/50">Agrégalo al pedido y podrás seleccionar modificadores y observaciones en el panel de pedido.</p>
+                </div>
+              )}
+              {selectedProduct.disponible === false ? (
+                <div className="mt-5 rounded-2xl bg-rose-50 p-4 text-sm font-bold text-rose-700">
+                  Agotado temporalmente
+                </div>
+              ) : (
+                <button
+                  className="primary mt-5"
+                  onClick={() => { add(selectedProduct); setSelectedProduct(null); }}
+                >
+                  <Plus size={17} />
+                  Agregar al pedido · {money.format(Number(selectedProduct.precio))}
+                </button>
+              )}
+            </div>
+          </div>
+        </Modal>
       )}
       {printDocument && (
         <PrintableDocumentModal

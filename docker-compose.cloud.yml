@@ -1,0 +1,131 @@
+name: sigr-cloud
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - sigr_cloud_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    networks: [data]
+
+  migrate:
+    build:
+      context: ./backend
+      target: migration
+    command: ["npx", "prisma", "migrate", "deploy"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    networks: [data]
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-12h}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      PORT: 3000
+      TIME_ZONE: ${TIME_ZONE:-America/Bogota}
+      THROTTLE_TTL_MS: ${THROTTLE_TTL_MS:-60000}
+      THROTTLE_LIMIT: ${THROTTLE_LIMIT:-300}
+      SWAGGER_ENABLED: "false"
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
+      TRUST_PROXY: "true"
+      SOPORTES_STORAGE_DIR: /app/storage/soportes
+      MEDIA_STORAGE_DIR: /app/storage/media
+      SYNC_ENABLED: ${SYNC_ENABLED:-false}
+      SYNC_ROLE: ${SYNC_ROLE:-STANDALONE}
+      SYNC_NODE_ID: ${SYNC_NODE_ID:-standalone}
+      SYNC_POLL_INTERVAL_MS: ${SYNC_POLL_INTERVAL_MS:-5000}
+      SYNC_BATCH_SIZE: ${SYNC_BATCH_SIZE:-50}
+      SYNC_CERTIFICATION_ENABLED: ${SYNC_CERTIFICATION_ENABLED:-false}
+      SYNC_CERT_KEY: ${SYNC_CERT_KEY:-}
+      SYNC_BOOTSTRAP_PEER_NODE_ID: ${SYNC_BOOTSTRAP_PEER_NODE_ID:-}
+      SYNC_BOOTSTRAP_PEER_KEY: ${SYNC_BOOTSTRAP_PEER_KEY:-}
+    volumes:
+      - sigr_cloud_soportes:/app/storage/soportes
+      - sigr_cloud_media:/app/storage/media
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+    networks: [app, data]
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.cloud
+      args:
+        VITE_API_URL: /api
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/cloud-health | grep -q '^ok$'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    networks: [app]
+
+  gateway:
+    image: caddy:2.8-alpine
+    environment:
+      CLOUD_DOMAIN: ${CLOUD_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    ports:
+      - "${CLOUD_HTTP_PORT:-80}:80"
+      - "${CLOUD_HTTPS_PORT:-443}:443"
+      - "${CLOUD_HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./deploy/cloud/Caddyfile:/etc/caddy/Caddyfile:ro
+      - sigr_cloud_caddy_data:/data
+      - sigr_cloud_caddy_config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "caddy", "version"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks: [app]
+
+volumes:
+  sigr_cloud_pgdata:
+  sigr_cloud_media:
+  sigr_cloud_soportes:
+  sigr_cloud_caddy_data:
+  sigr_cloud_caddy_config:
+
+networks:
+  app:
+  data:

@@ -1,5 +1,6 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api, errorMessage } from "../../lib/api";
+import { productImageUrl, type ProductImage } from "../../lib/product-media";
 import { useApp } from "../../store/app";
 import { Modal } from "../../components/Modal";
 import {
@@ -19,7 +20,8 @@ export function ResourcePanel({ resource }: { resource: Resource }) {
     [revision, setRevision] = useState(0),
     [search, setSearch] = useState(""),
     [page, setPage] = useState(1),
-    [editor, setEditor] = useState<Row | null | undefined>(undefined);
+    [editor, setEditor] = useState<Row | null | undefined>(undefined),
+    [photoProduct, setPhotoProduct] = useState<Row | null>(null);
   const url = (resource.listPath ?? resource.path).replaceAll(
     ":sede",
     String(branchId),
@@ -147,15 +149,26 @@ export function ResourcePanel({ resource }: { resource: Resource }) {
                     </td>
                   ))}
                   <td className="p-4">
-                    {resource.edit && hasPermission(resource.edit) && (
-                      <button
-                        className="secondary h-10 w-auto px-3"
-                        disabled={!online}
-                        onClick={() => setEditor(row)}
-                      >
-                        Editar #{row.id}
-                      </button>
-                    )}
+                    <div className="flex flex-wrap gap-2">
+                      {resource.key === "productos" && resource.edit && hasPermission(resource.edit) && (
+                        <button
+                          className="secondary h-10 w-auto px-3"
+                          disabled={!online}
+                          onClick={() => setPhotoProduct(row)}
+                        >
+                          Foto
+                        </button>
+                      )}
+                      {resource.edit && hasPermission(resource.edit) && (
+                        <button
+                          className="secondary h-10 w-auto px-3"
+                          disabled={!online}
+                          onClick={() => setEditor(row)}
+                        >
+                          Editar #{row.id}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -182,6 +195,16 @@ export function ResourcePanel({ resource }: { resource: Resource }) {
             Siguiente
           </button>
         </nav>
+      )}
+      {photoProduct && (
+        <ProductImageEditor
+          product={photoProduct}
+          onClose={() => setPhotoProduct(null)}
+          onSaved={() => {
+            setPhotoProduct(null);
+            setRevision((n) => n + 1);
+          }}
+        />
       )}
       {editor !== undefined && (
         <ResourceEditor
@@ -374,5 +397,116 @@ export function EditorField({
         />
       )}
     </label>
+  );
+}
+
+
+function ProductImageEditor({
+  product,
+  onClose,
+  onSaved,
+}: {
+  product: Row;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const current = product.imagenPrincipal as ProductImage | null | undefined;
+  const [file, setFile] = useState<File | null>(null);
+  const preview = useMemo(() => file ? URL.createObjectURL(file) : productImageUrl(current, "medium"), [file, current]);
+  const [focoX, setFocoX] = useState(Number(current?.focoX ?? 50));
+  const [focoY, setFocoY] = useState(Number(current?.focoY ?? 50));
+  const [zoom, setZoom] = useState(Number(current?.zoom ?? 1));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!file || !preview) return;
+    return () => URL.revokeObjectURL(preview);
+  }, [file, preview]);
+
+  async function upload() {
+    if (!file || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const data = new FormData();
+      data.append("archivo", file);
+      data.append("focoX", String(focoX));
+      data.append("focoY", String(focoY));
+      data.append("zoom", String(zoom));
+      await api.post(`/productos/${product.id}/imagen`, data, {
+        timeout: 30000,
+      });
+      onSaved();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!current || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.delete(`/productos/${product.id}/imagen`);
+      onSaved();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title={`Foto · ${display(product.nombre)}`} busy={busy} onClose={onClose}>
+      <div className="space-y-5">
+        <p className="text-sm text-denim/65">
+          Selecciona una foto. SIGR corrige la orientación, recorta, comprime y genera versiones optimizadas automáticamente.
+        </p>
+        <label className="block rounded-2xl border border-dashed border-denim/25 p-4 text-sm font-bold">
+          Elegir o tomar foto
+          <input
+            className="mt-2 block w-full text-sm font-normal"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+          />
+          <span className="mt-2 block text-xs font-normal text-denim/50">JPG, PNG o WEBP · máximo 12 MB.</span>
+        </label>
+        {preview ? (
+          <div className="mx-auto aspect-square w-full max-w-sm overflow-hidden rounded-3xl bg-denim/5">
+            <img
+              src={preview}
+              alt={`Vista previa de ${display(product.nombre)}`}
+              className="h-full w-full object-cover"
+              style={{
+                objectPosition: `${focoX}% ${focoY}%`,
+                transform: `scale(${zoom})`,
+                transformOrigin: `${focoX}% ${focoY}%`,
+              }}
+            />
+          </div>
+        ) : (
+          <div className="grid aspect-square w-full max-w-sm place-items-center rounded-3xl bg-denim/5 text-sm text-denim/45">
+            Sin foto
+          </div>
+        )}
+        {file && (
+          <div className="grid gap-4 sm:grid-cols-3">
+            <label className="text-xs font-bold">Horizontal · {focoX}%<input type="range" min="0" max="100" value={focoX} onChange={(e) => setFocoX(Number(e.target.value))} className="mt-2 w-full"/></label>
+            <label className="text-xs font-bold">Vertical · {focoY}%<input type="range" min="0" max="100" value={focoY} onChange={(e) => setFocoY(Number(e.target.value))} className="mt-2 w-full"/></label>
+            <label className="text-xs font-bold">Zoom · {zoom.toFixed(1)}×<input type="range" min="1" max="2.5" step="0.1" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="mt-2 w-full"/></label>
+          </div>
+        )}
+        {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm font-bold text-red-800">{error}</p>}
+        <div className="flex flex-wrap gap-3">
+          <button className="primary w-auto px-5" disabled={!file || busy} onClick={() => void upload()}>{busy ? "Procesando…" : current ? "Reemplazar foto" : "Guardar foto"}</button>
+          {current && <button className="secondary w-auto px-5" disabled={busy} onClick={() => void remove()}>Eliminar foto</button>}
+          <button className="secondary w-auto px-5" disabled={busy} onClick={onClose}>Cancelar</button>
+        </div>
+      </div>
+    </Modal>
   );
 }

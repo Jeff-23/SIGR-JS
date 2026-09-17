@@ -1,3 +1,5 @@
+import type { ProductImage } from "../../lib/product-media";
+
 export type OrderType = "MESA" | "MOSTRADOR" | "PARA_LLEVAR" | "DOMICILIO";
 
 export type ApiTable = {
@@ -8,6 +10,9 @@ export type ApiTable = {
   estado?: boolean;
   ocupacionManual: boolean;
   ocupadaManualEn?: string | null;
+  forma?: "REDONDA" | "CUADRADA" | "RECTANGULAR";
+  orientacion?: "HORIZONTAL" | "VERTICAL";
+  tamanoVisual?: number;
   zona: { id: number; nombre: string; sucursalId: number };
 };
 
@@ -16,6 +21,8 @@ export type ApiModifier = { id: number; nombre: string; precio: string | number;
 export type ApiProduct = {
   id: number;
   nombre: string;
+  codigo?: string | null;
+  descripcion?: string | null;
   precio: string | number;
   favorito?: boolean;
   disponible?: boolean;
@@ -24,6 +31,7 @@ export type ApiProduct = {
   categoria: { id: number; nombre: string };
   estacion?: { id: number; codigo: string; nombre: string } | null;
   modificadores?: ApiModifier[];
+  imagenPrincipal?: ProductImage | null;
 };
 
 export type OrderDetail = {

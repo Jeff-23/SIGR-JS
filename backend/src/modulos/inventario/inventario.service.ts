@@ -14,6 +14,7 @@ import {
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import { SyncBusinessService } from '../sync/sync-business.service';
 
 import { AjustarInventarioDto } from './dto/ajustar-inventario.dto';
 import { ListarExistenciasInventarioDto } from './dto/listar-existencias-inventario.dto';
@@ -37,7 +38,10 @@ const TIPOS_ENTRADA = new Set<TipoMovimientoInventario>([
 
 @Injectable()
 export class InventarioService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly syncBusiness: SyncBusinessService,
+  ) {}
 
   private esSuperadmin(usuarioActual: UsuarioAutenticado) {
     return (
@@ -403,7 +407,7 @@ export class InventarioService {
       },
     });
 
-    return tx.movimientoInventario.create({
+    const movimiento = await tx.movimientoInventario.create({
       data: {
         tipo: data.tipo,
         cantidad,
@@ -416,6 +420,8 @@ export class InventarioService {
         productoId: producto.id,
       },
     });
+    await this.syncBusiness.encolarMovimientoInventario(tx, movimiento.id);
+    return movimiento;
   }
 
   private async ajustarArticulo(
@@ -493,7 +499,7 @@ export class InventarioService {
       },
     });
 
-    return tx.movimientoInventario.create({
+    const movimiento = await tx.movimientoInventario.create({
       data: {
         tipo: data.tipo,
         cantidad,
@@ -506,6 +512,8 @@ export class InventarioService {
         articuloId: articulo.id,
       },
     });
+    await this.syncBusiness.encolarMovimientoInventario(tx, movimiento.id);
+    return movimiento;
   }
 
   /**
@@ -673,8 +681,7 @@ export class InventarioService {
 
       const stockNuevo = stockAnterior.minus(cantidad);
 
-      movimientos.push(
-        await tx.movimientoInventario.create({
+      const movimientoDirecto = await tx.movimientoInventario.create({
           data: {
             tipo: TipoMovimientoInventario.SALIDA_VENTA,
             cantidad,
@@ -687,8 +694,9 @@ export class InventarioService {
             ventaId: params.ventaId,
             productoId: producto.id,
           },
-        }),
-      );
+        });
+      await this.syncBusiness.encolarMovimientoInventario(tx, movimientoDirecto.id);
+      movimientos.push(movimientoDirecto);
     }
 
     // POR_RECETA: agregamos consumo por Articulo para evitar
@@ -783,8 +791,7 @@ export class InventarioService {
 
       const stockNuevo = consumo.stock.minus(consumo.cantidad);
 
-      movimientos.push(
-        await tx.movimientoInventario.create({
+      const movimientoReceta = await tx.movimientoInventario.create({
           data: {
             tipo: TipoMovimientoInventario.SALIDA_VENTA,
             cantidad: consumo.cantidad,
@@ -797,8 +804,9 @@ export class InventarioService {
             ventaId: params.ventaId,
             articuloId: consumo.id,
           },
-        }),
-      );
+        });
+      await this.syncBusiness.encolarMovimientoInventario(tx, movimientoReceta.id);
+      movimientos.push(movimientoReceta);
     }
 
     return movimientos;
@@ -929,8 +937,7 @@ export class InventarioService {
           },
         });
 
-        reversos.push(
-          await tx.movimientoInventario.create({
+        const reversoProducto = await tx.movimientoInventario.create({
             data: {
               tipo: TipoMovimientoInventario.REVERSO_VENTA,
               cantidad: cantidadRestaurar,
@@ -944,8 +951,9 @@ export class InventarioService {
               productoId: producto.id,
               movimientoOrigenId: movimiento.id,
             },
-          }),
-        );
+          });
+        await this.syncBusiness.encolarMovimientoInventario(tx, reversoProducto.id);
+        reversos.push(reversoProducto);
 
         continue;
       }
@@ -998,8 +1006,7 @@ export class InventarioService {
           },
         });
 
-        reversos.push(
-          await tx.movimientoInventario.create({
+        const reversoArticulo = await tx.movimientoInventario.create({
             data: {
               tipo: TipoMovimientoInventario.REVERSO_VENTA,
               cantidad: cantidadRestaurar,
@@ -1013,8 +1020,9 @@ export class InventarioService {
               articuloId: articulo.id,
               movimientoOrigenId: movimiento.id,
             },
-          }),
-        );
+          });
+        await this.syncBusiness.encolarMovimientoInventario(tx, reversoArticulo.id);
+        reversos.push(reversoArticulo);
 
         continue;
       }

@@ -16,6 +16,7 @@ import {
 } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { SyncBusinessService } from '../sync/sync-business.service';
 
 import { CrearComandaDto } from './dto/crear-comanda.dto';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -38,6 +39,7 @@ export class ComandasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditoria?: AuditoriaService,
+    private readonly syncBusiness?: SyncBusinessService,
   ) {}
 
   private esSuperadmin(usuario: UsuarioAutenticado) {
@@ -299,6 +301,12 @@ export class ComandasService {
           })),
         });
       }
+      if (this.syncBusiness) {
+        for (const comanda of comandas) {
+          await this.syncBusiness.encolarComanda(tx, comanda.id);
+        }
+        await this.syncBusiness.encolarPedido(tx, pedido.id);
+      }
       return { comandas };
     });
   }
@@ -503,6 +511,10 @@ export class ComandasService {
         },
       });
       await this.sincronizarPedido(tx, comanda.pedidoId);
+      if (this.syncBusiness) {
+        await this.syncBusiness.encolarComanda(tx, id);
+        await this.syncBusiness.encolarPedido(tx, comanda.pedidoId);
+      }
       return tx.comanda.findUnique({
         where: { id },
         include: {
@@ -575,6 +587,10 @@ export class ComandasService {
       }
       await this.sincronizarComandaDesdeLineas(tx, id, usuario);
       await this.sincronizarPedido(tx, comanda.pedidoId);
+      if (this.syncBusiness) {
+        await this.syncBusiness.encolarComanda(tx, id);
+        await this.syncBusiness.encolarPedido(tx, comanda.pedidoId);
+      }
       return tx.comanda.findUnique({
         where: { id },
         include: {
@@ -750,6 +766,10 @@ export class ComandasService {
       }
 
       await this.sincronizarPedido(tx, comanda.pedidoId);
+      if (this.syncBusiness) {
+        await this.syncBusiness.encolarComanda(tx, comanda.id);
+        await this.syncBusiness.encolarPedido(tx, comanda.pedidoId);
+      }
 
       return actualizada;
     });

@@ -12,15 +12,24 @@ export function OperationsNotice() {
     !hasCapability("KDS")
   )
     return null;
-  return <Notice key={`${session?.user.id}:${branchId}`} branch={branchId} />;
+  return (
+    <Notice
+      key={`${session?.user.id}:${branchId}`}
+      branch={branchId}
+      userId={session?.user.id ?? 0}
+    />
+  );
 }
-function Notice({ branch }: { branch: number }) {
+function Notice({ branch, userId }: { branch: number; userId: number }) {
   const query = useResource<Command[]>(
     `/comandas?sucursalId=${branch}`,
     [],
     15000,
   );
-  const [sound, setSound] = useState(false);
+  const preferenceKey = `sigr-operations-sound:${userId}:${branch}`;
+  const [sound, setSound] = useState(
+    () => localStorage.getItem(preferenceKey) === "1",
+  );
   const seen = useRef("");
   const audio = useRef<AudioContext | null>(null);
   const ready = query.data.filter((c) => c.estado === "LISTA");
@@ -45,6 +54,13 @@ function Notice({ branch }: { branch: number }) {
     }
     seen.current = signature;
   }, [signature, sound]);
+  useEffect(() => {
+    localStorage.setItem(preferenceKey, sound ? "1" : "0");
+    if (sound) {
+      audio.current ??= new AudioContext();
+      void audio.current.resume();
+    }
+  }, [preferenceKey, sound]);
   useEffect(
     () => () => {
       void audio.current?.close();
@@ -53,7 +69,7 @@ function Notice({ branch }: { branch: number }) {
   );
   return (
     <aside
-      className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-yellow-300 bg-yellow-50 p-3 text-sm"
+      className="operations-notice mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-yellow-300 bg-yellow-50 px-3 py-2 text-sm"
       aria-live="polite"
     >
       <strong>
@@ -75,7 +91,7 @@ function Notice({ branch }: { branch: number }) {
       >
         {sound ? "Silenciar avisos" : "Activar aviso sonoro"}
       </button>
-      <span className="text-xs">Actualización cada 15 s</span>
+      <span className="text-xs text-denim/45">Sincronización automática</span>
     </aside>
   );
 }

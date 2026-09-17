@@ -16,6 +16,10 @@ export class UpdateProductoDto {
   estacionId?: number;
   @IsString()
   @IsOptional()
+  codigo?: string;
+
+  @IsString()
+  @IsOptional()
   nombre?: string;
 
   @IsString()

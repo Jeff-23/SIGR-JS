@@ -11,6 +11,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import { SyncBusinessService } from '../sync/sync-business.service';
 import {
   AjustarPuntosDto,
   ConsentimientoDto,
@@ -21,7 +22,10 @@ import {
 
 @Injectable()
 export class FidelizacionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly syncBusiness: SyncBusinessService,
+  ) {}
 
   private restaurante(user: UsuarioAutenticado) {
     if (user.restauranteId === null)
@@ -124,17 +128,18 @@ export class FidelizacionService {
   }
 
   async crearNivel(data: CrearNivelDto, user: UsuarioAutenticado) {
-    return this.prisma.nivelFidelizacion.create({
-      data: {
-        restauranteId: this.restaurante(user),
-        nombre: data.nombre.trim(),
-        puntosMinimos: data.puntosMinimos,
-        multiplicador: data.multiplicador,
-        beneficios:
-          data.beneficios === undefined
-            ? Prisma.JsonNull
-            : (data.beneficios as Prisma.InputJsonValue),
-      },
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const nivel = await tx.nivelFidelizacion.create({
+        data: {
+          restauranteId: this.restaurante(user),
+          nombre: data.nombre.trim(),
+          puntosMinimos: data.puntosMinimos,
+          multiplicador: data.multiplicador,
+          beneficios: data.beneficios === undefined ? Prisma.JsonNull : (data.beneficios as Prisma.InputJsonValue),
+        },
+      });
+      await this.syncBusiness.encolarNivelFidelizacion(tx, nivel.id);
+      return nivel;
     });
   }
 
@@ -191,61 +196,35 @@ export class FidelizacionService {
       where: { id: clienteId, restauranteId: this.restaurante(user) },
     });
     if (!cliente) throw new NotFoundException('Cliente no encontrado');
-    return this.prisma.consentimientoCliente.upsert({
-      where: { clienteId_canal: { clienteId, canal } },
-      create: {
-        clienteId,
-        canal,
-        otorgado: data.otorgado,
-        fuente: data.fuente.trim(),
-        usuarioId: user.id,
-        revocadoEn: data.otorgado ? null : new Date(),
-      },
-      update: {
-        otorgado: data.otorgado,
-        fuente: data.fuente.trim(),
-        usuarioId: user.id,
-        registradoEn: new Date(),
-        revocadoEn: data.otorgado ? null : new Date(),
-      },
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const consentimiento = await tx.consentimientoCliente.upsert({
+        where: { clienteId_canal: { clienteId, canal } },
+        create: { clienteId, canal, otorgado: data.otorgado, fuente: data.fuente.trim(), usuarioId: user.id, revocadoEn: data.otorgado ? null : new Date() },
+        update: { otorgado: data.otorgado, fuente: data.fuente.trim(), usuarioId: user.id, registradoEn: new Date(), revocadoEn: data.otorgado ? null : new Date() },
+      });
+      await this.syncBusiness.encolarConsentimientoCliente(tx, consentimiento.id);
+      return consentimiento;
     });
   }
 
   ajustar(clienteId: number, data: AjustarPuntosDto, user: UsuarioAutenticado) {
-    if (data.puntos === 0)
-      throw new BadRequestException('El ajuste no puede ser cero');
+    if (data.puntos === 0) throw new BadRequestException('El ajuste no puede ser cero');
     return this.prisma.transaccionSerializable(async (tx) => {
-      const cliente = await tx.cliente.findFirst({
-        where: { id: clienteId, restauranteId: this.restaurante(user) },
-      });
+      const cliente = await tx.cliente.findFirst({ where: { id: clienteId, restauranteId: this.restaurante(user) } });
       if (!cliente) throw new NotFoundException('Cliente no encontrado');
-      const cuenta = await tx.cuentaFidelizacion.upsert({
-        where: { clienteId },
-        create: { clienteId },
-        update: {},
-      });
+      const cuenta = await tx.cuentaFidelizacion.upsert({ where: { clienteId }, create: { clienteId }, update: {} });
       const saldo = cuenta.saldoPuntos + data.puntos;
-      if (saldo < 0)
-        throw new BadRequestException('El ajuste dejaría saldo negativo');
-      await tx.cuentaFidelizacion.update({
+      if (saldo < 0) throw new BadRequestException('El ajuste dejaría saldo negativo');
+      const cuentaActualizada = await tx.cuentaFidelizacion.update({
         where: { id: cuenta.id },
-        data: {
-          saldoPuntos: saldo,
-          ...(data.puntos > 0
-            ? { puntosHistoricos: { increment: data.puntos } }
-            : {}),
-        },
+        data: { saldoPuntos: saldo, ...(data.puntos > 0 ? { puntosHistoricos: { increment: data.puntos } } : {}) },
       });
-      return tx.movimientoPuntos.create({
-        data: {
-          cuentaId: cuenta.id,
-          usuarioId: user.id,
-          tipo: TipoMovimientoPuntos.AJUSTE,
-          puntos: data.puntos,
-          saldoPosterior: saldo,
-          motivo: data.motivo.trim(),
-        },
+      const movimiento = await tx.movimientoPuntos.create({
+        data: { cuentaId: cuenta.id, usuarioId: user.id, tipo: TipoMovimientoPuntos.AJUSTE, puntos: data.puntos, saldoPosterior: saldo, motivo: data.motivo.trim() },
       });
+      await this.syncBusiness.encolarCuentaFidelizacion(tx, cuentaActualizada.id);
+      await this.syncBusiness.encolarMovimientoPuntos(tx, movimiento.id);
+      return movimiento;
     });
   }
 }

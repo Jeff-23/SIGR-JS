@@ -1,5 +1,6 @@
 export type AmbienteAplicacion = 'development' | 'test' | 'production';
 export type DuracionJwt = `${number}${'s' | 'm' | 'h' | 'd'}`;
+export type RolSync = 'EDGE' | 'CLOUD' | 'STANDALONE';
 
 export type ConfiguracionEntorno = {
   ambiente: AmbienteAplicacion;
@@ -14,6 +15,18 @@ export type ConfiguracionEntorno = {
   swaggerHabilitado: boolean;
   metricasHabilitadas: boolean;
   confianzaProxy: boolean;
+  syncHabilitado: boolean;
+  syncRol: RolSync;
+  syncNodeId: string;
+  syncPeerUrl?: string;
+  syncPeerNodeId?: string;
+  syncPeerKey?: string;
+  syncPollIntervalMs: number;
+  syncBatchSize: number;
+  syncCertificationEnabled: boolean;
+  syncCertKey?: string;
+  syncBootstrapPeerNodeId?: string;
+  syncBootstrapPeerKey?: string;
 };
 
 const AMBIENTES = new Set<AmbienteAplicacion>([
@@ -81,6 +94,70 @@ export function validarEntorno(
   );
   const confianzaProxy = booleano(variables.TRUST_PROXY, false, 'TRUST_PROXY');
 
+  const syncHabilitado = booleano(
+    variables.SYNC_ENABLED,
+    false,
+    'SYNC_ENABLED',
+  );
+  const syncRolRecibido =
+    variables.SYNC_ROLE?.trim().toUpperCase() || 'STANDALONE';
+  if (!['EDGE', 'CLOUD', 'STANDALONE'].includes(syncRolRecibido)) {
+    throw new Error('SYNC_ROLE debe ser EDGE, CLOUD o STANDALONE');
+  }
+  const syncRol = syncRolRecibido as RolSync;
+  const syncNodeId = variables.SYNC_NODE_ID?.trim() || 'standalone';
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{2,119}$/.test(syncNodeId)) {
+    throw new Error('SYNC_NODE_ID debe tener 3-120 caracteres seguros');
+  }
+  const syncPeerUrl = opcional(variables, 'SYNC_PEER_URL');
+  const syncPeerNodeId = opcional(variables, 'SYNC_PEER_NODE_ID');
+  const syncPeerKey = opcional(variables, 'SYNC_PEER_KEY');
+  const syncPollIntervalMs = entero(
+    variables.SYNC_POLL_INTERVAL_MS,
+    5000,
+    'SYNC_POLL_INTERVAL_MS',
+    1000,
+    300000,
+  );
+  const syncBatchSize = entero(
+    variables.SYNC_BATCH_SIZE,
+    50,
+    'SYNC_BATCH_SIZE',
+    1,
+    200,
+  );
+  const syncCertificationEnabled = booleano(
+    variables.SYNC_CERTIFICATION_ENABLED,
+    false,
+    'SYNC_CERTIFICATION_ENABLED',
+  );
+  const syncCertKey = opcional(variables, 'SYNC_CERT_KEY');
+  const syncBootstrapPeerNodeId = opcional(
+    variables,
+    'SYNC_BOOTSTRAP_PEER_NODE_ID',
+  );
+  const syncBootstrapPeerKey = opcional(variables, 'SYNC_BOOTSTRAP_PEER_KEY');
+
+  if (syncHabilitado && syncRol === 'STANDALONE') {
+    throw new Error('SYNC_ROLE debe ser EDGE o CLOUD cuando SYNC_ENABLED=true');
+  }
+  if (syncHabilitado && syncRol === 'EDGE') {
+    if (!syncPeerUrl || !syncPeerNodeId || !syncPeerKey) {
+      throw new Error(
+        'EDGE requiere SYNC_PEER_URL, SYNC_PEER_NODE_ID y SYNC_PEER_KEY',
+      );
+    }
+    validarSyncUrl(syncPeerUrl, ambiente);
+    validarClaveSync(syncPeerKey, 'SYNC_PEER_KEY');
+  }
+  if (syncCertificationEnabled) {
+    if (!syncCertKey)
+      throw new Error('SYNC_CERT_KEY es obligatoria para certificacion sync');
+    validarClaveSync(syncCertKey, 'SYNC_CERT_KEY');
+  }
+  if (syncBootstrapPeerKey)
+    validarClaveSync(syncBootstrapPeerKey, 'SYNC_BOOTSTRAP_PEER_KEY');
+
   const corsOrigenes = (variables.CORS_ORIGINS ?? 'http://localhost:5173')
     .split(',')
     .map((origen) => origen.trim())
@@ -105,6 +182,18 @@ export function validarEntorno(
     swaggerHabilitado,
     metricasHabilitadas,
     confianzaProxy,
+    syncHabilitado,
+    syncRol,
+    syncNodeId,
+    syncPeerUrl,
+    syncPeerNodeId,
+    syncPeerKey,
+    syncPollIntervalMs,
+    syncBatchSize,
+    syncCertificationEnabled,
+    syncCertKey,
+    syncBootstrapPeerNodeId,
+    syncBootstrapPeerKey,
   };
 }
 
@@ -175,6 +264,39 @@ function validarOrigenCors(origen: string, ambiente: AmbienteAplicacion) {
   }
   if (ambiente === 'production' && url.protocol !== 'https:') {
     throw new Error('Los orígenes CORS de producción deben usar HTTPS');
+  }
+}
+
+function opcional(
+  variables: NodeJS.ProcessEnv,
+  nombre: string,
+): string | undefined {
+  const valor = variables[nombre]?.trim();
+  return valor || undefined;
+}
+
+function validarClaveSync(valor: string, nombre: string) {
+  if (valor.length < 32)
+    throw new Error(`${nombre} debe tener al menos 32 caracteres`);
+}
+
+function validarSyncUrl(valor: string, ambiente: AmbienteAplicacion) {
+  let url: URL;
+  try {
+    url = new URL(valor);
+  } catch {
+    throw new Error('SYNC_PEER_URL debe ser una URL valida');
+  }
+  if (!['http:', 'https:'].includes(url.protocol))
+    throw new Error('SYNC_PEER_URL debe usar http o https');
+  // En produccion EDGE real debe hablar con Cloud por TLS. Se permite HTTP solo
+  // hacia host.docker.internal para la certificacion local 48D.
+  if (
+    ambiente === 'production' &&
+    url.protocol !== 'https:' &&
+    url.hostname !== 'host.docker.internal'
+  ) {
+    throw new Error('SYNC_PEER_URL de produccion debe usar HTTPS');
   }
 }
 

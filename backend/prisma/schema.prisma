@@ -270,6 +270,12 @@ enum TipoMarcacionPersonal {
   SALIDA
 }
 
+enum EstadoMediaProducto {
+  ACTIVA
+  PENDIENTE_ELIMINACION
+  ELIMINADA
+}
+
 enum IndicadorMetaOperativa {
   VENTAS_MONTO
   VENTAS_CANTIDAD
@@ -278,6 +284,7 @@ enum IndicadorMetaOperativa {
 
 model Restaurante {
   id            Int      @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
   nombre        String   @db.VarChar(100)
   nit           String   @unique @db.VarChar(20)
   direccion     String?  @db.VarChar(200)
@@ -305,12 +312,14 @@ model Restaurante {
   proveedores         Proveedor[]
   empleados           Empleado[]
   funcionesPersonal   FuncionPersonal[]
+  imagenesProducto    ImagenProducto[]
 
   @@index([planId])
 }
 
 model Cliente {
   id Int @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
 
   tipoDocumento   String? @db.VarChar(20)
   numeroDocumento String? @db.VarChar(30)
@@ -345,6 +354,7 @@ model Cliente {
 
 model Sucursal {
   id        Int      @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
   nombre    String   @db.VarChar(100)
   direccion String?  @db.VarChar(200)
   telefono  String?  @db.VarChar(20)
@@ -435,6 +445,7 @@ model Rol {
 
 model Usuario {
   id        Int     @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
   nombres   String  @db.VarChar(100)
   apellidos String  @db.VarChar(100)
   email     String  @unique @db.VarChar(150)
@@ -596,6 +607,7 @@ model NovedadPersonal {
 
 model Zona {
   id       Int      @id @default(autoincrement())
+  globalId String   @unique @default(uuid()) @db.Uuid
   nombre   String   @db.VarChar(50)
   estado   Boolean  @default(true)
   creadoEn DateTime @default(now())
@@ -608,6 +620,7 @@ model Zona {
 
 model Mesa {
   id                 Int        @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
   numero             String     @db.VarChar(10)
   capacidad          Int        @default(4)
   forma              FormaMesa  @default(CUADRADA)
@@ -693,6 +706,7 @@ model EntradaListaEspera {
 
 model Categoria {
   id       Int      @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
   nombre   String   @db.VarChar(50)
   estado   Boolean  @default(true)
   creadoEn DateTime @default(now())
@@ -705,6 +719,8 @@ model Categoria {
 
 model Producto {
   id          Int     @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
+  codigo      String? @db.VarChar(50)
   nombre      String  @db.VarChar(100)
   descripcion String? @db.Text
   precio      Decimal @db.Decimal(10, 2)
@@ -731,8 +747,34 @@ model Producto {
   movimientosInventario MovimientoInventario[]
   promociones           PromocionProducto[]
   detallesSolicitudQr   DetalleSolicitudPedidoQr[]
+  imagenPrincipal       ImagenProducto?
 
   @@index([estacionId])
+  @@index([codigo])
+}
+
+model ImagenProducto {
+  id              Int                 @id @default(autoincrement())
+  productoId      Int                 @unique
+  restauranteId   Int
+  tokenPublico     String              @unique @db.VarChar(36)
+  nombreOriginal  String              @db.VarChar(255)
+  mimeOriginal    String              @db.VarChar(100)
+  bytesOriginales Int
+  anchoOriginal   Int
+  altoOriginal    Int
+  hashSha256      String              @db.VarChar(64)
+  focoX           Int                 @default(50)
+  focoY           Int                 @default(50)
+  zoom            Decimal             @default(1) @db.Decimal(4, 2)
+  estado          EstadoMediaProducto @default(ACTIVA)
+  creadoEn        DateTime            @default(now())
+  actualizadoEn   DateTime            @updatedAt
+
+  producto    Producto    @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  restaurante Restaurante @relation(fields: [restauranteId], references: [id], onDelete: Cascade)
+
+  @@index([restauranteId, estado])
 }
 
 model ProductoModificador {
@@ -753,6 +795,7 @@ model ProductoModificador {
 
 model EstacionPreparacion {
   id                     Int      @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
   codigo                 String   @db.VarChar(40)
   nombre                 String   @db.VarChar(80)
   color                  String   @default("#F97316") @db.VarChar(7)
@@ -773,6 +816,7 @@ model EstacionPreparacion {
 
 model Pedido {
   id            Int          @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
   total         Decimal      @db.Decimal(12, 2)
   tipo          TipoPedido   @default(MESA)
   estado        EstadoPedido @default(PENDIENTE)
@@ -860,6 +904,7 @@ model PedidoMesa {
 
 model Domicilio {
   id            Int             @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
   estado        EstadoDomicilio @default(PENDIENTE_ASIGNACION)
   destinatario  String          @db.VarChar(160)
   telefono      String          @db.VarChar(30)
@@ -884,6 +929,7 @@ model Domicilio {
 
 model DetallePedido {
   id             Int     @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
   cantidad       Int
   precioUnitario Decimal @db.Decimal(10, 2)
   subtotal       Decimal @db.Decimal(10, 2)
@@ -920,6 +966,7 @@ model DetallePedidoModificador {
 
 model Comanda {
   id Int @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
 
   estado    EstadoComanda    @default(PENDIENTE)
   prioridad PrioridadComanda @default(NORMAL)
@@ -957,6 +1004,7 @@ model Comanda {
 
 model DetalleComanda {
   id Int @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
 
   cantidad Int
   estado   EstadoDetalleComanda @default(PENDIENTE)
@@ -1003,6 +1051,7 @@ model EventoOperacional {
 
 model Venta {
   id Int @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
 
   origen OrigenVenta @default(PEDIDO)
   estado EstadoVenta @default(PENDIENTE_PAGO)
@@ -1061,6 +1110,7 @@ model Venta {
 
 model DetalleVenta {
   id Int @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
 
   cantidad       Int
   precioUnitario Decimal @db.Decimal(12, 2)
@@ -1082,6 +1132,7 @@ model DetalleVenta {
 
 model Articulo {
   id               Int              @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
   nombre           String           @db.VarChar(100)
   unidad           UnidadInventario @default(UNIDAD)
   costoUnidad      Decimal          @db.Decimal(10, 2)
@@ -1340,6 +1391,7 @@ model Receta {
 
 model MovimientoInventario {
   id Int @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
 
   tipo     TipoMovimientoInventario
   cantidad Decimal                  @db.Decimal(14, 4)
@@ -1386,6 +1438,7 @@ model MovimientoInventario {
 
 model MetodoPago {
   id     Int            @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
   nombre String         @db.VarChar(50)
   tipo   TipoMetodoPago @default(OTRO)
   activo Boolean        @default(true)
@@ -1397,6 +1450,7 @@ model MetodoPago {
 
 model Factura {
   id             Int      @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
   numero         String   @unique @db.VarChar(50)
   total          Decimal  @db.Decimal(12, 2)
   cufe           String?  @db.VarChar(150)
@@ -1477,6 +1531,7 @@ model RegistroFacturaOperativa {
 
 model Pago {
   id         Int      @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
   monto      Decimal  @db.Decimal(12, 2)
   referencia String?  @db.VarChar(150)
   creadoEn   DateTime @default(now())
@@ -1588,6 +1643,7 @@ model ReversionVenta {
 
 model Caja {
   id     Int        @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
   nombre String     @db.VarChar(80)
   estado EstadoCaja @default(ABIERTA)
 
@@ -1632,6 +1688,7 @@ model Caja {
 
 model MovimientoCaja {
   id                Int                @id @default(autoincrement())
+  globalId String @unique @default(uuid()) @db.Uuid
   tipo              TipoMovimientoCaja
   monto             Decimal            @db.Decimal(12, 2)
   concepto          String             @db.VarChar(120)
@@ -1742,6 +1799,7 @@ model AplicacionDescuento {
 
 model NivelFidelizacion {
   id            Int      @id @default(autoincrement())
+  globalId      String   @unique @default(uuid()) @db.Uuid
   nombre        String   @db.VarChar(80)
   puntosMinimos Int
   multiplicador Decimal  @default(1) @db.Decimal(6, 2)
@@ -1759,6 +1817,7 @@ model NivelFidelizacion {
 
 model CuentaFidelizacion {
   id               Int      @id @default(autoincrement())
+  globalId         String   @unique @default(uuid()) @db.Uuid
   saldoPuntos      Int      @default(0)
   puntosHistoricos Int      @default(0)
   actualizadoEn    DateTime @updatedAt
@@ -1774,6 +1833,7 @@ model CuentaFidelizacion {
 
 model MovimientoPuntos {
   id             Int                  @id @default(autoincrement())
+  globalId       String               @unique @default(uuid()) @db.Uuid
   tipo           TipoMovimientoPuntos
   puntos         Int
   saldoPosterior Int
@@ -1793,6 +1853,7 @@ model MovimientoPuntos {
 
 model ConsentimientoCliente {
   id           Int               @id @default(autoincrement())
+  globalId     String            @unique @default(uuid()) @db.Uuid
   canal        CanalComunicacion
   otorgado     Boolean
   fuente       String            @db.VarChar(80)
@@ -2041,4 +2102,135 @@ model HistorialDocumentoFiscal {
   documento     DocumentoElectronico       @relation(fields: [documentoId], references: [id], onDelete: Restrict)
 
   @@index([documentoId, creadoEn])
+}
+
+// ==========================================
+// SPRINT 48D-1: SINCRONIZACION EDGE <-> CLOUD
+// ==========================================
+
+enum RolNodoSync {
+  EDGE
+  CLOUD
+}
+
+enum EstadoSyncOutbox {
+  PENDIENTE
+  ENVIANDO
+  SINCRONIZADO
+  ERROR
+}
+
+enum EstadoSyncInbox {
+  RECIBIDO
+  APLICADO
+  ERROR
+}
+
+enum TipoConflictoSync {
+  COLISION_EVENT_ID
+  APLICACION_EVENTO
+}
+
+enum EstadoConflictoSync {
+  ABIERTO
+  RESUELTO
+  DESCARTADO
+}
+
+model SyncPeer {
+  id                  Int      @id @default(autoincrement())
+  nodeId              String   @unique @db.VarChar(120)
+  nombre              String?  @db.VarChar(160)
+  rol                  RolNodoSync
+  claveHash            String   @db.VarChar(64)
+  activo               Boolean  @default(true)
+  restauranteGlobalId  String?  @db.Uuid
+  sucursalGlobalId     String?  @db.Uuid
+  creadoEn             DateTime @default(now())
+  actualizadoEn        DateTime @updatedAt
+  ultimoAccesoEn       DateTime?
+
+  @@index([activo, rol])
+  @@index([restauranteGlobalId])
+  @@index([sucursalGlobalId])
+}
+
+model SyncOutbox {
+  id                   Int              @id @default(autoincrement())
+  eventId              String           @unique @default(uuid()) @db.Uuid
+  nodoOrigenId         String           @db.VarChar(120)
+  nodoDestinoId        String           @db.VarChar(120)
+  restauranteGlobalId  String?          @db.Uuid
+  sucursalGlobalId     String?          @db.Uuid
+  tipoAgregado         String           @db.VarChar(100)
+  agregadoGlobalId     String?          @db.Uuid
+  tipoEvento           String           @db.VarChar(140)
+  versionEsquema       Int              @default(1)
+  payload              Json
+  payloadHash          String           @db.VarChar(64)
+  ocurridoEn           DateTime
+  creadoEn             DateTime         @default(now())
+  estado               EstadoSyncOutbox @default(PENDIENTE)
+  intentos             Int              @default(0)
+  ultimoIntentoEn      DateTime?
+  proximoIntentoEn     DateTime?
+  sincronizadoEn       DateTime?
+  ultimoError          String?          @db.VarChar(1000)
+
+  @@index([estado, proximoIntentoEn, id])
+  @@index([nodoDestinoId, estado, id])
+  @@index([sucursalGlobalId, id])
+  @@index([tipoAgregado, agregadoGlobalId])
+}
+
+model SyncConflicto {
+  id                    BigInt               @id @default(autoincrement())
+  conflictoId           String               @unique @default(uuid()) @db.Uuid
+  eventId               String               @db.Uuid
+  nodoOrigenId          String               @db.VarChar(120)
+  nodoDestinoId         String               @db.VarChar(120)
+  restauranteGlobalId   String?              @db.Uuid
+  sucursalGlobalId      String?              @db.Uuid
+  tipoAgregado          String               @db.VarChar(100)
+  agregadoGlobalId      String?              @db.Uuid
+  tipoEvento            String               @db.VarChar(140)
+  tipo                   TipoConflictoSync
+  razon                  String               @db.VarChar(1000)
+  payloadHashRecibido   String               @db.VarChar(64)
+  payloadHashExistente  String?              @db.VarChar(64)
+  estado                 EstadoConflictoSync  @default(ABIERTO)
+  resolucion             String?              @db.VarChar(1000)
+  creadoEn               DateTime             @default(now())
+  actualizadoEn          DateTime             @updatedAt
+  resueltoEn             DateTime?
+
+  @@unique([eventId, tipo, payloadHashRecibido])
+  @@index([estado, creadoEn])
+  @@index([restauranteGlobalId, estado, creadoEn])
+  @@index([sucursalGlobalId, estado, creadoEn])
+  @@index([tipoAgregado, agregadoGlobalId, creadoEn])
+}
+
+model SyncInbox {
+  id                   Int             @id @default(autoincrement())
+  eventId              String          @unique @db.Uuid
+  nodoOrigenId         String          @db.VarChar(120)
+  restauranteGlobalId  String?         @db.Uuid
+  sucursalGlobalId     String?         @db.Uuid
+  tipoAgregado         String          @db.VarChar(100)
+  agregadoGlobalId     String?         @db.Uuid
+  tipoEvento           String          @db.VarChar(140)
+  versionEsquema       Int             @default(1)
+  payload              Json
+  payloadHash          String          @db.VarChar(64)
+  ocurridoEn           DateTime
+  recibidoEn           DateTime        @default(now())
+  aplicadoEn           DateTime?
+  estado               EstadoSyncInbox @default(RECIBIDO)
+  ultimoError          String?         @db.VarChar(1000)
+
+  @@index([nodoOrigenId, recibidoEn])
+  @@index([sucursalGlobalId, recibidoEn])
+  @@index([estado, recibidoEn])
+  @@index([tipoAgregado, agregadoGlobalId])
 }

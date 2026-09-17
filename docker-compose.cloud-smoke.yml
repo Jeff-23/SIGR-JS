@@ -1,0 +1,21 @@
+name: sigr-cloud-smoke
+
+services:
+  # El smoke se sirve por HTTP sólo en localhost. El backend usa modo
+  # development únicamente durante esta certificación local para permitir
+  # CORS http://localhost:8081. Las imágenes siguen siendo builds productivos.
+  backend:
+    environment:
+      NODE_ENV: development
+
+  gateway:
+    ports:
+      - "127.0.0.1:${CLOUD_SMOKE_PORT:-8081}:80"
+    volumes:
+      - ./deploy/cloud/Caddyfile.smoke:/etc/caddy/Caddyfile:ro
+      - sigr_cloud_smoke_caddy_data:/data
+      - sigr_cloud_smoke_caddy_config:/config
+
+volumes:
+  sigr_cloud_smoke_caddy_data:
+  sigr_cloud_smoke_caddy_config:

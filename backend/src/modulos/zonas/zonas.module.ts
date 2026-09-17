@@ -2,9 +2,10 @@ import { Module } from '@nestjs/common';
 import { ZonasService } from './zonas.service';
 import { ZonasController } from './zonas.controller';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { SyncModule } from '../sync/sync.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, SyncModule],
   controllers: [ZonasController], // ¡Esta es la línea que expone la ruta!
   providers: [ZonasService],
 })

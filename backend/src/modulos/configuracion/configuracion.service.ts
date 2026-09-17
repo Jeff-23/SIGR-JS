@@ -13,12 +13,14 @@ import {
   validarConfiguracion,
 } from './configuracion.catalogo';
 import { ActualizarTemaDto } from './dto/actualizar-tema.dto';
+import { SyncBusinessService } from '../sync/sync-business.service';
 
 @Injectable()
 export class ConfiguracionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
+    private readonly sync: SyncBusinessService,
   ) {}
 
   private readonly temaPredeterminado = {
@@ -93,6 +95,7 @@ export class ConfiguracionService {
           },
           contexto,
         );
+        await this.sync.encolarConfiguracionRestaurante(tx, resultado.id);
       }
     });
 
@@ -158,6 +161,7 @@ export class ConfiguracionService {
         },
         contexto,
       );
+      await this.sync.encolarConfiguracionRestaurante(tx, resultado.id);
       return resultado;
     });
   }
@@ -206,6 +210,7 @@ export class ConfiguracionService {
         },
         contexto,
       );
+      await this.sync.encolarConfiguracionSucursal(tx, resultado.id);
       return resultado;
     });
   }

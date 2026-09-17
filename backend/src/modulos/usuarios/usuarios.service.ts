@@ -13,10 +13,14 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import { SyncBusinessService } from '../sync/sync-business.service';
 
 @Injectable()
 export class UsuariosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sync: SyncBusinessService,
+  ) {}
 
   private readonly usuarioPublicoSelect = {
     id: true,
@@ -310,21 +314,20 @@ export class UsuariosService {
 
     const passwordHasheada = await bcrypt.hash(password, 10);
 
-    return this.prisma.usuario.create({
-      data: {
-        ...datosPersonales,
-
-        email: emailNormalizado,
-        password: passwordHasheada,
-
-        rolId,
-
-        restauranteId: restauranteDestino,
-
-        sucursalId: sucursalDestino,
-      },
-
-      select: this.usuarioPublicoSelect,
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const creado = await tx.usuario.create({
+        data: {
+          ...datosPersonales,
+          email: emailNormalizado,
+          password: passwordHasheada,
+          rolId,
+          restauranteId: restauranteDestino,
+          sucursalId: sucursalDestino,
+        },
+        select: this.usuarioPublicoSelect,
+      });
+      await this.sync.encolarUsuario(tx, creado.id);
+      return creado;
     });
   }
 
@@ -488,32 +491,20 @@ export class UsuariosService {
     void _sucursalId;
     void _email;
 
-    return this.prisma.usuario.update({
-      where: {
-        id,
-      },
-
-      data: {
-        ...datosActualizables,
-
-        ...(emailNormalizado !== undefined
-          ? {
-              email: emailNormalizado,
-            }
-          : {}),
-
-        ...(passwordHasheada !== undefined
-          ? {
-              password: passwordHasheada,
-            }
-          : {}),
-
-        restauranteId: restauranteDestino,
-
-        sucursalId: sucursalDestino,
-      },
-
-      select: this.usuarioPublicoSelect,
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const actualizado = await tx.usuario.update({
+        where: { id },
+        data: {
+          ...datosActualizables,
+          ...(emailNormalizado !== undefined ? { email: emailNormalizado } : {}),
+          ...(passwordHasheada !== undefined ? { password: passwordHasheada } : {}),
+          restauranteId: restauranteDestino,
+          sucursalId: sucursalDestino,
+        },
+        select: this.usuarioPublicoSelect,
+      });
+      await this.sync.encolarUsuario(tx, actualizado.id);
+      return actualizado;
     });
   }
 
@@ -524,16 +515,14 @@ export class UsuariosService {
 
     await this.buscarUsuarioDentroDelAlcance(id, usuarioActual);
 
-    return this.prisma.usuario.update({
-      where: {
-        id,
-      },
-
-      data: {
-        activo: false,
-      },
-
-      select: this.usuarioPublicoSelect,
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const actualizado = await tx.usuario.update({
+        where: { id },
+        data: { activo: false },
+        select: this.usuarioPublicoSelect,
+      });
+      await this.sync.encolarUsuario(tx, actualizado.id);
+      return actualizado;
     });
   }
 }

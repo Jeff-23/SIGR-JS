@@ -9,10 +9,14 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateArticuloDto } from './dto/create-articulo.dto';
 import { UpdateArticuloDto } from './dto/update-articulo.dto';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import { SyncBusinessService } from '../sync/sync-business.service';
 
 @Injectable()
 export class ArticulosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly syncBusiness: SyncBusinessService,
+  ) {}
 
   private esSuperadmin(usuarioActual: UsuarioAutenticado) {
     return (
@@ -110,6 +114,12 @@ export class ArticulosService {
           });
         }
 
+        await this.syncBusiness.encolarArticulo(tx, articulo.id);
+        const inicial = await tx.movimientoInventario.findFirst({
+          where: { articuloId: articulo.id, motivo: 'Stock inicial del artículo' },
+          orderBy: { id: 'desc' },
+        });
+        if (inicial) await this.syncBusiness.encolarMovimientoInventario(tx, inicial.id);
         return articulo;
       },
       {
@@ -167,11 +177,10 @@ export class ArticulosService {
       );
     }
 
-    return this.prisma.articulo.update({
-      where: {
-        id,
-      },
-      data,
+    return this.prisma.$transaction(async (tx) => {
+      const actualizado = await tx.articulo.update({ where: { id }, data });
+      await this.syncBusiness.encolarArticulo(tx, actualizado.id);
+      return actualizado;
     });
   }
 }

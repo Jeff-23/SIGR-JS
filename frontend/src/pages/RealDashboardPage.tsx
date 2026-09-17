@@ -194,6 +194,43 @@ function RoleWorkspace() {
     actions: [],
   };
   const actions = workspace.actions.filter((action) => action.visible);
+  const stationRole = role === "COCINA" || role === "BAR";
+
+  if (stationRole) {
+    const primary = actions[0];
+    const PrimaryIcon = primary?.icon;
+    return (
+      <div className="space-y-4">
+        <section className="card border-l-4 border-marigold p-4 sm:p-5">
+          <p className="eyebrow">{role} · {session?.user.sucursalNombre ?? "Sucursal seleccionada"}</p>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-black">{workspace.title}</h2>
+              <p className="mt-1 text-sm text-denim/60">{workspace.description}</p>
+            </div>
+            {primary && (
+              <Link
+                to={primary.to}
+                className="primary h-12 w-auto min-w-52 px-5"
+              >
+                {PrimaryIcon && <PrimaryIcon size={19} />}
+                {primary.label}
+                <ArrowUpRight size={17} />
+              </Link>
+            )}
+          </div>
+        </section>
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {workspace.functions.map((item) => (
+            <div key={item} className="rounded-2xl border border-denim/10 bg-white p-3 text-sm font-semibold text-denim/65">
+              <span className="mr-2 inline-block h-2 w-2 rounded-full bg-marigold" />
+              {item}
+            </div>
+          ))}
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">

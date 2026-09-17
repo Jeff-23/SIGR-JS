@@ -3,10 +3,14 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateCategoriaDto } from './dto/create-categoria.dto';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import { SyncBusinessService } from '../sync/sync-business.service';
 
 @Injectable()
 export class CategoriasService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly syncBusiness: SyncBusinessService,
+  ) {}
 
   private esSuperadmin(usuarioActual: UsuarioAutenticado) {
     return (
@@ -47,8 +51,10 @@ export class CategoriasService {
   async create(data: CreateCategoriaDto, usuarioActual: UsuarioAutenticado) {
     await this.validarSucursalDentroDelAlcance(data.sucursalId, usuarioActual);
 
-    return this.prisma.categoria.create({
-      data,
+    return this.prisma.$transaction(async (tx) => {
+      const categoria = await tx.categoria.create({ data });
+      await this.syncBusiness.encolarCategoria(tx, categoria.id);
+      return categoria;
     });
   }
 

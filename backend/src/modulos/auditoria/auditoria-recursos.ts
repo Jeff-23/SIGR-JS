@@ -19,6 +19,7 @@ const RECURSOS_POR_SEGMENTO: Record<string, string> = {
   mesas: 'MESA',
   zonas: 'ZONA',
   'metodos-pago': 'METODO_PAGO',
+  sync: 'SINCRONIZACION',
 };
 
 export function resolverRecursoAuditoria(ruta: string): string {

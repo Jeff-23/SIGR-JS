@@ -9,9 +9,19 @@ const PORT = Number(process.env.SIGR_PRINT_AGENT_PORT || 38475);
 const SCRIPT = path.join(__dirname, 'windows-printer.ps1');
 const MAX_BODY = 256 * 1024;
 
+const EXTRA_ALLOWED_ORIGINS = new Set(
+  String(process.env.SIGR_PRINT_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => value.replace(/\/$/, '')),
+);
+
 function isAllowedOrigin(origin) {
   if (!origin) return true;
   try {
+    const normalizedOrigin = String(origin).replace(/\/$/, '');
+    if (EXTRA_ALLOWED_ORIGINS.has(normalizedOrigin)) return true;
     const url = new URL(origin);
     if (!['http:', 'https:'].includes(url.protocol)) return false;
     const host = url.hostname;

@@ -34,7 +34,15 @@
     "audit:check": "node scripts/audit-dependencies.mjs",
     "certify": "npm run lint:check && npm run build && npm test -- --runInBand && npm run test:e2e -- --runInBand && prisma migrate status",
     "certify:ci": "npm run certify && npm run audit:check",
-    "db:seed:certificacion": "ts-node prisma/seed-certificacion-multiempresa.ts"
+    "db:seed:certificacion": "ts-node prisma/seed-certificacion-multiempresa.ts",
+    "catalog:import": "node scripts/importar-catalogo.mjs",
+    "media:certify": "node scripts/certificar-media.mjs",
+    "backup:full": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup-auto.ps1",
+    "backup:verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-backup.ps1",
+    "restore:verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/restore-verify.ps1",
+    "backup:schedule:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-backup-task.ps1",
+    "backup:schedule:remove": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/remove-backup-task.ps1",
+    "sync:identity:certify": "node scripts/certificar-identidad-distribuida.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -56,7 +64,8 @@
     "passport-jwt": "^4.0.1",
     "pg": "^8.22.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "sharp": "^0.34.3"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

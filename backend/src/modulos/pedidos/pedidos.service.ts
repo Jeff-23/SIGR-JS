@@ -16,6 +16,7 @@ import {
 } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { SyncBusinessService } from '../sync/sync-business.service';
 
 import { CreatePedidoDto } from './dto/create-pedido.dto';
 
@@ -64,7 +65,10 @@ type DetallePreparado = {
 
 @Injectable()
 export class PedidosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly syncBusiness: SyncBusinessService,
+  ) {}
 
   private esSuperadmin(usuarioActual: UsuarioAutenticado) {
     return (
@@ -380,7 +384,7 @@ export class PedidosService {
 
       if (
         mesa.situacion !== EstadoMesa.LIBRE &&
-        !(mesa.situacion === EstadoMesa.OCUPADA && mesa.ocupacionManual)
+        !mesa.ocupacionManual
       ) {
         throw new BadRequestException(
           'La mesa ya esta ocupada o no esta disponible',
@@ -395,7 +399,7 @@ export class PedidosService {
 
           OR: [
             { situacion: EstadoMesa.LIBRE },
-            { situacion: EstadoMesa.OCUPADA, ocupacionManual: true },
+            { ocupacionManual: true },
           ],
         },
 
@@ -557,6 +561,11 @@ export class PedidosService {
         },
       });
 
+      await this.syncBusiness.encolarPedido(tx, creado.id);
+      if (creado.domicilio) {
+        await this.syncBusiness.encolarDomicilio(tx, creado.domicilio.id);
+      }
+
       return creado;
     });
   }
@@ -625,7 +634,7 @@ export class PedidosService {
           ? EstadoPedido.PENDIENTE
           : pedido.estado;
 
-      return tx.pedido.update({
+      const actualizado = await tx.pedido.update({
         where: {
           id: pedido.id,
         },
@@ -680,6 +689,8 @@ export class PedidosService {
           },
         },
       });
+      await this.syncBusiness.encolarPedido(tx, pedido.id);
+      return actualizado;
     });
   }
 
@@ -778,6 +789,7 @@ export class PedidosService {
         where: { id: pedido.id },
         data: { total: { increment: subtotalNuevo.minus(subtotalAnterior) } },
       });
+      await this.syncBusiness.encolarPedido(tx, pedido.id);
       return { pedidoId, detalleId, cantidad, subtotal: subtotalNuevo };
     });
   }
@@ -1618,7 +1630,9 @@ export class PedidosService {
           where: { id: domicilio.pedidoId },
           data: { estado: EstadoPedido.ENTREGADO },
         });
+        await this.syncBusiness.encolarPedido(tx, domicilio.pedidoId);
       }
+      await this.syncBusiness.encolarDomicilio(tx, actualizado.id);
       return actualizado;
     });
   }

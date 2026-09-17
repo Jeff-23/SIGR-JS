@@ -12,6 +12,10 @@ import {
 
 export class CreateProductoDto {
   @IsString()
+  @IsOptional()
+  codigo?: string;
+
+  @IsString()
   @IsNotEmpty()
   nombre: string;
 

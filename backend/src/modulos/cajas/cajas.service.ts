@@ -13,6 +13,7 @@ import {
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import { SyncBusinessService } from '../sync/sync-business.service';
 
 import { AbrirCajaDto } from './dto/abrir-caja.dto';
 import { CerrarCajaDto } from './dto/cerrar-caja.dto';
@@ -26,7 +27,7 @@ import {
 
 @Injectable()
 export class CajasService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly syncBusiness: SyncBusinessService) {}
 
   private esSuperadmin(usuario: UsuarioAutenticado) {
     return usuario.rol === 'SUPERADMIN' && usuario.restauranteId === null;
@@ -238,7 +239,7 @@ export class CajasService {
 
       const observacion = data.observacion?.trim() || null;
 
-      return tx.caja.create({
+      const cajaCreada = await tx.caja.create({
         data: {
           nombre,
           saldoInicial: new Prisma.Decimal(data.saldoInicial),
@@ -260,6 +261,8 @@ export class CajasService {
           },
         },
       });
+      await this.syncBusiness.encolarCaja(tx, cajaCreada.id);
+      return cajaCreada;
     });
   }
 
@@ -484,7 +487,7 @@ export class CajasService {
         );
       }
 
-      return tx.movimientoCaja.create({
+      const movimiento = await tx.movimientoCaja.create({
         data: {
           tipo: data.tipo,
           monto: new Prisma.Decimal(data.monto),
@@ -505,6 +508,9 @@ export class CajasService {
           },
         },
       });
+      await this.syncBusiness.encolarMovimientoCaja(tx, movimiento.id);
+      await this.syncBusiness.encolarCaja(tx, caja.id);
+      return movimiento;
     });
   }
 
@@ -561,7 +567,7 @@ export class CajasService {
 
       const diferencia = saldoContado.minus(resumen.saldoEsperado);
 
-      return tx.caja.update({
+      const cajaCerrada = await tx.caja.update({
         where: {
           id: caja.id,
         },
@@ -598,6 +604,8 @@ export class CajasService {
           },
         },
       });
+      await this.syncBusiness.encolarCaja(tx, cajaCerrada.id);
+      return cajaCerrada;
     });
   }
 }

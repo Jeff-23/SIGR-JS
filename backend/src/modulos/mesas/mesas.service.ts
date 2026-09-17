@@ -8,10 +8,14 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { CreateMesaDto } from './dto/create-mesa.dto';
 import { ActualizarMesaDto } from './dto/actualizar-mesa.dto';
+import { SyncBusinessService } from '../sync/sync-business.service';
 
 @Injectable()
 export class MesasService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly syncBusiness: SyncBusinessService,
+  ) {}
 
   private esSuperadmin(usuario: UsuarioAutenticado) {
     return usuario.rol === 'SUPERADMIN' && usuario.restauranteId === null;
@@ -73,7 +77,11 @@ export class MesasService {
     await this.validarZonaDentroDelAlcance(data.zonaId, usuario);
     const numero = this.normalizarNumero(data.numero);
     await this.validarNumeroDisponible(data.zonaId, numero);
-    return this.prisma.mesa.create({ data: { ...data, numero } });
+    return this.prisma.$transaction(async (tx) => {
+      const mesa = await tx.mesa.create({ data: { ...data, numero } });
+      await this.syncBusiness.encolarMesa(tx, mesa.id);
+      return mesa;
+    });
   }
 
   async findAll(
@@ -119,17 +127,21 @@ export class MesasService {
     const numero = this.normalizarNumero(data.numero ?? actual.numero);
     await this.validarNumeroDisponible(zonaId, numero, id);
 
-    return this.prisma.mesa.update({
-      where: { id },
-      data: {
-        ...(data.numero !== undefined ? { numero } : {}),
-        ...(data.capacidad !== undefined ? { capacidad: data.capacidad } : {}),
-        ...(data.zonaId !== undefined ? { zonaId: data.zonaId } : {}),
-        ...(data.forma !== undefined ? { forma: data.forma } : {}),
-        ...(data.orientacion !== undefined ? { orientacion: data.orientacion } : {}),
-        ...(data.tamanoVisual !== undefined ? { tamanoVisual: data.tamanoVisual } : {}),
-      },
-      include: { zona: true },
+    return this.prisma.$transaction(async (tx) => {
+      const mesa = await tx.mesa.update({
+        where: { id },
+        data: {
+          ...(data.numero !== undefined ? { numero } : {}),
+          ...(data.capacidad !== undefined ? { capacidad: data.capacidad } : {}),
+          ...(data.zonaId !== undefined ? { zonaId: data.zonaId } : {}),
+          ...(data.forma !== undefined ? { forma: data.forma } : {}),
+          ...(data.orientacion !== undefined ? { orientacion: data.orientacion } : {}),
+          ...(data.tamanoVisual !== undefined ? { tamanoVisual: data.tamanoVisual } : {}),
+        },
+        include: { zona: true },
+      });
+      await this.syncBusiness.encolarMesa(tx, mesa.id);
+      return mesa;
     });
   }
 
@@ -171,10 +183,14 @@ export class MesasService {
       }
     }
 
-    return this.prisma.mesa.update({
-      where: { id },
-      data: { estado: activo },
-      include: { zona: true },
+    return this.prisma.$transaction(async (tx) => {
+      const actualizada = await tx.mesa.update({
+        where: { id },
+        data: { estado: activo },
+        include: { zona: true },
+      });
+      await this.syncBusiness.encolarMesa(tx, actualizada.id);
+      return actualizada;
     });
   }
 
@@ -223,20 +239,37 @@ export class MesasService {
         },
       });
       if (!mesa) throw new NotFoundException('Mesa no encontrada');
-      if (mesa.situacion !== EstadoMesa.OCUPADA || !mesa.ocupacionManual) {
+      if (!mesa.ocupacionManual) {
         throw new BadRequestException(
           'Sólo puede liberarse sin consumo una ocupación manual',
         );
       }
-      const pedidosActivos = await tx.pedido.count({
-        where: {
-          mesaId: id,
-          estado: { notIn: [EstadoPedido.CANCELADO, EstadoPedido.ENTREGADO] },
-        },
-      });
-      if (pedidosActivos > 0) {
+      /*
+       * Una ocupación manual es un ciclo nuevo de uso de la mesa. Los pedidos
+       * históricos asociados a la misma mesa no deben bloquear su liberación.
+       *
+       * Esto es especialmente importante cuando una mesa fue liberada por el
+       * flujo comercial, pero conserva pedidos antiguos para trazabilidad.
+       * Sólo un pedido creado DESDE el inicio de esta ocupación manual puede
+       * pertenecer al ciclo actual y, por tanto, impedir "liberar sin consumo".
+       */
+      const pedidoDelCicloActual = mesa.ocupadaManualEn
+        ? await tx.pedido.findFirst({
+            where: {
+              mesaId: id,
+              creadoEn: { gte: mesa.ocupadaManualEn },
+              estado: {
+                notIn: [EstadoPedido.CANCELADO, EstadoPedido.FACTURADO],
+              },
+            },
+            select: { id: true, estado: true, creadoEn: true },
+            orderBy: { creadoEn: 'desc' },
+          })
+        : null;
+
+      if (pedidoDelCicloActual) {
         throw new BadRequestException(
-          'La mesa ya tiene un pedido y debe cerrarse por el flujo de servicio',
+          `La mesa tiene el pedido #${pedidoDelCicloActual.id} del servicio actual y debe cerrarse por el flujo de servicio`,
         );
       }
       return tx.mesa.update({

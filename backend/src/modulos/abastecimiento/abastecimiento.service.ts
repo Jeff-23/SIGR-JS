@@ -7,6 +7,7 @@ import {
 import { Prisma, TipoMovimientoInventario } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import { SyncBusinessService } from '../sync/sync-business.service';
 import {
   ConvertirSolicitudDto,
   CrearProveedorDto,
@@ -17,7 +18,10 @@ import {
 
 @Injectable()
 export class AbastecimientoService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly syncBusiness: SyncBusinessService,
+  ) {}
 
   async proveedores(usuario: UsuarioAutenticado) {
     const restauranteId = this.restaurante(usuario);
@@ -270,7 +274,7 @@ export class AbastecimientoService {
             },
           });
         }
-        await tx.movimientoInventario.create({
+        const movimiento = await tx.movimientoInventario.create({
           data: {
             tipo: TipoMovimientoInventario.ENTRADA,
             cantidad: item.cantidad,
@@ -284,6 +288,8 @@ export class AbastecimientoService {
             recepcionCompraId: recepcion.id,
           },
         });
+        await this.syncBusiness.encolarArticulo(tx, articulo.id);
+        await this.syncBusiness.encolarMovimientoInventario(tx, movimiento.id);
       }
       const estadoDetalles = await tx.detalleOrdenCompra.findMany({
         where: { ordenId: orden.id },

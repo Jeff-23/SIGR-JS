@@ -46,6 +46,7 @@ import { CostosModule } from './modulos/costos/costos.module';
 import { CuentasPagarModule } from './modulos/cuentas-pagar/cuentas-pagar.module';
 import { PersonalModule } from './modulos/personal/personal.module';
 import { InteligenciaModule } from './modulos/inteligencia/inteligencia.module';
+import { SyncModule } from './modulos/sync/sync.module';
 
 const entorno = obtenerEntorno();
 
@@ -93,6 +94,7 @@ const entorno = obtenerEntorno();
     CuentasPagarModule,
     PersonalModule,
     InteligenciaModule,
+    SyncModule,
   ],
   controllers: [AppController],
   providers: [

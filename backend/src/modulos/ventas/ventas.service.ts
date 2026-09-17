@@ -37,6 +37,7 @@ import { ActualizarLiquidacionVentaDto } from './dto/actualizar-liquidacion-vent
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { InventarioService } from '../inventario/inventario.service';
+import { SyncBusinessService } from '../sync/sync-business.service';
 import { dinero } from '../../plataforma/dinero';
 import { fechaOperativa } from '../../plataforma/fecha-operativa';
 import {
@@ -57,6 +58,7 @@ export class VentasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly inventarioService: InventarioService,
+    private readonly syncBusiness: SyncBusinessService,
   ) {}
 
   private esSuperadmin(usuarioActual: UsuarioAutenticado) {
@@ -669,6 +671,7 @@ export class VentasService {
         });
       }
 
+      await this.syncBusiness.encolarVenta(tx, ventaBase.id);
       return ventaBase.id;
     });
 
@@ -1106,6 +1109,7 @@ export class VentasService {
         })),
       });
 
+      await this.syncBusiness.encolarVenta(tx, ventaBase.id);
       return ventaBase.id;
     });
 
@@ -1610,7 +1614,7 @@ export class VentasService {
           );
         }
 
-        await tx.pago.create({
+        const pagoCreado = await tx.pago.create({
           data: {
             ventaId: venta.id,
 
@@ -1695,6 +1699,9 @@ export class VentasService {
           }
         }
 
+        await this.syncBusiness.encolarVenta(tx, venta.id);
+        await this.syncBusiness.encolarCaja(tx, caja.id);
+        await this.syncBusiness.encolarPago(tx, pagoCreado.id);
         return venta.id;
       },
     );

@@ -1,0 +1,4 @@
+codigo;nombre;descripcion;categoria;precio;estacion;favorito;disponible;activo;imagen
+ENT001;Ceviche urbano;Ceviche de la casa;Entradas;28000;COCINA;si;si;si;ENT001.jpg
+MAR001;Arroz marinero;Arroz con mariscos;Platos de mar;48000;COCINA;si;si;si;MAR001.jpg
+BAR001;Mojito clásico;Cóctel de la casa;Coctelería;24000;BAR;no;si;si;BAR001.jpg

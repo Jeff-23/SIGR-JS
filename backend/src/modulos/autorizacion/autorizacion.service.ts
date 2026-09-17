@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -10,12 +11,17 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { ContextoAuditoria } from '../auditoria/auditoria-contexto';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { obtenerEntorno } from '../../config/entorno';
+import { SyncBusinessService } from '../sync/sync-business.service';
 
 @Injectable()
 export class AutorizacionService {
+  private readonly entorno = obtenerEntorno();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditoria: AuditoriaService,
+    private readonly sync: SyncBusinessService,
   ) {}
 
   async catalogo(usuario: UsuarioAutenticado) {
@@ -188,6 +194,11 @@ export class AutorizacionService {
     usuario: UsuarioAutenticado,
     contexto: ContextoAuditoria,
   ) {
+    if (this.entorno.syncHabilitado && this.entorno.syncRol === 'EDGE') {
+      throw new ConflictException(
+        'Los permisos de roles se administran desde CLOUD en modo hibrido',
+      );
+    }
     const restauranteId = this.exigirAdministradorRestaurante(usuario, true);
     const [rol, permisos] = await Promise.all([
       this.prisma.rol.findFirst({
@@ -228,6 +239,7 @@ export class AutorizacionService {
         },
         contexto,
       );
+      await this.sync.encolarRolPermisos(tx, rolId);
     });
 
     return this.prisma.rol.findUnique({

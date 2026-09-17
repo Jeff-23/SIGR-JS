@@ -111,8 +111,21 @@ button {
   .status-pill {
     @apply shrink-0 rounded-full bg-marigold/25 px-3 py-1 text-[10px] font-black uppercase tracking-wide;
   }
+  .kds-toolbar {
+    @apply rounded-2xl bg-white/70 p-3 sm:p-4;
+  }
+  .kds-board {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    justify-content: start;
+    gap: 1rem;
+  }
+  .kds-board.kds-compact {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .kds-card {
-    @apply relative flex h-[680px] flex-col overflow-hidden rounded-[24px] border-2 border-denim/[.08] bg-white shadow-card;
+    @apply relative flex h-[680px] w-full flex-col overflow-hidden rounded-[24px] border-2 border-denim/[.08] bg-white shadow-card;
   }
   .kds-compact .kds-card {
     @apply h-[540px];
@@ -222,6 +235,49 @@ button {
   }
   .empty p {
     @apply max-w-md text-sm;
+  }
+}
+
+
+@media (min-width: 720px) {
+  .kds-board,
+  .kds-board.kds-compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .kds-board,
+  .kds-board.kds-compact {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1720px) {
+  .kds-board,
+  .kds-board.kds-compact {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .operations-notice {
+    @apply text-xs;
+  }
+  .operations-notice strong {
+    @apply basis-full text-sm;
+  }
+  .kds-toolbar {
+    @apply gap-2 p-2;
+  }
+  .kds-board,
+  .kds-board.kds-compact {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .kds-card,
+  .kds-compact .kds-card {
+    height: min(680px, calc(100dvh - 190px));
+    min-height: 520px;
   }
 }
 

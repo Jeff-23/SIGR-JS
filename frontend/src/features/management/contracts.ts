@@ -91,6 +91,7 @@ export const catalogResources: Resource[] = [
     create: "PRODUCTOS_CREAR",
     edit: "PRODUCTOS_EDITAR",
     columns: [
+      field("codigo", "Código"),
       name,
       field("precio", "Precio"),
       field("categoria", "Categoría"),
@@ -98,6 +99,7 @@ export const catalogResources: Resource[] = [
       field("stock", "Existencias"),
     ],
     fields: [
+      field("codigo", "Código / SKU", { maxLength: 50 }),
       name,
       field("descripcion", "Descripción"),
       field("precio", "Precio", {

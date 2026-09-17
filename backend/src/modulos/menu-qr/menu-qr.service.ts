@@ -8,6 +8,7 @@ import { EstadoMesa, Prisma, TipoPedido } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import { imagenProductoDb } from '../productos/imagenes-producto.prisma';
 import { CrearSolicitudQrDto } from './dto/menu-qr.dto';
 
 @Injectable()
@@ -30,6 +31,17 @@ export class MenuQrService {
       acceso.mesa.zona.sucursal.id,
       acceso.mesa.zona.sucursal.restauranteId,
     );
+    const ids = acceso.mesa.zona.sucursal.categorias.flatMap((categoria) =>
+      categoria.productos.map((producto) => producto.id),
+    );
+    const imagenes = ids.length
+      ? await imagenProductoDb(this.prisma).findMany({
+          where: { productoId: { in: ids }, estado: 'ACTIVA' },
+        })
+      : [];
+    const porProducto = new Map(
+      imagenes.map((imagen) => [imagen.productoId, imagen]),
+    );
     return {
       restaurante: acceso.mesa.zona.sucursal.restaurante.nombre,
       sucursal: acceso.mesa.zona.sucursal.nombre,
@@ -38,7 +50,10 @@ export class MenuQrService {
       categorias: acceso.mesa.zona.sucursal.categorias.map((categoria) => ({
         id: categoria.id,
         nombre: categoria.nombre,
-        productos: categoria.productos,
+        productos: categoria.productos.map((producto) => ({
+          ...producto,
+          imagenPrincipal: porProducto.get(producto.id) ?? null,
+        })),
       })),
     };
   }

@@ -100,6 +100,19 @@ export function ProfessionalSaleCheckout({
       ? payment.monto
       : "",
   );
+  const [partialPayment, setPartialPayment] = useState(() =>
+    Number(payment.monto || 0) > 0 &&
+    Number(payment.monto || 0) <
+      (sale.divisionesCuenta?.find(
+        (item) => item.id === Number(payment.divisionCuentaId),
+      )
+        ? divisionBalance(
+            sale.divisionesCuenta!.find(
+              (item) => item.id === Number(payment.divisionCuentaId),
+            )!,
+          )
+        : balance(sale)),
+  );
   const [customerSearch, setCustomerSearch] = useState("");
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerId, setCustomerId] = useState(
@@ -132,6 +145,39 @@ export function ProfessionalSaleCheckout({
     !(sale.divisionesCuenta?.length ?? 0);
   const canSearchCustomers =
     hasPermission("CLIENTES_VER") && hasCapability("CLIENTES");
+  const paymentAmount = Number(payment.monto || 0);
+  const remainingAfterPayment = Math.max(0, amountDue - paymentAmount);
+  const isFullPayment =
+    amountDue > 0 && Math.abs(paymentAmount - amountDue) < 0.005;
+
+  function chooseFullPayment() {
+    const next = String(amountDue);
+    setPartialPayment(false);
+    setPayment({ ...payment, monto: next });
+    if (selectedMethod?.tipo === "EFECTIVO") setCashReceived(next);
+  }
+
+  function choosePartialPayment() {
+    setPartialPayment(true);
+    const current = Number(payment.monto || 0);
+    if (!current || current >= amountDue) {
+      const half = Math.max(0.01, Math.round((amountDue / 2) * 100) / 100);
+      const next = String(half);
+      setPayment({ ...payment, monto: next });
+      if (selectedMethod?.tipo === "EFECTIVO") setCashReceived(next);
+    }
+  }
+
+  function applyPaymentFraction(fraction: number) {
+    const calculated = Math.max(
+      0.01,
+      Math.round(amountDue * fraction * 100) / 100,
+    );
+    const next = String(Math.min(calculated, amountDue));
+    setPartialPayment(true);
+    setPayment({ ...payment, monto: next });
+    if (selectedMethod?.tipo === "EFECTIVO") setCashReceived(next);
+  }
 
   useEffect(() => {
     if (!canSearchCustomers || !canEditLiquidation) return;
@@ -614,13 +660,45 @@ export function ProfessionalSaleCheckout({
             sale.estado !== "ANULADA" &&
             hasPermission("PAGOS_REGISTRAR") ? (
               <section className="rounded-2xl bg-white p-4 shadow-lg ring-1 ring-denim/10">
-                <h3 className="text-xl font-bold">Cobrar</h3>
-                <p className="mt-1 text-sm text-denim/55">
-                  {selectedDivision
-                    ? `${selectedDivision.nombre}: ${money.format(amountDue)} pendientes`
-                    : `${money.format(amountDue)} pendientes`}
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="eyebrow">Cobro rápido</p>
+                    <h3 className="text-xl font-bold">Cobrar</h3>
+                    <p className="mt-1 text-sm text-denim/55">
+                      {selectedDivision
+                        ? `${selectedDivision.nombre}: ${money.format(amountDue)} pendientes`
+                        : `${money.format(amountDue)} pendientes`}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-screen/35 px-3 py-2 text-right">
+                    <span className="block text-[11px] font-semibold uppercase tracking-wide text-denim/50">
+                      Saldo actual
+                    </span>
+                    <strong className="text-lg">{money.format(amountDue)}</strong>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl bg-screen/30 p-1.5">
+                  <button
+                    type="button"
+                    className={`rounded-xl px-3 py-2.5 text-sm font-bold transition ${!partialPayment && isFullPayment ? "bg-denim text-white shadow-sm" : "bg-transparent text-denim hover:bg-white"}`}
+                    onClick={chooseFullPayment}
+                  >
+                    Cobrar todo
+                  </button>
+                  <button
+                    type="button"
+                    className={`rounded-xl px-3 py-2.5 text-sm font-bold transition ${partialPayment || !isFullPayment ? "bg-denim text-white shadow-sm" : "bg-transparent text-denim hover:bg-white"}`}
+                    onClick={choosePartialPayment}
+                  >
+                    Pago parcial
+                  </button>
+                </div>
+
+                <p className="mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-denim/50">
+                  1. Medio de pago
                 </p>
-                <div className="mt-4 grid grid-cols-2 gap-2">
+                <div className="mt-2 grid grid-cols-2 gap-2">
                   {methods.map((method) => {
                     const Icon = methodIcon(method.tipo);
                     const selected = Number(payment.metodoPagoId) === method.id;
@@ -666,8 +744,34 @@ export function ProfessionalSaleCheckout({
                     void onRun(onPay);
                   }}
                 >
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-denim/50">
+                        2. Valor a cobrar ahora
+                      </p>
+                      {partialPayment && (
+                        <span className="rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">
+                          Pago parcial
+                        </span>
+                      )}
+                    </div>
+                    {partialPayment && (
+                      <div className="mt-2 grid grid-cols-3 gap-2">
+                        {[0.25, 0.5, 0.75].map((fraction) => (
+                          <button
+                            type="button"
+                            key={fraction}
+                            className="rounded-lg border border-denim/10 bg-white px-2 py-2 text-sm font-semibold hover:border-denim/25"
+                            onClick={() => applyPaymentFraction(fraction)}
+                          >
+                            {fraction * 100}%
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <label>
-                    Monto aplicado a la venta
+                    ¿Cuánto vas a cobrar?
                     <input
                       className="input text-lg font-bold"
                       type="number"
@@ -694,10 +798,24 @@ export function ProfessionalSaleCheckout({
                       Máximo aplicable: {money.format(amountDue)}
                     </span>
                   </label>
+                  <div
+                    className={`rounded-xl border p-3 ${remainingAfterPayment > 0 ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-semibold">
+                        {remainingAfterPayment > 0
+                          ? "Después de este pago quedará"
+                          : "Este pago salda la venta"}
+                      </span>
+                      <strong className="text-lg">
+                        {money.format(remainingAfterPayment)}
+                      </strong>
+                    </div>
+                  </div>
                   {selectedMethod?.tipo === "EFECTIVO" ? (
                     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                       <label>
-                        Efectivo recibido
+                        3. Efectivo recibido
                         <input
                           className="input"
                           type="number"
@@ -708,6 +826,13 @@ export function ProfessionalSaleCheckout({
                             setCashReceived(event.target.value)
                           }
                         />
+                        <button
+                          type="button"
+                          className="mt-2 text-xs font-bold text-denim underline underline-offset-2"
+                          onClick={() => setCashReceived(payment.monto)}
+                        >
+                          Usar valor exacto
+                        </button>
                       </label>
                       <div className="rounded-xl bg-screen/35 p-3">
                         <span className="text-xs font-semibold uppercase tracking-wide text-denim/55">
@@ -720,7 +845,7 @@ export function ProfessionalSaleCheckout({
                     </div>
                   ) : (
                     <label>
-                      Referencia / autorización
+                      3. Referencia / autorización
                       <input
                         className="input"
                         maxLength={100}
@@ -736,7 +861,7 @@ export function ProfessionalSaleCheckout({
                     </label>
                   )}
                   <label>
-                    Caja receptora
+                    4. Caja receptora
                     <select
                       className="input"
                       required
@@ -774,7 +899,9 @@ export function ProfessionalSaleCheckout({
                   >
                     {uncertain
                       ? "Consultar / reintentar mismo cobro"
-                      : "Registrar pago"}
+                      : remainingAfterPayment > 0
+                        ? `Registrar ${money.format(paymentAmount)} · quedarán ${money.format(remainingAfterPayment)}`
+                        : `Cobrar ${money.format(paymentAmount)} y saldar venta`}
                   </button>
                 </form>
               </section>

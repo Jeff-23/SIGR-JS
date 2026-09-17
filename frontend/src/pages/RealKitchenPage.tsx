@@ -91,8 +91,11 @@ export function RealKitchenPage() {
     null,
   );
   const [now, setNow] = useState(() => Date.now());
-  const [sound, setSound] = useState(false);
-  const soundEnabled = useRef(false);
+  const soundPreferenceKey = `sigr-kitchen-sound:${session?.user.id ?? 0}`;
+  const [sound, setSound] = useState(
+    () => localStorage.getItem(soundPreferenceKey) === "1",
+  );
+  const soundEnabled = useRef(sound);
   const [compact, setCompact] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [stationForm, setStationForm] = useState(false);
@@ -125,6 +128,7 @@ export function RealKitchenPage() {
       : session?.user.rol === "BAR"
         ? "BAR"
         : null;
+  const stationOperator = stationScope !== null;
 
   useEffect(() => {
     if (!branchId) return;
@@ -376,6 +380,7 @@ export function RealKitchenPage() {
   const toggleSound = () => {
     const next = !sound;
     soundEnabled.current = next;
+    localStorage.setItem(soundPreferenceKey, next ? "1" : "0");
     setSound(next);
     if (next) {
       kitchenAlarm();
@@ -421,15 +426,23 @@ export function RealKitchenPage() {
 
   return (
     <div>
-      <div className="section-title">
+      <div className="section-title kds-toolbar">
         <div>
           <p className="eyebrow">
-            {canEdit
-              ? "KDS · operación de cocina y bar"
-              : "Seguimiento de preparación"}
+            {stationOperator
+              ? `${stationScope} · operación en vivo`
+              : canEdit
+                ? "KDS · operación de cocina y bar"
+                : "Seguimiento de preparación"}
           </p>
-          <h1 className="page-title">
-            {canEdit ? "Producción y despacho" : "Estado de cocina y bar"}
+          <h1 className={stationOperator ? "text-2xl font-black tracking-tight" : "page-title"}>
+            {stationOperator
+              ? stationScope === "COCINA"
+                ? "Cocina"
+                : "Bar"
+              : canEdit
+                ? "Producción y despacho"
+                : "Estado de cocina y bar"}
           </h1>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -702,8 +715,8 @@ export function RealKitchenPage() {
       ) : (
         <div
           className={[
-            "mt-6 grid items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3",
-            compact ? "kds-compact 2xl:grid-cols-4" : "",
+            "kds-board mt-5",
+            compact ? "kds-compact" : "",
           ].join(" ")}
         >
           {visible.map((command) => (

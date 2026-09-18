@@ -15,6 +15,11 @@ import {
   SyncStatusController,
 } from './sync-status.controller';
 import { SyncStatusService } from './sync-status.service';
+import {
+  SyncDiagnosticsCertificationController,
+  SyncDiagnosticsController,
+} from './sync-diagnostics.controller';
+import { SyncDiagnosticsService } from './sync-diagnostics.service';
 
 @Module({
   controllers: [
@@ -22,6 +27,8 @@ import { SyncStatusService } from './sync-status.service';
     SyncConflictsController,
     SyncStatusController,
     SyncStatusCertificationController,
+    SyncDiagnosticsController,
+    SyncDiagnosticsCertificationController,
   ],
   providers: [
     SyncOutboxService,
@@ -34,6 +41,7 @@ import { SyncStatusService } from './sync-status.service';
     SyncBusinessCertService,
     SyncConflictService,
     SyncStatusService,
+    SyncDiagnosticsService,
   ],
   exports: [SyncOutboxService, SyncBusinessService, SyncConflictService],
 })

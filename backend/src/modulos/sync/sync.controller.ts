@@ -100,19 +100,66 @@ export class SyncController {
   @Post('certification/enqueue')
   @UseGuards(SyncCertGuard)
   async certEnqueue(@Body() body: unknown) {
+    const data = objetoBody(body);
     const destino = destinoCert(body);
+    const restauranteGlobalId = uuidBodyOpcional(
+      data.restauranteGlobalId,
+      'restauranteGlobalId',
+    );
+    const sucursalGlobalId = uuidBodyOpcional(
+      data.sucursalGlobalId,
+      'sucursalGlobalId',
+    );
+    if (sucursalGlobalId && !restauranteGlobalId) {
+      throw new BadRequestException(
+        'sucursalGlobalId requiere restauranteGlobalId',
+      );
+    }
     const evento = await this.outbox.encolar({
       destinationNodeId: destino,
+      restauranteGlobalId,
+      sucursalGlobalId,
       aggregateType: 'SYNC',
       eventType: 'SYNC.PING',
       payload: {
-        sprint: '48D-1',
+        sprint: '49B',
         from: this.entorno.syncNodeId,
         to: destino,
         nonce: randomUUID(),
       },
     });
     return { event: this.outbox.aWire(evento) };
+  }
+
+  @Get('certification/peer-scope')
+  @UseGuards(SyncCertGuard)
+  async certPeerScope() {
+    if (this.entorno.syncRol !== 'CLOUD') {
+      return {
+        peerNodeId: this.entorno.syncPeerNodeId ?? null,
+        restauranteGlobalId: null,
+        sucursalGlobalId: null,
+      };
+    }
+
+    const peerNodeId = this.entorno.syncBootstrapPeerNodeId;
+    if (!peerNodeId) {
+      throw new BadRequestException(
+        'No hay peer bootstrap configurado para certificacion',
+      );
+    }
+    const peer = await this.prisma.syncPeer.findUnique({
+      where: { nodeId: peerNodeId },
+      select: {
+        nodeId: true,
+        restauranteGlobalId: true,
+        sucursalGlobalId: true,
+      },
+    });
+    if (!peer) {
+      throw new BadRequestException('Peer de certificacion no encontrado');
+    }
+    return peer;
   }
 
   @Post('certification/cycle')
@@ -700,4 +747,9 @@ function uuidBody(valor: unknown, nombre: string): string {
     throw new BadRequestException(`${nombre} debe ser UUID`);
   }
   return valor;
+}
+
+function uuidBodyOpcional(valor: unknown, nombre: string): string | undefined {
+  if (valor === undefined || valor === null || valor === '') return undefined;
+  return uuidBody(valor, nombre);
 }

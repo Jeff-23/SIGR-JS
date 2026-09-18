@@ -63,7 +63,9 @@ type OutboxDiagnostic = {
   proximoIntentoEn: string | null;
   ultimoError: string | null;
   clasificacion: "REINTENTABLE" | "EN_ESPERA" | "HISTORICO_DESTINO" | "SIN_SYNC";
+  causa: "TRANSPORTE" | "RECHAZO_PEER" | "OTRO";
   reintentoManualPermitido: boolean;
+  saneamientoMasivoPermitido: boolean;
 };
 
 type InboxDiagnostic = {
@@ -77,7 +79,7 @@ type InboxDiagnostic = {
   aplicadoEn: string | null;
   ultimoError: string | null;
   clasificacion: "NO_SOPORTADO" | "REQUIERE_REVISION";
-  reintentoManualPermitido: false;
+  reintentoManualPermitido: boolean;
 };
 
 type DiagnosticResponse<T> = {
@@ -110,11 +112,14 @@ function Continuity() {
   const [statusLoading, setStatusLoading] = useState(true);
   const [statusError, setStatusError] = useState<ReturnType<typeof apiFailure> | null>(null);
   const [outboxErrors, setOutboxErrors] = useState<OutboxDiagnostic[]>([]);
+  const [outboxTotal, setOutboxTotal] = useState(0);
   const [inboxErrors, setInboxErrors] = useState<InboxDiagnostic[]>([]);
+  const [inboxTotal, setInboxTotal] = useState(0);
   const [conflicts, setConflicts] = useState<ConflictRow[]>([]);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(true);
   const [diagnosticsError, setDiagnosticsError] = useState<ReturnType<typeof apiFailure> | null>(null);
   const [retryingEventId, setRetryingEventId] = useState<string | null>(null);
+  const [sanitizingOutbox, setSanitizingOutbox] = useState(false);
   const canManageSync = session?.user.permisos.includes("SYNC_CONFLICTOS_GESTIONAR") ?? false;
 
   const loadLocal = useCallback(async () => {
@@ -144,7 +149,9 @@ function Continuity() {
         api.get<ConflictRow[]>("/sync/conflictos?estado=ABIERTO"),
       ]);
       setOutboxErrors(outbox.data.items);
+      setOutboxTotal(outbox.data.total);
       setInboxErrors(inbox.data.items);
+      setInboxTotal(inbox.data.total);
       setConflicts(conflictRows.data);
     } catch (error) {
       setDiagnosticsError(apiFailure(error));
@@ -239,17 +246,43 @@ function Continuity() {
         ) : (
           <div className="space-y-4">
             <div className="grid gap-4 md:grid-cols-3">
-              <DiagnosticCard label="Outbox con error" value={outboxErrors.length} />
-              <DiagnosticCard label="Inbox con error" value={inboxErrors.length} />
+              <DiagnosticCard label="Outbox con error" value={outboxTotal} />
+              <DiagnosticCard label="Inbox con error" value={inboxTotal} />
               <DiagnosticCard label="Conflictos abiertos" value={conflicts.length} />
             </div>
 
             <div className="card space-y-3">
-              <div>
-                <h3 className="font-black text-denim">Errores Outbox</h3>
-                <p className="text-sm text-slate-600">
-                  Sólo se permite reintentar un evento individual y únicamente cuando su destino sigue activo.
-                </p>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-black text-denim">Errores Outbox</h3>
+                  <p className="text-sm text-slate-600">
+                    Los errores de transporte pueden sanearse en lotes pequeños. Rechazos del peer y destinos históricos siguen requiriendo revisión.
+                  </p>
+                </div>
+                {canManageSync && outboxTotal > 0 && (
+                  <button
+                    className="secondary w-auto px-3"
+                    disabled={sanitizingOutbox || retryingEventId !== null}
+                    onClick={async () => {
+                      if (!window.confirm("¿Reencolar hasta 10 errores transitorios de transporte? No se tocarán rechazos 400/403 ni destinos inactivos.")) return;
+                      setSanitizingOutbox(true);
+                      try {
+                        const { data } = await api.post<{ reencolados: number }>(
+                          "/sync/diagnostico/outbox/sanear-transitorios",
+                          { confirmar: true, limite: 10 },
+                        );
+                        setMessage(`${data.reencolados} errores transitorios fueron reencolados de forma controlada.`);
+                        await refreshAll();
+                      } catch (error) {
+                        setMessage(apiFailure(error).message);
+                      } finally {
+                        setSanitizingOutbox(false);
+                      }
+                    }}
+                  >
+                    <RotateCcw size={15} /> Sanear transitorios
+                  </button>
+                )}
               </div>
               {!outboxErrors.length && <p className="text-sm">No hay eventos Outbox en ERROR.</p>}
               {outboxErrors.map((row) => (
@@ -262,6 +295,7 @@ function Continuity() {
                         {row.tipoAgregado} · destino {row.nodoDestinoId} · {row.intentos} intentos
                       </p>
                       <p className="text-slate-600">{row.ultimoError || "Sin detalle de error"}</p>
+                      <p className="text-xs font-bold text-slate-600">Causa: {outboxCause(row.causa)}</p>
                       <p className="text-xs text-slate-500">
                         Último intento: {formatDate(row.ultimoIntentoEn)} · Próximo: {formatDate(row.proximoIntentoEn)}
                       </p>
@@ -304,7 +338,7 @@ function Continuity() {
                 <div>
                   <h3 className="font-black text-denim">Errores Inbox</h3>
                   <p className="text-sm text-slate-600">
-                    Son de sólo lectura en 49B. No se permite reaplicar manualmente un evento recibido.
+                    49C permite reaplicar un único Inbox en ERROR después de revisar/corregir la causa. Los tipos no soportados quedan bloqueados.
                   </p>
                 </div>
                 {!inboxErrors.length && <p className="text-sm">No hay eventos Inbox en ERROR.</p>}
@@ -313,7 +347,37 @@ function Continuity() {
                     <strong>{row.tipoEvento}</strong>
                     <p className="break-all text-xs text-slate-500">{row.eventId}</p>
                     <p className="mt-1 text-slate-600">{row.ultimoError || "Sin detalle de error"}</p>
-                    <p className="mt-1 text-xs font-bold">{inboxClassification(row.clasificacion)}</p>
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-bold">{inboxClassification(row.clasificacion)}</p>
+                      {canManageSync && row.reintentoManualPermitido && (
+                        <button
+                          className="secondary w-auto px-3"
+                          disabled={retryingEventId !== null || sanitizingOutbox}
+                          onClick={async () => {
+                            if (!window.confirm(`¿Reaplicar sólo el Inbox ${row.eventId}? Hazlo únicamente si la causa original ya fue corregida.`)) return;
+                            setRetryingEventId(row.eventId);
+                            try {
+                              const { data } = await api.post<{ estado: string; ultimoError: string | null }>(
+                                `/sync/diagnostico/inbox/${row.eventId}/reintentar`,
+                                { confirmar: true },
+                              );
+                              setMessage(
+                                data.estado === "APLICADO"
+                                  ? "Inbox reaplicado correctamente."
+                                  : data.ultimoError || `El Inbox quedó en ${data.estado}.`,
+                              );
+                              await refreshAll();
+                            } catch (error) {
+                              setMessage(apiFailure(error).message);
+                            } finally {
+                              setRetryingEventId(null);
+                            }
+                          }}
+                        >
+                          <RotateCcw size={15} /> Reaplicar
+                        </button>
+                      )}
+                    </div>
                   </article>
                 ))}
               </div>
@@ -510,6 +574,12 @@ function outboxClassification(value: OutboxDiagnostic["clasificacion"]) {
     HISTORICO_DESTINO: "Destino histórico",
     SIN_SYNC: "Sync deshabilitado",
   }[value];
+}
+
+function outboxCause(value: OutboxDiagnostic["causa"]) {
+  if (value === "TRANSPORTE") return "Transporte / disponibilidad";
+  if (value === "RECHAZO_PEER") return "Rechazo de alcance o autorización del peer";
+  return "Negocio / revisión manual";
 }
 
 function inboxClassification(value: InboxDiagnostic["clasificacion"]) {

@@ -46,6 +46,14 @@ import {
 } from "../features/salon/contracts";
 import { api, apiFailure, errorMessage, mutation } from "../lib/api";
 import { productImageUrl } from "../lib/product-media";
+import {
+  listLocalPrinters,
+  printAgentHealth,
+  printWithLocalAgent,
+  readDocumentPrinterSelection,
+  saveDocumentPrinterSelection,
+  type LocalPrinter,
+} from "../lib/print-agent";
 import { useApp } from "../store/app";
 
 const money = new Intl.NumberFormat("es-CO", {
@@ -227,7 +235,13 @@ export function RealSalonPage() {
   const [printDocument, setPrintDocument] = useState<{
     title: string;
     html: string;
+    text: string;
+    widthMm: 58 | 80;
+    orderId: number;
   } | null>(null);
+  const [printAgentOnline, setPrintAgentOnline] = useState(false);
+  const [localPrinters, setLocalPrinters] = useState<LocalPrinter[]>([]);
+  const [preaccountPrinter, setPreaccountPrinter] = useState("");
   const [splitParts, setSplitParts] = useState("2");
   const [contextPeople, setContextPeople] = useState("2");
   const [contextNotes, setContextNotes] = useState("");
@@ -282,6 +296,36 @@ export function RealSalonPage() {
       window.clearInterval(timer);
     };
   }, [load]);
+
+  useEffect(() => {
+    if (!branchId) return;
+    const controller = new AbortController();
+    void Promise.resolve().then(() => {
+      if (!controller.signal.aborted) {
+        setPreaccountPrinter(readDocumentPrinterSelection(branchId, "preaccount"));
+      }
+    });
+    void Promise.all([
+      printAgentHealth(controller.signal),
+      listLocalPrinters(controller.signal),
+    ])
+      .then(([, printers]) => {
+        setPrintAgentOnline(true);
+        setLocalPrinters(printers);
+      })
+      .catch(() => {
+        setPrintAgentOnline(false);
+        setLocalPrinters([]);
+      });
+    return () => controller.abort();
+  }, [branchId]);
+
+  const selectPreaccountPrinter = (printerName: string) => {
+    setPreaccountPrinter(printerName);
+    if (branchId) {
+      saveDocumentPrinterSelection(branchId, "preaccount", printerName);
+    }
+  };
 
   const zones = useMemo(
     () => [
@@ -580,12 +624,17 @@ export function RealSalonPage() {
 
   const previewPreaccount = async (order: ApiOrder) => {
     try {
-      const { data } = await api.get<{ contenido: string }>(
-        `/pedidos/${order.id}/precuenta`,
-      );
+      const { data } = await api.get<{
+        contenido: string;
+        contenidoTexto: string;
+        anchoPapel: 58 | 80;
+      }>(`/pedidos/${order.id}/precuenta`);
       setPrintDocument({
         title: `Precuenta · Pedido #${order.id}`,
         html: data.contenido,
+        text: data.contenidoTexto,
+        widthMm: data.anchoPapel,
+        orderId: order.id,
       });
     } catch (error) {
       toast.error(errorMessage(error));
@@ -1989,6 +2038,72 @@ export function RealSalonPage() {
         <PrintableDocumentModal
           html={printDocument.html}
           title={printDocument.title}
+          printLabel={
+            preaccountPrinter && printAgentOnline
+              ? "Imprimir precuenta directo"
+              : "Imprimir precuenta"
+          }
+          toolbar={
+            <div className="rounded-2xl border border-denim/10 bg-white/70 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <strong className="text-sm">Salida de precuenta</strong>
+                  <p className="text-xs text-denim/55">
+                    {printAgentOnline
+                      ? "Selecciona una impresora local o usa el diálogo del navegador."
+                      : "Agente local no detectado. Se usará la impresión del navegador."}
+                  </p>
+                </div>
+                <span
+                  className={[
+                    "rounded-full px-2.5 py-1 text-[10px] font-black uppercase",
+                    printAgentOnline
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-amber-100 text-amber-900",
+                  ].join(" ")}
+                >
+                  Agente {printAgentOnline ? "conectado" : "no detectado"}
+                </span>
+              </div>
+              <select
+                className="input mt-2 h-10"
+                disabled={!printAgentOnline}
+                value={preaccountPrinter}
+                onChange={(event) => selectPreaccountPrinter(event.target.value)}
+              >
+                <option value="">Usar impresión del navegador</option>
+                {localPrinters.map((printer) => (
+                  <option key={printer.name} value={printer.name}>
+                    {printer.name}{printer.default ? " · predeterminada" : ""}
+                    {printer.available ? "" : " · no disponible"}
+                  </option>
+                ))}
+              </select>
+            </div>
+          }
+          onPrint={async () => {
+            if (!preaccountPrinter || !printAgentOnline) return "browser";
+            try {
+              const result = await printWithLocalAgent({
+                printerName: preaccountPrinter,
+                jobName: `SIGR Precuenta ${printDocument.orderId}`,
+                content: printDocument.text,
+                widthMm: printDocument.widthMm,
+              });
+              if (!result.ok || result.status !== "completed") {
+                throw new Error(result.error || "No se confirmó la impresión física");
+              }
+              toast.success("Precuenta impresa físicamente");
+              return "handled";
+            } catch (error) {
+              toast.error(
+                error instanceof Error
+                  ? error.message
+                  : "No se pudo imprimir con el agente local de SIGR",
+              );
+              return "handled";
+            }
+          }}
           onClose={() => setPrintDocument(null)}
         />
       )}

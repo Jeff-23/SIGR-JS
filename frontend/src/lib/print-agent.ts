@@ -68,6 +68,43 @@ export function printWithLocalAgent(input: {
   });
 }
 
+
+export function documentPrinterSelectionStorageKey(
+  branchId: number,
+  documentType: "preaccount",
+) {
+  return `sigr-print-agent:branch:${branchId}:document:${documentType}`;
+}
+
+export function readDocumentPrinterSelection(
+  branchId: number,
+  documentType: "preaccount",
+) {
+  try {
+    return (
+      window.localStorage.getItem(
+        documentPrinterSelectionStorageKey(branchId, documentType),
+      ) ?? ""
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
+export function saveDocumentPrinterSelection(
+  branchId: number,
+  documentType: "preaccount",
+  printerName: string,
+) {
+  const key = documentPrinterSelectionStorageKey(branchId, documentType);
+  const normalized = printerName.trim();
+  if (!normalized) {
+    window.localStorage.removeItem(key);
+    return;
+  }
+  window.localStorage.setItem(key, normalized);
+}
+
 export function printerSelectionStorageKey(branchId: number) {
   return `sigr-print-agent:branch:${branchId}:stations`;
 }

@@ -180,13 +180,13 @@ export class SyncBusinessCertService {
         });
         const efectivo = await tx.metodoPago.upsert({
           where: { globalId: ids.metodoEfectivoGlobalId },
-          update: { activo: true, tipo: TipoMetodoPago.EFECTIVO },
-          create: { globalId: ids.metodoEfectivoGlobalId, nombre: `Efectivo Sync ${suffix}`.slice(0,50), tipo: TipoMetodoPago.EFECTIVO, activo: true },
+          update: { activo: false, tipo: TipoMetodoPago.EFECTIVO },
+          create: { globalId: ids.metodoEfectivoGlobalId, nombre: `Efectivo Sync ${suffix}`.slice(0,50), tipo: TipoMetodoPago.EFECTIVO, activo: false },
         });
         const tarjeta = await tx.metodoPago.upsert({
           where: { globalId: ids.metodoTarjetaGlobalId },
-          update: { activo: true, tipo: TipoMetodoPago.TARJETA },
-          create: { globalId: ids.metodoTarjetaGlobalId, nombre: `Tarjeta Sync ${suffix}`.slice(0,50), tipo: TipoMetodoPago.TARJETA, activo: true },
+          update: { activo: false, tipo: TipoMetodoPago.TARJETA },
+          create: { globalId: ids.metodoTarjetaGlobalId, nombre: `Tarjeta Sync ${suffix}`.slice(0,50), tipo: TipoMetodoPago.TARJETA, activo: false },
         });
         usuarioId = usuario.id; metodoEfectivoId = efectivo.id; metodoTarjetaId = tarjeta.id;
       }

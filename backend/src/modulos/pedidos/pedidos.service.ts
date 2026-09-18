@@ -1766,6 +1766,69 @@ export class PedidosService {
       : 0;
     const total = pedido.venta?.total ?? pedido.total;
     const cuerpo = `<div class="center"><div class="title">PRECUENTA</div><div class="badge">NO ES FACTURA</div><p>${esc(pedido.sucursal.restaurante.nombre)}<br>${esc(pedido.sucursal.nombre)}</p></div><hr class="sep"><div class="row"><span>${esc(destino)}</span><strong>Pedido #${pedido.id}</strong></div><div class="row"><span>Fecha</span><strong>${esc(fechaLocalTermica(pedido.creadoEn, cfg.zonaHoraria))}</strong></div>${pedido.mesero ? `<div class="row"><span>Mesero</span><strong>${esc(`${pedido.mesero.nombres} ${pedido.mesero.apellidos}`.trim())}</strong></div>` : ''}<hr class="sep">${filas}<hr class="sep">${domicilio > 0 ? `<div class="row"><span>Domicilio</span><strong>${dineroTermico(domicilio, cfg.moneda)}</strong></div>` : ''}<div class="row total"><span>TOTAL</span><span>${dineroTermico(total, cfg.moneda)}</span></div><hr class="sep"><div class="center muted">Documento informativo previo al cobro. No constituye factura ni comprobante de pago.</div>`;
+    const anchoCaracteres = cfg.ancho === 58 ? 32 : 48;
+    const separador = '-'.repeat(anchoCaracteres);
+    const envolver = (texto: string, prefijo = '') => {
+      const limpio = texto.replace(/\s+/g, ' ').trim();
+      const disponible = Math.max(8, anchoCaracteres - prefijo.length);
+      const palabras = limpio.split(' ').filter(Boolean);
+      const resultado: string[] = [];
+      let linea = '';
+      for (const palabra of palabras) {
+        if (!linea) linea = palabra;
+        else if (`${linea} ${palabra}`.length <= disponible)
+          linea += ` ${palabra}`;
+        else {
+          resultado.push(`${prefijo}${linea}`);
+          linea = palabra;
+        }
+      }
+      if (linea) resultado.push(`${prefijo}${linea}`);
+      return resultado;
+    };
+    const lineasTexto = pedido.detalles.flatMap((detalle) => {
+      const salida = envolver(
+        `${detalle.cantidad}x ${detalle.producto.nombre} ${dineroTermico(detalle.subtotal, cfg.moneda)}`,
+      );
+      for (const modificador of detalle.modificadores) {
+        salida.push(
+          ...envolver(
+            `+ ${modificador.nombre}${Number(modificador.precioUnitario) ? ` ${dineroTermico(modificador.subtotal, cfg.moneda)}` : ''}`,
+            '  ',
+          ),
+        );
+      }
+      if (detalle.observaciones) {
+        salida.push(...envolver(`OBS: ${detalle.observaciones}`, '  '));
+      }
+      salida.push('');
+      return salida;
+    });
+    const contenidoTexto = [
+      'PRECUENTA - NO ES FACTURA',
+      pedido.sucursal.restaurante.nombre,
+      pedido.sucursal.nombre,
+      separador,
+      String(destino).replace(/&middot;|·/g, '-'),
+      `Pedido: #${pedido.id}`,
+      `Fecha: ${fechaLocalTermica(pedido.creadoEn, cfg.zonaHoraria)}`,
+      ...(pedido.mesero
+        ? [
+            `Mesero: ${`${pedido.mesero.nombres} ${pedido.mesero.apellidos}`.trim()}`,
+          ]
+        : []),
+      separador,
+      ...lineasTexto,
+      separador,
+      ...(domicilio > 0
+        ? [`Domicilio: ${dineroTermico(domicilio, cfg.moneda)}`]
+        : []),
+      `TOTAL: ${dineroTermico(total, cfg.moneda)}`,
+      separador,
+      'Documento informativo previo al cobro.',
+      'No constituye factura ni comprobante de pago.',
+      '',
+    ].join('\n');
     return {
       tipo: 'PRECUENTA',
       pedidoId: pedido.id,
@@ -1776,6 +1839,7 @@ export class PedidosService {
         ancho: cfg.ancho,
         cuerpo,
       }),
+      contenidoTexto,
     };
   }
 }

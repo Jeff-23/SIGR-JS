@@ -1,5 +1,5 @@
 import { Printer, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 
 export function PrintableDocumentModal({
   html,
@@ -8,6 +8,7 @@ export function PrintableDocumentModal({
   onPrint,
   onBrowserPrintConfirmed,
   printLabel = "Imprimir",
+  toolbar,
 }: {
   html: string;
   title: string;
@@ -15,6 +16,7 @@ export function PrintableDocumentModal({
   onPrint?: () => Promise<"handled" | "browser" | void>;
   onBrowserPrintConfirmed?: () => Promise<void>;
   printLabel?: string;
+  toolbar?: ReactNode;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [printing, setPrinting] = useState(false);
@@ -54,6 +56,7 @@ export function PrintableDocumentModal({
             </button>
           </div>
         </div>
+        {toolbar && <div className="print:hidden">{toolbar}</div>}
         <iframe
           ref={frame}
           title={title}

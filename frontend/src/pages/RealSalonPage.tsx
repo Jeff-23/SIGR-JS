@@ -21,6 +21,7 @@ import {
   Users,
   Utensils,
   X,
+  XCircle,
 } from "lucide-react";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
@@ -94,7 +95,7 @@ type Delivery = {
   telefono: string;
   direccion: string;
   referencias: string;
-  costo: number;
+  costo: string;
 };
 type QuickAction =
   | "transfer"
@@ -251,8 +252,9 @@ export function RealSalonPage() {
     telefono: "",
     direccion: "",
     referencias: "",
-    costo: 0,
+    costo: "",
   });
+  const [prelinkedTableIds, setPrelinkedTableIds] = useState<number[]>([]);
   const [tableManagerOpen, setTableManagerOpen] = useState(false);
   const [managedTables, setManagedTables] = useState<ApiTable[]>([]);
   const [managedZones, setManagedZones] = useState<Array<{ id: number; nombre: string }>>([]);
@@ -382,6 +384,7 @@ export function RealSalonPage() {
     setContextNotes("");
     setDetailNotes({});
     setQuickAction(null);
+    setPrelinkedTableIds([]);
     setDraft({ type, table, existing: null });
   };
   const openExisting = async (summary: ApiOrder) => {
@@ -402,6 +405,7 @@ export function RealSalonPage() {
         ),
       );
       setQuickAction(null);
+      setPrelinkedTableIds([]);
       setSplitParts(String(data.personas ?? 2));
       setDraft({ type: data.tipo, table: data.mesa, existing: data });
     } catch (error) {
@@ -545,10 +549,15 @@ export function RealSalonPage() {
           tipo: draft.type,
           sucursalId: branchId,
           mesaId: draft.table?.id,
+          ...(draft.type === "MESA" && prelinkedTableIds.length
+            ? { mesaIds: prelinkedTableIds }
+            : {}),
           personas: Number(contextPeople) || undefined,
           observaciones: contextNotes.trim() || undefined,
           detalles: details,
-          ...(draft.type === "DOMICILIO" ? { domicilio: delivery } : {}),
+          ...(draft.type === "DOMICILIO"
+            ? { domicilio: { ...delivery, costo: Number(delivery.costo || 0) } }
+            : {}),
         };
         const result = await mutation("POST", "/pedidos", body);
         if ("queued" in result)
@@ -710,6 +719,26 @@ export function RealSalonPage() {
       "Mesa separada",
     );
     setQuickAction(null);
+  };
+  const cancelOrder = async (order: ApiOrder) => {
+    if (
+      !window.confirm(
+        `¿Cancelar el pedido #${order.id}? Esta acción liberará las mesas vinculadas y cancelará las comandas que aún no hayan iniciado preparación.`,
+      )
+    )
+      return;
+    if (saving) return;
+    setSaving(true);
+    try {
+      await api.patch(`/pedidos/${order.id}/cancelar`);
+      toast.success("Pedido cancelado y mesa liberada");
+      setDraft(null);
+      await load(true);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setSaving(false);
+    }
   };
   const changeWaiter = async (order: ApiOrder, meseroId: number) => {
     await run(
@@ -1202,7 +1231,7 @@ export function RealSalonPage() {
                 </div>
                 <div className="mt-3 grid gap-3 lg:grid-cols-2">
                   <div className="card p-4">
-                    <h3 className="font-black">Cocina / bar</h3>
+                    <h3 className="font-black">Preparación</h3>
                     <div className="mt-3 space-y-2">
                       {stationSummary(draft.existing).map((station) => (
                         <div
@@ -1280,17 +1309,6 @@ export function RealSalonPage() {
                               className="secondary h-10 px-2 text-xs"
                               onClick={() =>
                                 setQuickAction((value) =>
-                                  value === "merge" ? null : "merge",
-                                )
-                              }
-                            >
-                              <Merge size={14} />
-                              Unir mesa
-                            </button>
-                            <button
-                              className="secondary h-10 px-2 text-xs"
-                              onClick={() =>
-                                setQuickAction((value) =>
                                   value === "separate" ? null : "separate",
                                 )
                               }
@@ -1300,6 +1318,17 @@ export function RealSalonPage() {
                             </button>
                           </>
                         )}
+                        <button
+                          className="secondary h-10 px-2 text-xs"
+                          onClick={() =>
+                            setQuickAction((value) =>
+                              value === "merge" ? null : "merge",
+                            )
+                          }
+                        >
+                          <Merge size={14} />
+                          Unir mesa
+                        </button>
                         {hasPermission("USUARIOS_VER") && (
                           <button
                             className="secondary h-10 px-2 text-xs"
@@ -1356,6 +1385,17 @@ export function RealSalonPage() {
                         </button>
                       </>
                     )}
+                    {!(["CANCELADO", "FACTURADO"] as string[]).includes(draft.existing.estado) &&
+                      hasPermission("PEDIDOS_CANCELAR") && (
+                        <button
+                          className="secondary h-10 px-2 text-xs text-red-700"
+                          disabled={saving}
+                          onClick={() => void cancelOrder(draft.existing!)}
+                        >
+                          <XCircle size={14} />
+                          Cancelar pedido
+                        </button>
+                      )}
                     {pendingCommandDetails(draft.existing).length > 0 &&
                       hasPermission("COMANDAS_ENVIAR") &&
                       hasCapability("KDS") && (
@@ -1518,6 +1558,9 @@ export function RealSalonPage() {
                   <div className="mt-3 divide-y divide-denim/10">
                     {draft.existing.detalles.map((detail) => {
                       const sent = sentQuantity(detail);
+                      const ready = (detail.comandas ?? [])
+                        .filter((item) => item.comanda?.estado !== "CANCELADA" && item.estado === "LISTA")
+                        .reduce((sum, item) => sum + item.cantidad, 0);
                       return (
                         <div className="py-3" key={detail.id}>
                           <div className="flex flex-wrap items-center gap-3">
@@ -1531,9 +1574,10 @@ export function RealSalonPage() {
                                 </small>
                               ) : null}
                               {sent ? (
-                                <small className="block text-emerald-700">
-                                  {sent}/{detail.cantidad} enviadas a
-                                  preparación
+                                <small className={`block ${ready ? "text-emerald-700" : "text-denim/55"}`}>
+                                  {ready > 0
+                                    ? `${ready}/${detail.cantidad} listas · ${sent}/${detail.cantidad} enviadas`
+                                    : `${sent}/${detail.cantidad} enviadas a preparación`}
                                 </small>
                               ) : (
                                 <small className="block text-amber-700">
@@ -1586,7 +1630,7 @@ export function RealSalonPage() {
                             disabled={
                               sent > 0 || !hasPermission("PEDIDOS_EDITAR")
                             }
-                            placeholder="Observación para cocina/bar: sin salsas, sin hielo…"
+                            placeholder="Observación para preparación o servicio: sin salsas, sin hielo…"
                             onChange={(e) =>
                               setDetailNotes((current) => ({
                                 ...current,
@@ -1643,9 +1687,16 @@ export function RealSalonPage() {
                 <input
                   className="input"
                   placeholder="Teléfono"
+                  type="tel"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autoComplete="tel"
                   value={delivery.telefono}
                   onChange={(e) =>
-                    setDelivery({ ...delivery, telefono: e.target.value })
+                    setDelivery({
+                      ...delivery,
+                      telefono: e.target.value.replace(/\D/g, "").slice(0, 20),
+                    })
                   }
                 />
                 <input
@@ -1656,24 +1707,110 @@ export function RealSalonPage() {
                     setDelivery({ ...delivery, direccion: e.target.value })
                   }
                 />
-                <input
-                  className="input"
-                  placeholder="Referencias"
-                  value={delivery.referencias}
-                  onChange={(e) =>
-                    setDelivery({ ...delivery, referencias: e.target.value })
-                  }
-                />
-                <input
-                  className="input"
-                  type="number"
-                  min="0"
-                  placeholder="Costo domicilio"
-                  value={delivery.costo}
-                  onChange={(e) =>
-                    setDelivery({ ...delivery, costo: Number(e.target.value) })
-                  }
-                />
+                <label className="grid gap-1 text-xs font-bold text-denim/55">
+                  Referencias de entrega
+                  <input
+                    className="input"
+                    placeholder="Casa, portería, indicaciones…"
+                    value={delivery.referencias}
+                    onChange={(e) =>
+                      setDelivery({ ...delivery, referencias: e.target.value })
+                    }
+                  />
+                </label>
+                <label className="grid gap-1 text-xs font-bold text-denim/55">
+                  Valor del domicilio
+                  <input
+                    className="input"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="0"
+                    value={delivery.costo}
+                    onChange={(e) =>
+                      setDelivery({
+                        ...delivery,
+                        costo: e.target.value.replace(/\D/g, "").replace(/^0+(?=\d)/, ""),
+                      })
+                    }
+                  />
+                  <span className="font-medium text-denim/40">Se suma al total del pedido y luego a la venta.</span>
+                </label>
+              </div>
+            )}
+
+            {draft.type === "MESA" && !draft.existing && draft.table && hasPermission("PEDIDOS_CREAR") && (
+              <div className="mt-4 rounded-2xl border border-denim/10 bg-white/70 p-3 sm:p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <strong className="block text-sm sm:text-base">Unir mesas</strong>
+                    <span className="text-xs text-denim/45">Opcional · Mesa principal {draft.table.numero}</span>
+                  </div>
+                  {prelinkedTableIds.length > 0 && (
+                    <span className="rounded-full bg-marigold/25 px-3 py-1 text-xs font-black">
+                      {prelinkedTableIds.length + 1} mesas
+                    </span>
+                  )}
+                </div>
+
+                {tables.some((table) => table.id !== draft.table?.id && table.situacion === "LIBRE") ? (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    <select
+                      className="input h-10 py-0 text-sm"
+                      aria-label="Agregar mesa libre"
+                      value=""
+                      onChange={(event) => {
+                        const mesaId = Number(event.target.value);
+                        if (!mesaId) return;
+                        setPrelinkedTableIds((current) =>
+                          current.includes(mesaId) ? current : [...current, mesaId],
+                        );
+                      }}
+                    >
+                      <option value="">Agregar otra mesa libre…</option>
+                      {tables
+                        .filter(
+                          (table) =>
+                            table.id !== draft.table?.id &&
+                            table.situacion === "LIBRE" &&
+                            !prelinkedTableIds.includes(table.id),
+                        )
+                        .map((table) => (
+                          <option key={table.id} value={table.id}>
+                            Mesa {table.numero} · {table.capacidad} puestos
+                          </option>
+                        ))}
+                    </select>
+                    <span className="text-xs font-semibold text-denim/45">Sólo mesas libres</span>
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-denim/45">No hay otras mesas libres en este momento.</p>
+                )}
+
+                {prelinkedTableIds.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="inline-flex h-9 items-center rounded-xl bg-steel px-3 text-xs font-black text-white">
+                      Mesa {draft.table.numero}
+                    </span>
+                    {prelinkedTableIds.map((mesaId) => {
+                      const linked = tables.find((table) => table.id === mesaId);
+                      if (!linked) return null;
+                      return (
+                        <button
+                          type="button"
+                          key={mesaId}
+                          className="inline-flex h-9 items-center gap-2 rounded-xl border border-marigold/60 bg-marigold/15 px-3 text-xs font-black text-denim transition hover:bg-marigold/25"
+                          title={`Quitar Mesa ${linked.numero}`}
+                          onClick={() =>
+                            setPrelinkedTableIds((current) => current.filter((id) => id !== mesaId))
+                          }
+                        >
+                          <Merge size={13} /> Mesa {linked.numero} <X size={13} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1927,9 +2064,23 @@ export function RealSalonPage() {
                     ))}
                   </div>
                 )}
-                <div className="mt-4 flex items-center justify-between border-t border-denim/10 pt-4">
-                  <span className="text-sm text-denim/45">Total de líneas nuevas</span>
-                  <strong className="text-xl">{money.format(cartTotal(cart))}</strong>
+                <div className="mt-4 space-y-2 border-t border-denim/10 pt-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-denim/45">Productos</span>
+                    <strong>{money.format(cartTotal(cart))}</strong>
+                  </div>
+                  {draft.type === "DOMICILIO" && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-denim/45">Domicilio</span>
+                      <strong>{money.format(Number(delivery.costo) || 0)}</strong>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between text-lg">
+                    <span className="font-black">Total pedido</span>
+                    <strong className="text-xl">
+                      {money.format(cartTotal(cart) + (draft.type === "DOMICILIO" ? Number(delivery.costo) || 0 : 0))}
+                    </strong>
+                  </div>
                 </div>
                 <button
                   className="primary mt-4"

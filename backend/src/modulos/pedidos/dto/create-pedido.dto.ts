@@ -76,6 +76,18 @@ export class CreatePedidoDto {
   @Min(1)
   mesaId?: number;
 
+  /**
+   * Mesas adicionales que se unirán al mismo pedido desde el inicio.
+   * Solo aplica a pedidos MESA y permite preparar una mesa compuesta
+   * antes de enviar productos a cocina.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  mesaIds?: number[];
+
   /*
    * Permite identificar la sucursal cuando
    * el usuario no está ligado a una sucursal

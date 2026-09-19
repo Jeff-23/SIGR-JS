@@ -432,7 +432,7 @@ export function RealKitchenPage() {
             {stationOperator
               ? `${stationScope} · operación en vivo`
               : canEdit
-                ? "KDS · operación de cocina y bar"
+                ? "KDS · operación de preparación"
                 : "Seguimiento de preparación"}
           </p>
           <h1 className={stationOperator ? "text-2xl font-black tracking-tight" : "page-title"}>
@@ -442,7 +442,7 @@ export function RealKitchenPage() {
                 : "Bar"
               : canEdit
                 ? "Producción y despacho"
-                : "Estado de cocina y bar"}
+                : "Estado de preparación"}
           </h1>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -496,7 +496,7 @@ export function RealKitchenPage() {
               <p>
                 {canEdit
                   ? "La alerta permanece hasta que la estación marque cada comanda como vista."
-                  : "Puedes seguir el estado aquí; las acciones de preparación están reservadas a cocina y bar."}
+                  : "Puedes seguir el estado aquí; las acciones están reservadas a los responsables de las estaciones de preparación."}
               </p>
             </div>
           </div>

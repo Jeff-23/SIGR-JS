@@ -321,6 +321,7 @@ export class PedidosService {
   ): Promise<{
     sucursalId: number;
     mesaId: number | null;
+    mesaIds: number[];
   }> {
     if (data.tipo === TipoPedido.DOMICILIO && !data.domicilio) {
       throw new BadRequestException(
@@ -391,18 +392,40 @@ export class PedidosService {
         );
       }
 
-      const mesaReservada = await tx.mesa.updateMany({
+      const adicionales = [...new Set(data.mesaIds ?? [])].filter(
+        (id) => id !== mesa.id,
+      );
+
+      if (adicionales.length) {
+        const mesasAdicionales = await tx.mesa.findMany({
+          where: {
+            id: { in: adicionales },
+            estado: true,
+            situacion: EstadoMesa.LIBRE,
+            zona: {
+              estado: true,
+              sucursalId: mesa.zona.sucursalId,
+            },
+          },
+          select: { id: true },
+        });
+        if (mesasAdicionales.length !== adicionales.length) {
+          throw new BadRequestException(
+            'Todas las mesas adicionales deben estar libres y pertenecer a la misma sucursal',
+          );
+        }
+      }
+
+      const mesasAReservar = [mesa.id, ...adicionales];
+      const mesasReservadas = await tx.mesa.updateMany({
         where: {
-          id: mesa.id,
-
+          id: { in: mesasAReservar },
           estado: true,
-
           OR: [
             { situacion: EstadoMesa.LIBRE },
-            { ocupacionManual: true },
+            { id: mesa.id, ocupacionManual: true },
           ],
         },
-
         data: {
           situacion: EstadoMesa.OCUPADA,
           ocupacionManual: false,
@@ -411,22 +434,22 @@ export class PedidosService {
         },
       });
 
-      if (mesaReservada.count !== 1) {
+      if (mesasReservadas.count !== mesasAReservar.length) {
         throw new BadRequestException(
-          'La mesa acaba de ser ocupada por otro pedido',
+          'Una de las mesas acaba de ser ocupada por otro pedido',
         );
       }
 
       return {
         sucursalId: mesa.zona.sucursalId,
-
         mesaId: mesa.id,
+        mesaIds: mesasAReservar,
       };
     }
 
-    if (data.mesaId !== undefined) {
+    if (data.mesaId !== undefined || (data.mesaIds?.length ?? 0) > 0) {
       throw new BadRequestException(
-        `Un pedido ${data.tipo} no debe tener mesaId`,
+        `Un pedido ${data.tipo} no debe tener mesas asociadas`,
       );
     }
 
@@ -439,6 +462,7 @@ export class PedidosService {
     return {
       sucursalId,
       mesaId: null,
+      mesaIds: [],
     };
   }
 
@@ -507,7 +531,10 @@ export class PedidosService {
           ...(contexto.mesaId
             ? {
                 mesasVinculadas: {
-                  create: { mesaId: contexto.mesaId, principal: true },
+                  create: contexto.mesaIds.map((mesaId) => ({
+                    mesaId,
+                    principal: mesaId === contexto.mesaId,
+                  })),
                 },
               }
             : {}),
@@ -557,7 +584,11 @@ export class PedidosService {
           sucursalId: creado.sucursalId,
           pedidoId: creado.id,
           actorId: usuarioActual.id,
-          metadata: { tipoPedido: creado.tipo, mesaId: creado.mesaId },
+          metadata: {
+            tipoPedido: creado.tipo,
+            mesaId: creado.mesaId,
+            mesaIds: contexto.mesaIds,
+          },
         },
       });
 

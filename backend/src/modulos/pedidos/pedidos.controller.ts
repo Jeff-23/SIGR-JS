@@ -143,7 +143,7 @@ export class PedidosController {
   }
 
   @Post(':id/mesas/unir')
-  @Permisos('PEDIDOS_EDITAR', 'MESAS_EDITAR')
+  @Permisos('PEDIDOS_EDITAR')
   unirMesas(
     @Param('id', ParseIntPipe) id: number,
     @Body() data: UnirMesasDto,

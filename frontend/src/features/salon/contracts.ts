@@ -42,7 +42,7 @@ export type OrderDetail = {
   observaciones?: string | null;
   producto: ApiProduct;
   modificadores?: Array<{ id: number; nombre: string; precioUnitario: string | number; cantidad: number; subtotal: string | number }>;
-  comandas?: Array<{ cantidad: number; comanda?: ApiCommand }>;
+  comandas?: Array<{ cantidad: number; estado?: "PENDIENTE" | "EN_PREPARACION" | "LISTA"; fechaInicio?: string | null; fechaLista?: string | null; comanda?: ApiCommand }>;
 };
 
 export type ApiCommand = {
@@ -54,7 +54,7 @@ export type ApiCommand = {
   fechaLista?: string | null;
   fechaEntrega?: string | null;
   estacion?: { id: number; codigo: string; nombre: string; color?: string };
-  detalles?: Array<{ cantidad: number; detallePedido?: OrderDetail }>;
+  detalles?: Array<{ cantidad: number; estado?: "PENDIENTE" | "EN_PREPARACION" | "LISTA"; fechaInicio?: string | null; fechaLista?: string | null; detallePedido?: OrderDetail }>;
 };
 
 export type ApiOrder = {
@@ -112,11 +112,26 @@ export function stationSummary(order: ApiOrder) {
   for (const command of order.comandas ?? []) {
     const key = command.estacion?.codigo ?? "PREPARACION";
     const current = grouped.get(key) ?? { name: command.estacion?.nombre ?? "Preparación", total: 0, ready: 0, oldestReadyMinutes: 0 };
-    current.total += 1;
-    if (["LISTA", "ENTREGADA"].includes(command.estado)) current.ready += 1;
-    if (command.estado === "LISTA") {
-      const since = command.fechaLista ?? command.fechaEnvio;
-      current.oldestReadyMinutes = Math.max(current.oldestReadyMinutes, Math.floor((Date.now() - new Date(since).getTime()) / 60000));
+    const details = command.detalles ?? [];
+    if (details.length) {
+      for (const detail of details) {
+        current.total += detail.cantidad;
+        if (detail.estado === "LISTA") {
+          current.ready += detail.cantidad;
+          const since = detail.fechaLista ?? command.fechaLista ?? command.fechaEnvio;
+          current.oldestReadyMinutes = Math.max(
+            current.oldestReadyMinutes,
+            Math.floor((Date.now() - new Date(since).getTime()) / 60000),
+          );
+        }
+      }
+    } else {
+      current.total += 1;
+      if (["LISTA", "ENTREGADA"].includes(command.estado)) current.ready += 1;
+      if (command.estado === "LISTA") {
+        const since = command.fechaLista ?? command.fechaEnvio;
+        current.oldestReadyMinutes = Math.max(current.oldestReadyMinutes, Math.floor((Date.now() - new Date(since).getTime()) / 60000));
+      }
     }
     grouped.set(key, current);
   }

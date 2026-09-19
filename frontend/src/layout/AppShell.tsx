@@ -194,7 +194,7 @@ const nav: NavItem[] = [
   },
   {
     to: "/cocina",
-    label: "Cocina y bar",
+    label: "Preparación",
     icon: Flame,
     permission: "COMANDAS_VER",
     capability: "KDS",

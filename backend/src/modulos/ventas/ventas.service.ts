@@ -1662,16 +1662,14 @@ export class VentasService {
           }
 
           /*
-           * El pago completo es la fuente de verdad comercial para cerrar
-           * la ocupacion que ya fue enviada a Caja. No dependemos del estado
-           * local del dispositivo que atendio la mesa ni de que ese mismo
-           * dispositivo haya marcado antes el pedido como ENTREGADO.
+           * El pago completo cierra la ocupación únicamente cuando el pedido
+           * ya fue ENTREGADO. Esa condición evita liberar una mesa por un pago
+           * anticipado, pero también tolera que la mesa llegue al cobro todavía
+           * como OCUPADA por una desincronización visual/operativa.
            *
-           * Solo liberamos mesas que siguen en PENDIENTE_PAGO, por lo que un
-           * pago anticipado no libera una mesa que todavia continua OCUPADA.
-           * Tambien se liberan las mesas vinculadas de una union.
+           * La liberación incluye la mesa principal y todas las mesas unidas.
            */
-          if (pedido) {
+          if (pedido?.estado === EstadoPedido.ENTREGADO) {
             const mesaIds = [
               ...new Set(
                 [
@@ -1686,7 +1684,9 @@ export class VentasService {
                 where: {
                   id: { in: mesaIds },
                   estado: true,
-                  situacion: EstadoMesa.PENDIENTE_PAGO,
+                  situacion: {
+                    in: [EstadoMesa.OCUPADA, EstadoMesa.PENDIENTE_PAGO],
+                  },
                 },
                 data: {
                   situacion: EstadoMesa.LIBRE,

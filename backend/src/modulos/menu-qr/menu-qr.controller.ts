@@ -47,6 +47,15 @@ export class MenuQrController {
   ) {
     return this.service.generarAcceso(mesaId, req.user);
   }
+  @Get('modo')
+  @Permisos('PEDIDOS_VER')
+  modo(
+    @Query('sucursalId', ParseIntPipe) sucursalId: number,
+    @Req() req: RequestAutenticada,
+  ) {
+    return this.service.modoSucursal(sucursalId, req.user);
+  }
+
   @Get()
   @Permisos('PEDIDOS_VER')
   listar(

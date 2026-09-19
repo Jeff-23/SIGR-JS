@@ -173,10 +173,26 @@ function Settings() {
         }}
       >
         <div className="grid gap-4 sm:grid-cols-2">
-          {Object.entries(query.data.valores).map(([key, value]) => (
+          {Object.entries(query.data.valores).filter(([key]) => key !== "QR_REQUIERE_ACEPTACION").map(([key, value]) => (
             <label key={key}>
-              {key.replaceAll("_", " ")}
-              {key === "ANCHO_PAPEL" ? (
+              {key === "QR_MODO" ? "Modo del menú QR" : key.replaceAll("_", " ")}
+              {key === "QR_MODO" ? (
+                <select
+                  className="input mt-1"
+                  disabled={!hasPermission("CONFIGURACION_GESTIONAR") || busy}
+                  value={String(changes[key] ?? value)}
+                  onChange={(e) =>
+                    setChanges((current) => ({
+                      ...current,
+                      [key]: e.target.value,
+                    }))
+                  }
+                >
+                  <option value="SOLO_MENU">Solo consultar menú</option>
+                  <option value="PEDIDO_CON_APROBACION">Permitir pedidos con aprobación</option>
+                  <option value="PEDIDO_AUTOMATICO">Permitir pedidos automáticos</option>
+                </select>
+              ) : key === "ANCHO_PAPEL" ? (
                 <select
                   className="input mt-1"
                   disabled={!hasPermission("CONFIGURACION_GESTIONAR") || busy}
@@ -226,7 +242,7 @@ function Settings() {
                   }
                 />
               )}
-              <small>Origen: {query.data.origenes[key]}</small>
+              <small>{key === "QR_MODO" ? "Solo menú evita que el cliente cree pedidos desde el QR. " : ""}Origen: {query.data.origenes[key]}</small>
             </label>
           ))}
         </div>

@@ -43,6 +43,14 @@ export const CATALOGO_CONFIGURACION = {
     valorPredeterminado: 'FAC',
     validar: validarPrefijo,
   },
+  QR_MODO: {
+    valorPredeterminado: 'SOLO_MENU',
+    validar: (valor) =>
+      valor === 'SOLO_MENU' ||
+      valor === 'PEDIDO_CON_APROBACION' ||
+      valor === 'PEDIDO_AUTOMATICO',
+  },
+  // Compatibilidad con instalaciones/eventos anteriores a S55.
   QR_REQUIERE_ACEPTACION: {
     valorPredeterminado: true,
     validar: (valor) => typeof valor === 'boolean',

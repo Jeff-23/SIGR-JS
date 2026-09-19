@@ -27,7 +27,7 @@ export class MenuQrService {
 
   async menu(token: string) {
     const acceso = await this.accesoPublico(token);
-    const requiereAceptacion = await this.requiereAceptacion(
+    const modoQr = await this.modoQr(
       acceso.mesa.zona.sucursal.id,
       acceso.mesa.zona.sucursal.restauranteId,
     );
@@ -46,7 +46,9 @@ export class MenuQrService {
       restaurante: acceso.mesa.zona.sucursal.restaurante.nombre,
       sucursal: acceso.mesa.zona.sucursal.nombre,
       mesa: { id: acceso.mesa.id, numero: acceso.mesa.numero },
-      requiereAceptacion,
+      modoQr,
+      pedidosHabilitados: modoQr !== 'SOLO_MENU',
+      requiereAceptacion: modoQr === 'PEDIDO_CON_APROBACION',
       categorias: acceso.mesa.zona.sucursal.categorias.map((categoria) => ({
         id: categoria.id,
         nombre: categoria.nombre,
@@ -61,6 +63,15 @@ export class MenuQrService {
   async crear(token: string, dto: CrearSolicitudQrDto) {
     const acceso = await this.accesoPublico(token);
     const sucursalId = acceso.mesa.zona.sucursal.id;
+    const modoQr = await this.modoQr(
+      sucursalId,
+      acceso.mesa.zona.sucursal.restauranteId,
+    );
+    if (modoQr === 'SOLO_MENU') {
+      throw new ForbiddenException(
+        'Los pedidos desde el menú QR están deshabilitados. Solicita atención al mesero.',
+      );
+    }
     const existente = await this.prisma.solicitudPedidoQr.findUnique({
       where: {
         sucursalId_claveCliente: { sucursalId, claveCliente: dto.claveCliente },
@@ -116,12 +127,7 @@ export class MenuQrService {
       },
       include: { detalles: true },
     });
-    if (
-      !(await this.requiereAceptacion(
-        sucursalId,
-        acceso.mesa.zona.sucursal.restauranteId,
-      ))
-    ) {
+    if (modoQr === 'PEDIDO_AUTOMATICO') {
       return this.aceptarAutomaticamente(solicitud.id);
     }
     return solicitud;
@@ -278,8 +284,51 @@ export class MenuQrService {
       });
   }
 
-  private async requiereAceptacion(sucursalId: number, restauranteId: number) {
-    const [sucursal, restaurante] = await Promise.all([
+  async modoSucursal(sucursalId: number, usuario: UsuarioAutenticado) {
+    const sucursal = await this.sucursalEnAlcance(sucursalId, usuario);
+    return {
+      modoQr: await this.modoQr(sucursalId, sucursal.restauranteId),
+    };
+  }
+
+  private async modoQr(
+    sucursalId: number,
+    restauranteId: number,
+  ): Promise<
+    'SOLO_MENU' | 'PEDIDO_CON_APROBACION' | 'PEDIDO_AUTOMATICO'
+  > {
+    const [modoSucursal, modoRestaurante] = await Promise.all([
+      this.prisma.configuracionSucursal.findUnique({
+        where: {
+          sucursalId_clave: {
+            sucursalId,
+            clave: 'QR_MODO',
+          },
+        },
+      }),
+      this.prisma.configuracionRestaurante.findUnique({
+        where: {
+          restauranteId_clave: {
+            restauranteId,
+            clave: 'QR_MODO',
+          },
+        },
+      }),
+    ]);
+
+    const modo = modoSucursal?.valor ?? modoRestaurante?.valor;
+    if (
+      modo === 'SOLO_MENU' ||
+      modo === 'PEDIDO_CON_APROBACION' ||
+      modo === 'PEDIDO_AUTOMATICO'
+    ) {
+      return modo;
+    }
+
+    // Compatibilidad con configuración anterior. S55 crea QR_MODO=SOLO_MENU
+    // para sucursales existentes, pero este fallback permite leer snapshots
+    // o bases anteriores sin romper el flujo.
+    const [sucursalAnterior, restauranteAnterior] = await Promise.all([
       this.prisma.configuracionSucursal.findUnique({
         where: {
           sucursalId_clave: {
@@ -297,7 +346,11 @@ export class MenuQrService {
         },
       }),
     ]);
-    return (sucursal?.valor ?? restaurante?.valor ?? true) !== false;
+    const requiere =
+      sucursalAnterior?.valor ?? restauranteAnterior?.valor ?? true;
+    return requiere === false
+      ? 'PEDIDO_AUTOMATICO'
+      : 'PEDIDO_CON_APROBACION';
   }
 
   private aceptarAutomaticamente(id: string) {
@@ -358,6 +411,7 @@ export class MenuQrService {
     const sucursal = await this.prisma.sucursal.findUnique({ where: { id } });
     if (!sucursal) throw new NotFoundException('Sucursal no encontrada');
     this.validarAlcance(sucursal.restauranteId, id, usuario);
+    return sucursal;
   }
 
   private validarAlcance(

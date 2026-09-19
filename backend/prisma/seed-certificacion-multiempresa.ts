@@ -467,7 +467,6 @@ const PERMISOS_ROL: Record<string, string[]> = {
     'COMANDAS_VER',
     'COMANDAS_ENVIAR',
     'COMANDAS_ACTUALIZAR_ESTADO',
-    'COMANDAS_IMPRIMIR',
     'VENTAS_VER',
     'VENTAS_CREAR',
     'VENTAS_REGISTRAR_MANUAL',
@@ -501,7 +500,6 @@ const PERMISOS_ROL: Record<string, string[]> = {
     'PEDIDOS_CANCELAR',
     'COMANDAS_VER',
     'COMANDAS_ENVIAR',
-    'COMANDAS_IMPRIMIR',
     'DOMICILIOS_VER',
     'DOMICILIOS_ACTUALIZAR',
     'DOMICILIOS_SUPERVISAR',
@@ -887,6 +885,7 @@ async function asegurarConfiguracionSucursal(
     ['ZONA_HORARIA', 'America/Bogota'],
     ['MONEDA', 'COP'],
     ['PORCENTAJE_IMPUESTO', 0],
+    ['QR_MODO', 'SOLO_MENU'],
     ['QR_REQUIERE_ACEPTACION', true],
   ];
   for (const [clave, valor] of valores) {

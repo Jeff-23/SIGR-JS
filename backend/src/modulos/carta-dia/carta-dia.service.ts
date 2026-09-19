@@ -131,6 +131,13 @@ export class CartaDiaService {
         pie: '',
         estilo: 'EDITORIAL_DORADO',
         mostrarPrecios: true,
+        fondoColor: '#F3EDE1',
+        tarjetaColor: '#FFFDF8',
+        textoColor: '#14283B',
+        acentoColor: '#B98A2D',
+        encabezadoColor: '#14283B',
+        mostrarImagenesProductos: true,
+        imagenPortadaProductoId: null,
         secciones: [],
         actualizadoEn: null,
       };
@@ -150,6 +157,13 @@ export class CartaDiaService {
       pie: dto.pie?.trim() || '',
       estilo: dto.estilo,
       mostrarPrecios: dto.mostrarPrecios,
+      fondoColor: dto.fondoColor ?? '#F3EDE1',
+      tarjetaColor: dto.tarjetaColor ?? '#FFFDF8',
+      textoColor: dto.textoColor ?? '#14283B',
+      acentoColor: dto.acentoColor ?? '#B98A2D',
+      encabezadoColor: dto.encabezadoColor ?? '#14283B',
+      mostrarImagenesProductos: dto.mostrarImagenesProductos,
+      imagenPortadaProductoId: dto.imagenPortadaProductoId ?? null,
       secciones: dto.secciones
         .map((seccion) => ({
           categoriaId: seccion.categoriaId,

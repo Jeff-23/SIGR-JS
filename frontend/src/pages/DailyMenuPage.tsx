@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import type { ApiProduct } from "../features/salon/contracts";
 import { api, errorMessage } from "../lib/api";
+import { productImageUrl } from "../lib/product-media";
 import { useApp } from "../store/app";
 
 type MenuStyle = "EDITORIAL_DORADO" | "CONTEMPORANEA" | "EJECUTIVA";
@@ -24,6 +25,13 @@ type MenuTemplate = {
   pie: string;
   estilo: MenuStyle;
   mostrarPrecios: boolean;
+  fondoColor: string;
+  tarjetaColor: string;
+  textoColor: string;
+  acentoColor: string;
+  encabezadoColor: string;
+  mostrarImagenesProductos: boolean;
+  imagenPortadaProductoId?: number | null;
   secciones: TemplateSection[];
   actualizadoEn?: string | null;
 };
@@ -65,7 +73,22 @@ function emptyDaily(branchId: number, fecha: string): DailyMenu {
   };
 }
 function defaultTemplate(branchId: number): MenuTemplate {
-  return { sucursalId: branchId, titulo: "Menú de almuerzos", subtitulo: "Preparado fresco todos los días", pie: "Pregunta por disponibilidad y domicilios.", estilo: "EDITORIAL_DORADO", mostrarPrecios: true, secciones: [] };
+  return {
+    sucursalId: branchId,
+    titulo: "Menú de almuerzos",
+    subtitulo: "Preparado fresco todos los días",
+    pie: "Pregunta por disponibilidad y domicilios.",
+    estilo: "EDITORIAL_DORADO",
+    mostrarPrecios: true,
+    fondoColor: "#F3EDE1",
+    tarjetaColor: "#FFFDF8",
+    textoColor: "#14283B",
+    acentoColor: "#B98A2D",
+    encabezadoColor: "#14283B",
+    mostrarImagenesProductos: true,
+    imagenPortadaProductoId: null,
+    secciones: [],
+  };
 }
 function escapeHtml(value: string) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
@@ -80,6 +103,17 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
   }
   if (line) lines.push(line);
   return lines;
+}
+
+async function loadCanvasImage(src: string | undefined) {
+  if (!src) return null;
+  return new Promise<HTMLImageElement | null>((resolve) => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(null);
+    image.src = src;
+  });
 }
 
 export function DailyMenuPage() {
@@ -113,7 +147,7 @@ export function DailyMenuPage() {
     ]).then(([dailyResponse, templateResponse, productResponse]) => {
       if (!active) return;
       setDaily(dailyResponse.data);
-      setTemplate(templateResponse.data);
+      setTemplate({ ...defaultTemplate(branchId), ...templateResponse.data });
       setProducts(productResponse.data);
     }).catch((error) => { if (active) toast.error(errorMessage(error)); })
       .finally(() => { if (active) setLoading(false); });
@@ -158,7 +192,21 @@ export function DailyMenuPage() {
     if (session?.demo) return toast.success("Plantilla demo actualizada.");
     setBusy(true);
     try {
-      const payload = { ...template, secciones: effectiveSections.map(({ categoriaId, titulo, productoIds }) => ({ categoriaId, titulo, productoIds })) };
+      const payload = {
+        titulo: template.titulo,
+        subtitulo: template.subtitulo,
+        pie: template.pie,
+        estilo: template.estilo,
+        mostrarPrecios: template.mostrarPrecios,
+        fondoColor: template.fondoColor,
+        tarjetaColor: template.tarjetaColor,
+        textoColor: template.textoColor,
+        acentoColor: template.acentoColor,
+        encabezadoColor: template.encabezadoColor,
+        mostrarImagenesProductos: template.mostrarImagenesProductos,
+        imagenPortadaProductoId: template.imagenPortadaProductoId ?? undefined,
+        secciones: effectiveSections.map(({ categoriaId, titulo, productoIds }) => ({ categoriaId, titulo, productoIds })),
+      };
       const { data } = await api.put<MenuTemplate>(`/cartas-dia/${branchId}/plantilla`, payload);
       setTemplate(data);
       toast.success("Plantilla de carta guardada.");
@@ -191,28 +239,56 @@ export function DailyMenuPage() {
     setTemplate((current) => ({ ...current, secciones: selected }));
   };
 
-  const palette = template.estilo === "CONTEMPORANEA"
+  const presetPalette = template.estilo === "CONTEMPORANEA"
     ? { bg: "#f6f3ed", card: "#ffffff", dark: "#182329", accent: "#d85f3d", muted: "#667078" }
     : template.estilo === "EJECUTIVA"
       ? { bg: "#fff8e9", card: "#fffdf7", dark: "#18352d", accent: "#e3a72f", muted: "#617069" }
       : { bg: "#f3ede1", card: "#fffdf8", dark: "#14283b", accent: "#b98a2d", muted: "#65717c" };
+  const palette = {
+    ...presetPalette,
+    bg: template.fondoColor || presetPalette.bg,
+    card: template.tarjetaColor || presetPalette.card,
+    dark: template.encabezadoColor || presetPalette.dark,
+    accent: template.acentoColor || presetPalette.accent,
+    text: template.textoColor || presetPalette.dark,
+  };
+  const heroProduct = products.find((product) => product.id === template.imagenPortadaProductoId && product.imagenPrincipal);
 
   const printMenu = () => {
     const popup = window.open("", "_blank", "noopener,noreferrer");
     if (!popup) return toast.error("El navegador bloqueó la ventana de impresión.");
     const special = daily.contenido.especial;
-    const sectionsHtml = visibleSections.map((section) => `<section class="menu-section"><h2>${escapeHtml(section.titulo)}</h2>${section.products.map((product) => `<div class="item"><div><strong>${escapeHtml(product.nombre)}</strong>${product.descripcion ? `<small>${escapeHtml(product.descripcion)}</small>` : ""}</div>${template.mostrarPrecios ? `<b>${money.format(Number(product.precio))}</b>` : ""}</div>`).join("")}</section>`).join("");
-    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(template.titulo)}</title><style>@page{size:A4;margin:0}*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:${palette.bg};color:${palette.dark}}.sheet{min-height:297mm;padding:16mm 15mm;background:${palette.bg}}header{display:grid;grid-template-columns:1fr auto;align-items:end;border-bottom:4px solid ${palette.accent};padding-bottom:12mm}.brand{font-size:11px;letter-spacing:.2em;font-weight:900;color:${palette.accent};text-transform:uppercase}h1{font-size:35px;line-height:1;margin:6px 0}.sub{color:${palette.muted};font-size:13px}.date{font-size:12px;color:${palette.muted}}.special{margin:9mm 0;background:${palette.dark};color:#fff;border-radius:8px;padding:8mm;display:flex;justify-content:space-between;gap:8mm}.special small{display:block;color:${palette.accent};text-transform:uppercase;letter-spacing:.16em;font-weight:900}.special h2{margin:3px 0;font-size:25px}.special p{margin:4px 0;color:#d9e1e6}.special b{font-size:22px;white-space:nowrap}.grid{columns:2;column-gap:9mm}.menu-section{break-inside:avoid;margin:0 0 7mm;padding:0 0 5mm;border-bottom:1px solid #cfc8bc}.menu-section h2{font-size:18px;text-transform:uppercase;letter-spacing:.08em;margin:0 0 3mm;color:${palette.accent}}.item{display:flex;justify-content:space-between;gap:6mm;margin:0 0 2.5mm}.item strong{font-size:13px}.item small{display:block;margin-top:2px;color:${palette.muted};font-size:10px;line-height:1.3}.item b{font-size:12px;white-space:nowrap}footer{border-top:1px solid #cfc8bc;margin-top:6mm;padding-top:4mm;text-align:center;color:${palette.muted};font-size:11px}@media print{.sheet{min-height:auto}}</style></head><body><article class="sheet"><header><div><div class="brand">${escapeHtml(restaurantName)}</div><h1>${escapeHtml(template.titulo)}</h1>${template.subtitulo ? `<div class="sub">${escapeHtml(template.subtitulo)}</div>` : ""}</div><div class="date">${escapeHtml(date)}</div></header>${special?.nombre?.trim() ? `<section class="special"><div><small>${escapeHtml(special.titulo || "Especial de hoy")}</small><h2>${escapeHtml(special.nombre)}</h2>${special.descripcion ? `<p>${escapeHtml(special.descripcion)}</p>` : ""}</div>${special.precio !== undefined ? `<b>${money.format(Number(special.precio))}</b>` : ""}</section>` : ""}<main class="grid">${sectionsHtml}</main>${template.pie || daily.contenido.mensaje ? `<footer>${escapeHtml(daily.contenido.mensaje || template.pie)}</footer>` : ""}</article><script>window.onload=()=>window.print();</script></body></html>`);
+    const sectionsHtml = visibleSections.map((section) => `<section class="menu-section"><h2>${escapeHtml(section.titulo)}</h2>${section.products.map((product) => `<div class="item">${template.mostrarImagenesProductos && product.imagenPrincipal ? `<img src="${productImageUrl(product.imagenPrincipal, "thumb")}" alt=""/>` : ""}<div class="itemcopy"><strong>${escapeHtml(product.nombre)}</strong>${product.descripcion ? `<small>${escapeHtml(product.descripcion)}</small>` : ""}</div>${template.mostrarPrecios ? `<b>${money.format(Number(product.precio))}</b>` : ""}</div>`).join("")}</section>`).join("");
+    const heroUrl = heroProduct?.imagenPrincipal ? productImageUrl(heroProduct.imagenPrincipal, "large") : undefined;
+    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(template.titulo)}</title><style>@page{size:A4;margin:0}*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:${palette.bg};color:${palette.text}}.sheet{min-height:297mm;padding:16mm 15mm;background:${palette.bg}}header{position:relative;overflow:hidden;display:grid;grid-template-columns:1fr auto;align-items:end;border-bottom:4px solid ${palette.accent};padding-bottom:12mm}.hero{position:absolute;right:0;top:0;width:38%;height:100%;object-fit:cover;opacity:.28}.brand{position:relative;z-index:1;font-size:11px;letter-spacing:.2em;font-weight:900;color:${palette.accent};text-transform:uppercase}h1{font-size:35px;line-height:1;margin:6px 0}.sub{color:${palette.muted};font-size:13px}.date{font-size:12px;color:${palette.muted}}.special{margin:9mm 0;background:${palette.dark};color:#fff;border-radius:8px;padding:8mm;display:flex;justify-content:space-between;gap:8mm}.special small{display:block;color:${palette.accent};text-transform:uppercase;letter-spacing:.16em;font-weight:900}.special h2{margin:3px 0;font-size:25px}.special p{margin:4px 0;color:#d9e1e6}.special b{font-size:22px;white-space:nowrap}.grid{columns:2;column-gap:9mm}.menu-section{break-inside:avoid;margin:0 0 7mm;padding:0 0 5mm;border-bottom:1px solid #cfc8bc}.menu-section h2{font-size:18px;text-transform:uppercase;letter-spacing:.08em;margin:0 0 3mm;color:${palette.accent}}.item{display:grid;grid-template-columns:auto 1fr auto;align-items:start;gap:3mm;margin:0 0 3mm}.item img{width:16mm;height:16mm;object-fit:cover;border-radius:4mm}.itemcopy{min-width:0}.item strong{font-size:13px}.item small{display:block;margin-top:2px;color:${palette.muted};font-size:10px;line-height:1.3}.item b{font-size:12px;white-space:nowrap}footer{border-top:1px solid #cfc8bc;margin-top:6mm;padding-top:4mm;text-align:center;color:${palette.muted};font-size:11px}@media print{.sheet{min-height:auto}}</style></head><body><article class="sheet"><header><div><div class="brand">${escapeHtml(restaurantName)}</div><h1>${escapeHtml(template.titulo)}</h1>${template.subtitulo ? `<div class="sub">${escapeHtml(template.subtitulo)}</div>` : ""}</div><div class="date">${escapeHtml(date)}</div>${heroUrl ? `<img class="hero" src="${heroUrl}" alt=""/>` : ""}</header>${special?.nombre?.trim() ? `<section class="special"><div><small>${escapeHtml(special.titulo || "Especial de hoy")}</small><h2>${escapeHtml(special.nombre)}</h2>${special.descripcion ? `<p>${escapeHtml(special.descripcion)}</p>` : ""}</div>${special.precio !== undefined ? `<b>${money.format(Number(special.precio))}</b>` : ""}</section>` : ""}<main class="grid">${sectionsHtml}</main>${template.pie || daily.contenido.mensaje ? `<footer>${escapeHtml(daily.contenido.mensaje || template.pie)}</footer>` : ""}</article><script>window.onload=()=>window.print();</script></body></html>`);
     popup.document.close();
   };
 
-  const downloadPng = () => {
+  const downloadPng = async () => {
     const itemCount = visibleSections.reduce((sum, section) => sum + section.products.length, 0);
     const height = Math.max(1350, Math.min(2600, 900 + visibleSections.length * 95 + itemCount * 54));
     const canvas = document.createElement("canvas"); canvas.width = 1080; canvas.height = height;
     const ctx = canvas.getContext("2d"); if (!ctx) return;
+    const imagePairs = await Promise.all(
+      products
+        .filter((product) => product.imagenPrincipal)
+        .map(async (product) => [product.id, await loadCanvasImage(productImageUrl(product.imagenPrincipal, "medium"))] as const),
+    );
+    const productImages = new Map(imagePairs);
     ctx.fillStyle = palette.bg; ctx.fillRect(0, 0, 1080, height);
     ctx.fillStyle = palette.dark; ctx.fillRect(0, 0, 1080, 280);
+    const heroImage = heroProduct ? productImages.get(heroProduct.id) : null;
+    if (heroImage) {
+      ctx.save();
+      ctx.globalAlpha = 0.42;
+      ctx.drawImage(heroImage, 650, 0, 430, 280);
+      ctx.restore();
+      const gradient = ctx.createLinearGradient(560, 0, 850, 0);
+      gradient.addColorStop(0, palette.dark);
+      gradient.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(540, 0, 360, 280);
+    }
     ctx.fillStyle = palette.accent; ctx.fillRect(72, 72, 10, 136);
     ctx.fillStyle = palette.accent; ctx.font = "800 25px Arial"; ctx.fillText(restaurantName.toUpperCase(), 112, 106);
     ctx.fillStyle = "#fff"; ctx.font = "900 64px Arial"; let y = 174;
@@ -233,11 +309,14 @@ export function DailyMenuPage() {
       const x = index % 2 === 0 ? leftX : rightX; let sy = index % 2 === 0 ? leftY : rightY;
       ctx.fillStyle = palette.accent; ctx.font = "900 27px Arial"; ctx.fillText(section.titulo.toUpperCase(), x, sy + 30); sy += 55;
       section.products.forEach((product) => {
-        ctx.fillStyle = palette.dark; ctx.font = "700 24px Arial"; ctx.fillText(product.nombre.slice(0, 25), x, sy);
+        const image = template.mostrarImagenesProductos ? productImages.get(product.id) : null;
+        const textX = image ? x + 66 : x;
+        if (image) ctx.drawImage(image, x, sy - 24, 52, 52);
+        ctx.fillStyle = palette.text; ctx.font = "700 24px Arial"; ctx.fillText(product.nombre.slice(0, image ? 20 : 25), textX, sy);
         if (template.mostrarPrecios) { ctx.font = "800 22px Arial"; ctx.textAlign = "right"; ctx.fillText(money.format(Number(product.precio)), x + colW - 10, sy); ctx.textAlign = "left"; }
         sy += 39;
-        if (product.descripcion) { ctx.fillStyle = palette.muted; ctx.font = "20px Arial"; ctx.fillText(product.descripcion.slice(0, 36), x, sy); sy += 31; }
-        sy += 10;
+        if (product.descripcion) { ctx.fillStyle = palette.muted; ctx.font = "20px Arial"; ctx.fillText(product.descripcion.slice(0, image ? 28 : 36), textX, sy); sy += 31; }
+        sy += image && !product.descripcion ? 24 : 10;
       });
       ctx.fillStyle = "#cfc8bc"; ctx.fillRect(x, sy, colW - 12, 1); sy += 34;
       if (index % 2 === 0) leftY = sy; else rightY = sy;
@@ -285,19 +364,22 @@ export function DailyMenuPage() {
             <label className="sm:col-span-2">Pie de carta<input className="input mt-1" value={template.pie} onChange={(event) => setTemplate((current) => ({ ...current, pie: event.target.value }))}/></label>
           </div>
           <div><p className="eyebrow">Diseño</p><div className="mt-3 grid gap-3 sm:grid-cols-3">{styles.map((style) => <button key={style.id} className={`rounded-2xl border p-4 text-left ${template.estilo === style.id ? "border-marigold bg-marigold/10" : "border-denim/10"}`} onClick={() => setTemplate((current) => ({ ...current, estilo: style.id }))}><LayoutTemplate size={20}/><b className="mt-3 block">{style.name}</b><span className="mt-1 block text-xs text-denim/50">{style.note}</span>{template.estilo === style.id && <Check className="mt-3 text-marigold" size={18}/>}</button>)}</div></div>
-          <label className="flex items-center gap-3 font-bold"><input type="checkbox" checked={template.mostrarPrecios} onChange={(event) => setTemplate((current) => ({ ...current, mostrarPrecios: event.target.checked }))}/> Mostrar precios en la carta</label>
+          <div className="rounded-2xl border border-denim/10 p-4"><p className="eyebrow">Personalización visual</p><div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{[
+            ["Fondo", "fondoColor"], ["Tarjetas", "tarjetaColor"], ["Texto", "textoColor"], ["Acento", "acentoColor"], ["Encabezado", "encabezadoColor"],
+          ].map(([label, key]) => <label key={key} className="text-sm font-bold">{label}<div className="mt-1 flex items-center gap-2"><input type="color" className="h-11 w-14 rounded-xl border border-denim/10 bg-white p-1" value={template[key as keyof MenuTemplate] as string} onChange={(event) => setTemplate((current) => ({ ...current, [key]: event.target.value }))}/><input className="input h-11 flex-1 font-mono text-xs uppercase" value={template[key as keyof MenuTemplate] as string} onChange={(event) => /^#[0-9a-fA-F]{0,6}$/.test(event.target.value) && setTemplate((current) => ({ ...current, [key]: event.target.value }))}/></div></label>)}</div></div>
+          <div className="rounded-2xl border border-denim/10 p-4"><p className="eyebrow">Imágenes</p><div className="mt-3 grid gap-4 sm:grid-cols-2"><label className="sm:col-span-2">Imagen principal / portada<select className="input mt-1" value={template.imagenPortadaProductoId ?? ""} onChange={(event) => setTemplate((current) => ({ ...current, imagenPortadaProductoId: event.target.value ? Number(event.target.value) : null }))}><option value="">Sin imagen de portada</option>{products.filter((product) => product.imagenPrincipal).map((product) => <option key={product.id} value={product.id}>{product.nombre}</option>)}</select></label><label className="flex items-center gap-3 font-bold"><input type="checkbox" checked={template.mostrarImagenesProductos} onChange={(event) => setTemplate((current) => ({ ...current, mostrarImagenesProductos: event.target.checked }))}/> Mostrar fotos de productos</label><label className="flex items-center gap-3 font-bold"><input type="checkbox" checked={template.mostrarPrecios} onChange={(event) => setTemplate((current) => ({ ...current, mostrarPrecios: event.target.checked }))}/> Mostrar precios</label></div><p className="mt-3 text-xs text-denim/45">Las imágenes salen del catálogo de productos; no necesitas subirlas otra vez.</p></div>
           <div><div className="flex items-end justify-between gap-3"><div><p className="eyebrow">Contenido permanente</p><h2 className="text-xl font-black">Secciones y productos</h2></div><span className="text-xs text-denim/45">Sale del catálogo actual</span></div><div className="mt-4 space-y-3">{categories.map((category) => { const section = effectiveSections.find((item) => item.categoriaId === category.id); const selected = Boolean(section); const index = effectiveSections.findIndex((item) => item.categoriaId === category.id); return <div key={category.id} className="rounded-2xl border border-denim/10 p-4"><div className="flex items-center gap-3"><input type="checkbox" checked={selected} onChange={() => toggleCategory(category.id)}/><input className="input h-10 flex-1" disabled={!selected} value={section?.titulo ?? category.nombre} onChange={(event) => setTemplate((current) => ({ ...current, secciones: (current.secciones.length ? current.secciones : effectiveSections).map((item) => item.categoriaId === category.id ? { ...item, titulo: event.target.value } : item) }))}/>{selected && <div className="flex"><button className="grid h-9 w-9 place-items-center" disabled={index <= 0} onClick={() => moveSection(index, -1)}><ChevronUp size={17}/></button><button className="grid h-9 w-9 place-items-center" disabled={index < 0 || index >= effectiveSections.length - 1} onClick={() => moveSection(index, 1)}><ChevronDown size={17}/></button></div>}</div>{selected && <div className="mt-3 grid gap-2 sm:grid-cols-2">{category.products.map((product) => <label key={product.id} className="flex items-center gap-2 rounded-xl bg-denim/5 px-3 py-2 text-sm"><input type="checkbox" checked={section?.productoIds.includes(product.id) ?? false} onChange={() => toggleProduct(category.id, product.id)}/><span className="min-w-0 flex-1 truncate">{product.nombre}</span>{template.mostrarPrecios && <small>{money.format(Number(product.precio))}</small>}</label>)}</div>}</div>; })}</div></div>
           <button className="primary flex h-11 w-auto items-center gap-2 px-5" disabled={busy} onClick={() => void saveTemplate()}><Save size={17}/> Guardar carta base</button>
         </>}
       </section>
 
       <aside className="self-start xl:sticky xl:top-24">
-        <div className="mb-3 flex flex-wrap gap-2"><button className="secondary flex h-10 w-auto items-center gap-2 px-4" onClick={downloadPng}><Download size={16}/> PNG completo</button><button className="secondary flex h-10 w-auto items-center gap-2 px-4" onClick={printMenu}><Printer size={16}/> Imprimir / PDF</button></div>
+        <div className="mb-3 flex flex-wrap gap-2"><button className="secondary flex h-10 w-auto items-center gap-2 px-4" onClick={() => void downloadPng()}><Download size={16}/> PNG completo</button><button className="secondary flex h-10 w-auto items-center gap-2 px-4" onClick={printMenu}><Printer size={16}/> Imprimir / PDF</button></div>
         <div className="overflow-hidden rounded-[2rem] border border-denim/10 p-3" style={{ background: palette.bg }}>
-          <article className="overflow-hidden rounded-[1.6rem]" style={{ background: palette.card, color: palette.dark }}>
-            <header className="p-7 text-white" style={{ background: palette.dark }}><p className="text-xs font-black uppercase tracking-[.2em]" style={{ color: palette.accent }}>{restaurantName}</p><h2 className="mt-3 text-4xl font-black leading-none">{template.titulo}</h2>{template.subtitulo && <p className="mt-3 text-sm text-white/65">{template.subtitulo}</p>}</header>
+          <article className="overflow-hidden rounded-[1.6rem]" style={{ background: palette.card, color: palette.text }}>
+            <header className="relative overflow-hidden p-7 text-white" style={{ background: palette.dark }}>{heroProduct?.imagenPrincipal && <img src={productImageUrl(heroProduct.imagenPrincipal, "large")} alt="" className="absolute inset-y-0 right-0 h-full w-2/5 object-cover opacity-35"/>}<div className="relative z-10 max-w-[65%]"><p className="text-xs font-black uppercase tracking-[.2em]" style={{ color: palette.accent }}>{restaurantName}</p><h2 className="mt-3 text-4xl font-black leading-none">{template.titulo}</h2>{template.subtitulo && <p className="mt-3 text-sm text-white/70">{template.subtitulo}</p>}</div></header>
             {special?.nombre?.trim() && <section className="m-5 rounded-2xl p-5" style={{ background: palette.bg }}><p className="text-xs font-black uppercase tracking-[.16em]" style={{ color: palette.accent }}>{special.titulo || "Especial de hoy"}</p><div className="mt-1 flex items-start justify-between gap-3"><div><h3 className="text-2xl font-black">{special.nombre}</h3>{special.descripcion && <p className="mt-2 text-sm" style={{ color: palette.muted }}>{special.descripcion}</p>}</div>{special.precio !== undefined && <strong className="whitespace-nowrap text-xl">{money.format(Number(special.precio))}</strong>}</div></section>}
-            <div className="grid gap-x-6 gap-y-5 p-6 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">{visibleSections.map((section) => <section key={section.categoriaId}><h3 className="border-b pb-2 text-sm font-black uppercase tracking-[.1em]" style={{ color: palette.accent }}>{section.titulo}</h3><div className="mt-3 space-y-3">{section.products.map((product) => <div key={product.id} className="flex items-start justify-between gap-3"><div><b className="text-sm">{product.nombre}</b>{product.descripcion && <p className="mt-0.5 line-clamp-2 text-xs" style={{ color: palette.muted }}>{product.descripcion}</p>}</div>{template.mostrarPrecios && <span className="whitespace-nowrap text-xs font-black">{money.format(Number(product.precio))}</span>}</div>)}</div></section>)}</div>
+            <div className="grid gap-x-6 gap-y-5 p-6 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">{visibleSections.map((section) => <section key={section.categoriaId}><h3 className="border-b pb-2 text-sm font-black uppercase tracking-[.1em]" style={{ color: palette.accent }}>{section.titulo}</h3><div className="mt-3 space-y-3">{section.products.map((product) => <div key={product.id} className="flex items-start gap-3">{template.mostrarImagenesProductos && product.imagenPrincipal && <img src={productImageUrl(product.imagenPrincipal, "thumb")} alt="" className="h-14 w-14 shrink-0 rounded-xl object-cover"/>}<div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-3"><b className="text-sm">{product.nombre}</b>{template.mostrarPrecios && <span className="whitespace-nowrap text-xs font-black">{money.format(Number(product.precio))}</span>}</div>{product.descripcion && <p className="mt-0.5 line-clamp-2 text-xs" style={{ color: palette.muted }}>{product.descripcion}</p>}</div></div>)}</div></section>)}</div>
             {(daily.contenido.mensaje || template.pie) && <footer className="mx-6 border-t py-5 text-center text-xs" style={{ color: palette.muted }}>{daily.contenido.mensaje || template.pie}</footer>}
           </article>
         </div>

@@ -7,6 +7,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   Min,
   ValidateNested,
@@ -50,6 +51,40 @@ export class GuardarPlantillaCartaDto {
 
   @IsBoolean()
   mostrarPrecios!: boolean;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^#[0-9A-Fa-f]{6}$/)
+  fondoColor?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^#[0-9A-Fa-f]{6}$/)
+  tarjetaColor?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^#[0-9A-Fa-f]{6}$/)
+  textoColor?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^#[0-9A-Fa-f]{6}$/)
+  acentoColor?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^#[0-9A-Fa-f]{6}$/)
+  encabezadoColor?: string;
+
+  @IsBoolean()
+  mostrarImagenesProductos!: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  imagenPortadaProductoId?: number | null;
 
   @IsArray()
   @ArrayMaxSize(20)

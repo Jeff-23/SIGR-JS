@@ -527,6 +527,7 @@ const PERMISOS_ROL: Record<string, string[]> = {
     'PEDIDOS_VER',
     'PEDIDOS_CREAR',
     'PEDIDOS_EDITAR',
+    'PEDIDOS_CANCELAR',
     'COMANDAS_VER',
     'COMANDAS_ENVIAR',
     'CLIENTES_VER',

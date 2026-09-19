@@ -63,6 +63,16 @@ const money = new Intl.NumberFormat("es-CO", {
   maximumFractionDigits: 0,
 });
 
+
+function orderPreparationStarted(order: ApiOrder) {
+  return (order.comandas ?? []).some((command) => {
+    if (["EN_PREPARACION", "LISTA", "ENTREGADA"].includes(command.estado)) return true;
+    return (command.detalles ?? []).some((detail) =>
+      ["EN_PREPARACION", "LISTA"].includes(detail.estado ?? ""),
+    );
+  });
+}
+
 function readPosImagePreference() {
   try {
     return window.localStorage.getItem("sigr:pos-product-images") !== "0";
@@ -1388,12 +1398,19 @@ export function RealSalonPage() {
                     {!(["CANCELADO", "FACTURADO"] as string[]).includes(draft.existing.estado) &&
                       hasPermission("PEDIDOS_CANCELAR") && (
                         <button
-                          className="secondary h-10 px-2 text-xs text-red-700"
-                          disabled={saving}
+                          className="secondary h-10 px-2 text-xs text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={saving || orderPreparationStarted(draft.existing)}
+                          title={
+                            orderPreparationStarted(draft.existing)
+                              ? "No se puede cancelar: la preparación ya inició"
+                              : "Cancelar pedido creado por error"
+                          }
                           onClick={() => void cancelOrder(draft.existing!)}
                         >
                           <XCircle size={14} />
-                          Cancelar pedido
+                          {orderPreparationStarted(draft.existing)
+                            ? "Cancelación bloqueada"
+                            : "Cancelar pedido"}
                         </button>
                       )}
                     {pendingCommandDetails(draft.existing).length > 0 &&

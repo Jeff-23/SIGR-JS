@@ -1414,6 +1414,11 @@ export class PedidosService {
         );
       if (pedido.venta.estado === 'ANULADA')
         throw new BadRequestException('La venta asociada está anulada');
+      if (pedido.estado !== EstadoPedido.ENTREGADO) {
+        throw new BadRequestException(
+          'No se puede solicitar la cuenta hasta que el pedido haya sido entregado al cliente',
+        );
+      }
       const cuentaRegistrada = await tx.eventoOperacional.findFirst({
         where: {
           pedidoId: pedido.id,

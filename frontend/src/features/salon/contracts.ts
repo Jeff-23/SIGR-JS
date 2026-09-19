@@ -103,6 +103,10 @@ export function activeOrder(order: ApiOrder) {
   return order.estado !== "CANCELADO" && order.estado !== "FACTURADO" && !(order.estado === "ENTREGADO" && order.venta?.estado === "PAGADA");
 }
 
+export function canRequestBill(order: ApiOrder) {
+  return order.estado === "ENTREGADO";
+}
+
 export function occupiedMinutes(order?: ApiOrder, table?: ApiTable) {
   const value = order?.creadoEn ?? table?.ocupadaManualEn;
   return value ? Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60000)) : 0;

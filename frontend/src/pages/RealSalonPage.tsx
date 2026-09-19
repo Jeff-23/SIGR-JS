@@ -32,6 +32,7 @@ import { SalonExperiencePanel } from "../features/salon/SalonExperiencePanel";
 import { filterCatalogProducts, paginateCatalogProducts } from "../features/salon/catalog";
 import {
   activeOrder,
+  canRequestBill,
   cartTotal,
   lineUnitPrice,
   occupiedMinutes,
@@ -1387,11 +1388,19 @@ export function RealSalonPage() {
                           Precuenta
                         </button>
                         <button
-                          className="secondary h-10 px-2 text-xs"
+                          className="secondary h-10 px-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                          disabled={saving || !canRequestBill(draft.existing)}
+                          title={
+                            canRequestBill(draft.existing)
+                              ? "Solicitar cuenta"
+                              : "Entrega primero todos los productos al cliente"
+                          }
                           onClick={() => void requestBill(draft.existing!)}
                         >
                           <ReceiptText size={14} />
-                          Solicitar cuenta
+                          {canRequestBill(draft.existing)
+                            ? "Solicitar cuenta"
+                            : "Faltan entregas"}
                         </button>
                         <button
                           className="secondary h-10 px-2 text-xs"

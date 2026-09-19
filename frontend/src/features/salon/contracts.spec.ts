@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeOrder, cartTotal, pendingCommandDetails, stationSummary, type ApiOrder, type CartLine } from "./contracts";
+import { activeOrder, canRequestBill, cartTotal, pendingCommandDetails, stationSummary, type ApiOrder, type CartLine } from "./contracts";
 
 const product = { id: 1, nombre: "Almuerzo", precio: "20000", categoria: { id: 1, nombre: "Almuerzos" } };
 
@@ -38,5 +38,12 @@ describe("contrato operativo de salón", () => {
     expect(activeOrder({ estado: "CANCELADO" } as ApiOrder)).toBe(false);
     expect(activeOrder({ estado: "ENTREGADO" } as ApiOrder)).toBe(true);
     expect(activeOrder({ estado: "ENTREGADO", venta: { estado: "PAGADA" } } as ApiOrder)).toBe(false);
+  });
+
+  it("sólo permite solicitar cuenta cuando el pedido ya fue entregado al cliente", () => {
+    expect(canRequestBill({ estado: "PENDIENTE" } as ApiOrder)).toBe(false);
+    expect(canRequestBill({ estado: "EN_PREPARACION" } as ApiOrder)).toBe(false);
+    expect(canRequestBill({ estado: "LISTO" } as ApiOrder)).toBe(false);
+    expect(canRequestBill({ estado: "ENTREGADO" } as ApiOrder)).toBe(true);
   });
 });

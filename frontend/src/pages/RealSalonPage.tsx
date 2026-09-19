@@ -65,12 +65,23 @@ const money = new Intl.NumberFormat("es-CO", {
 
 
 function orderPreparationStarted(order: ApiOrder) {
-  return (order.comandas ?? []).some((command) => {
+  const commandStarted = (order.comandas ?? []).some((command) => {
     if (["EN_PREPARACION", "LISTA", "ENTREGADA"].includes(command.estado)) return true;
     return (command.detalles ?? []).some((detail) =>
-      ["EN_PREPARACION", "LISTA"].includes(detail.estado ?? ""),
+      ["EN_PREPARACION", "LISTA", "ENTREGADA"].includes(detail.estado ?? ""),
     );
   });
+  if (commandStarted) return true;
+
+  // El detalle del pedido es la fuente que usa Salón para reflejar el avance
+  // parcial por línea. Algunas respuestas no incluyen order.comandas completo,
+  // pero sí detalle.comandas; la cancelación debe respetar ese mismo estado.
+  return (order.detalles ?? []).some((detail) =>
+    (detail.comandas ?? []).some((item) =>
+      item.comanda?.estado !== "CANCELADA" &&
+      ["EN_PREPARACION", "LISTA", "ENTREGADA"].includes(item.estado ?? ""),
+    ),
+  );
 }
 
 function readPosImagePreference() {

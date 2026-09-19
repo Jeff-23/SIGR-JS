@@ -381,6 +381,7 @@ model Sucursal {
   listaEspera            EntradaListaEspera[]
   promociones            Promocion[]
   solicitudesPedidoQr    SolicitudPedidoQr[]
+  cartasDia              CartaDia[]
   solicitudesCompra      SolicitudCompra[]
   ordenesCompra          OrdenCompra[]
   recepcionesCompra      RecepcionCompra[]
@@ -390,6 +391,21 @@ model Sucursal {
   turnosPersonal         TurnoPersonal[]
   metasOperativas        MetaOperativa[]
   eventosOperacionales   EventoOperacional[]
+}
+
+model CartaDia {
+  id           Int      @id @default(autoincrement())
+  fecha        DateTime @db.Date
+  contenido    Json
+  publicada    Boolean  @default(true)
+  creadoEn     DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  sucursalId Int
+  sucursal   Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Cascade)
+
+  @@unique([sucursalId, fecha])
+  @@index([sucursalId, publicada, fecha])
 }
 
 // ==========================================

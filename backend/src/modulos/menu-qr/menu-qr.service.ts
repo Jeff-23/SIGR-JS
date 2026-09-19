@@ -7,6 +7,7 @@ import {
 import { EstadoMesa, Prisma, TipoPedido } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { claveFechaEnZona } from '../../plataforma/zona-horaria';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { imagenProductoDb } from '../productos/imagenes-producto.prisma';
 import { CrearSolicitudQrDto } from './dto/menu-qr.dto';
@@ -42,6 +43,28 @@ export class MenuQrService {
     const porProducto = new Map(
       imagenes.map((imagen) => [imagen.productoId, imagen]),
     );
+    const zonaConfig = await this.prisma.configuracionSucursal.findUnique({
+      where: {
+        sucursalId_clave: {
+          sucursalId: acceso.mesa.zona.sucursal.id,
+          clave: 'ZONA_HORARIA',
+        },
+      },
+      select: { valor: true },
+    });
+    const zonaHoraria =
+      typeof zonaConfig?.valor === 'string'
+        ? zonaConfig.valor
+        : 'America/Bogota';
+    const fechaCarta = claveFechaEnZona(new Date(), zonaHoraria);
+    const cartaDia = await this.prisma.cartaDia.findUnique({
+      where: {
+        sucursalId_fecha: {
+          sucursalId: acceso.mesa.zona.sucursal.id,
+          fecha: new Date(`${fechaCarta}T00:00:00.000Z`),
+        },
+      },
+    });
     return {
       restaurante: acceso.mesa.zona.sucursal.restaurante.nombre,
       sucursal: acceso.mesa.zona.sucursal.nombre,
@@ -49,6 +72,13 @@ export class MenuQrService {
       modoQr,
       pedidosHabilitados: modoQr !== 'SOLO_MENU',
       requiereAceptacion: modoQr === 'PEDIDO_CON_APROBACION',
+      cartaDia:
+        cartaDia?.publicada === true
+          ? {
+              fecha: fechaCarta,
+              contenido: cartaDia.contenido,
+            }
+          : null,
       categorias: acceso.mesa.zona.sucursal.categorias.map((categoria) => ({
         id: categoria.id,
         nombre: categoria.nombre,

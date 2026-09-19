@@ -27,6 +27,7 @@ import { FiscalPage } from "./pages/FiscalPage";
 import { ContinuityPage } from "./pages/ContinuityPage";
 import { LoyaltyPage } from "./pages/LoyaltyPage";
 import { PublicQrMenuPage } from "./pages/PublicQrMenuPage";
+import { DailyMenuPage } from "./pages/DailyMenuPage";
 import { QrOrdersPage } from "./pages/QrOrdersPage";
 import { AccountantPage } from "./pages/AccountantPage";
 import { useApp } from "./store/app";
@@ -130,6 +131,14 @@ function ApplicationRoutes() {
               branchRequired
             >
               <SalonRouterPage />
+            </RouteGuard>
+          }
+        />
+        <Route
+          path="carta-dia"
+          element={
+            <RouteGuard permission="PRODUCTOS_EDITAR" branchRequired>
+              <DailyMenuPage />
             </RouteGuard>
           }
         />

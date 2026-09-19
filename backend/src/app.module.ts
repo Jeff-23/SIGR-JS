@@ -41,6 +41,7 @@ import { RegistrosFacturaModule } from './modulos/registros-factura/registros-fa
 import { ReservasModule } from './modulos/reservas/reservas.module';
 import { FidelizacionModule } from './modulos/fidelizacion/fidelizacion.module';
 import { MenuQrModule } from './modulos/menu-qr/menu-qr.module';
+import { CartaDiaModule } from './modulos/carta-dia/carta-dia.module';
 import { AbastecimientoModule } from './modulos/abastecimiento/abastecimiento.module';
 import { CostosModule } from './modulos/costos/costos.module';
 import { CuentasPagarModule } from './modulos/cuentas-pagar/cuentas-pagar.module';
@@ -89,6 +90,7 @@ const entorno = obtenerEntorno();
     ReservasModule,
     FidelizacionModule,
     MenuQrModule,
+    CartaDiaModule,
     AbastecimientoModule,
     CostosModule,
     CuentasPagarModule,

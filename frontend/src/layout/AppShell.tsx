@@ -2,6 +2,7 @@ import {
   BarChart3,
   BookOpenCheck,
   ClipboardList,
+  CalendarDays,
   Flame,
   LayoutDashboard,
   LogOut,
@@ -92,6 +93,13 @@ const nav: NavItem[] = [
     icon: Truck,
     permission: "INVENTARIO_VER",
     capability: "ABASTECIMIENTO",
+  },
+  {
+    to: "/carta-dia",
+    label: "Carta del día",
+    icon: CalendarDays,
+    permission: "PRODUCTOS_EDITAR",
+    capability: null,
   },
   {
     to: "/pedidos-qr",

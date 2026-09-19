@@ -384,6 +384,11 @@ const PERMISOS = [
     nombre: 'Actualizar estado de comandas',
     modulo: 'KDS',
   },
+  {
+    codigo: 'COMANDAS_IMPRIMIR',
+    nombre: 'Imprimir comandas',
+    modulo: 'KDS',
+  },
 
   // Ventas
   {

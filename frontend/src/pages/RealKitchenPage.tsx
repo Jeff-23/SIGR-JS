@@ -122,6 +122,7 @@ export function RealKitchenPage() {
   const ready = useRef(new Set<number>());
 
   const canEdit = hasPermission("COMANDAS_ACTUALIZAR_ESTADO");
+  const canPrint = hasPermission("COMANDAS_IMPRIMIR");
   const stationScope =
     session?.user.rol === "COCINA"
       ? "COCINA"
@@ -726,6 +727,7 @@ export function RealKitchenPage() {
               now={now}
               busy={busy}
               canEdit={canEdit}
+              canPrint={canPrint}
               markSeen={markSeen}
               startAll={startAll}
               updateCommandState={updateCommandState}
@@ -804,6 +806,7 @@ function CommandCard({
   now,
   busy,
   canEdit,
+  canPrint,
   markSeen,
   startAll,
   updateCommandState,
@@ -815,6 +818,7 @@ function CommandCard({
   now: number;
   busy: string | null;
   canEdit: boolean;
+  canPrint: boolean;
   markSeen: (command: Command) => Promise<void>;
   startAll: (command: Command) => Promise<void>;
   updateCommandState: (
@@ -954,18 +958,20 @@ function CommandCard({
                 <option value="URGENTE">Urgente</option>
               </select>
             )}
-            <button
-              aria-label={
-                command.solicitudesImpresion > 0
-                  ? "Reimprimir comanda"
-                  : "Imprimir comanda"
-              }
-              className="flex items-center gap-1.5 rounded-lg border border-denim/10 bg-white px-3 py-2 text-[11px] font-black text-denim"
-              onClick={() => void printCommand(command)}
-            >
-              <Printer size={16} />
-              {command.solicitudesImpresion > 0 ? "Reimprimir" : "Imprimir"}
-            </button>
+            {canPrint && (
+              <button
+                aria-label={
+                  command.solicitudesImpresion > 0
+                    ? "Reimprimir comanda"
+                    : "Imprimir comanda"
+                }
+                className="flex items-center gap-1.5 rounded-lg border border-denim/10 bg-white px-3 py-2 text-[11px] font-black text-denim"
+                onClick={() => void printCommand(command)}
+              >
+                <Printer size={16} />
+                {command.solicitudesImpresion > 0 ? "Reimprimir" : "Imprimir"}
+              </button>
+            )}
           </div>
         </div>
 

@@ -75,7 +75,7 @@ export class ComandasController {
   }
 
   @Get('comandas/:id/representacion-impresa')
-  @Permisos('COMANDAS_VER')
+  @Permisos('COMANDAS_IMPRIMIR')
   representacionImpresa(
     @Param('id', ParseIntPipe) id: number,
     @Req() request: RequestAutenticada,
@@ -84,7 +84,7 @@ export class ComandasController {
   }
 
   @Post('comandas/:id/impresiones')
-  @Permisos('COMANDAS_VER')
+  @Permisos('COMANDAS_IMPRIMIR')
   registrarImpresion(
     @Param('id', ParseIntPipe) id: number,
     @Body() data: RegistrarImpresionComandaDto,

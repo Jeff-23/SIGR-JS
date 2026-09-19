@@ -14,6 +14,7 @@ import { PermissionsGuard } from '../auth/permissions.guard';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { CartaDiaService } from './carta-dia.service';
 import { GuardarCartaDiaDto } from './dto/guardar-carta-dia.dto';
+import { GuardarPlantillaCartaDto } from './dto/guardar-plantilla-carta.dto';
 
 type RequestAutenticada = { user: UsuarioAutenticado };
 
@@ -21,6 +22,25 @@ type RequestAutenticada = { user: UsuarioAutenticado };
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class CartaDiaController {
   constructor(private readonly service: CartaDiaService) {}
+
+  @Get(':sucursalId/plantilla')
+  @Permisos('PRODUCTOS_EDITAR')
+  obtenerPlantilla(
+    @Param('sucursalId', ParseIntPipe) sucursalId: number,
+    @Req() req: RequestAutenticada,
+  ) {
+    return this.service.obtenerPlantilla(sucursalId, req.user);
+  }
+
+  @Put(':sucursalId/plantilla')
+  @Permisos('PRODUCTOS_EDITAR')
+  guardarPlantilla(
+    @Param('sucursalId', ParseIntPipe) sucursalId: number,
+    @Body() dto: GuardarPlantillaCartaDto,
+    @Req() req: RequestAutenticada,
+  ) {
+    return this.service.guardarPlantilla(sucursalId, dto, req.user);
+  }
 
   @Get(':sucursalId/:fecha')
   @Permisos('PRODUCTOS_EDITAR')

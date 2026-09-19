@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { GuardarCartaDiaDto } from './dto/guardar-carta-dia.dto';
+import { GuardarPlantillaCartaDto } from './dto/guardar-plantilla-carta.dto';
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -105,6 +106,74 @@ export class CartaDiaService {
       ...carta,
       fecha,
     };
+  }
+
+  async obtenerPlantilla(
+    sucursalId: number,
+    usuario: UsuarioAutenticado,
+  ) {
+    await this.sucursalEnAlcance(sucursalId, usuario);
+    const configuracion = await this.prisma.configuracionSucursal.findUnique({
+      where: {
+        sucursalId_clave: {
+          sucursalId,
+          clave: 'CARTA_PLANTILLA',
+        },
+      },
+      select: { valor: true, actualizadoEn: true },
+    });
+    const valor = configuracion?.valor;
+    if (!valor || typeof valor !== 'object' || Array.isArray(valor)) {
+      return {
+        sucursalId,
+        titulo: 'Menú de almuerzos',
+        subtitulo: '',
+        pie: '',
+        estilo: 'EDITORIAL_DORADO',
+        mostrarPrecios: true,
+        secciones: [],
+        actualizadoEn: null,
+      };
+    }
+    return { sucursalId, ...(valor as object), actualizadoEn: configuracion.actualizadoEn };
+  }
+
+  async guardarPlantilla(
+    sucursalId: number,
+    dto: GuardarPlantillaCartaDto,
+    usuario: UsuarioAutenticado,
+  ) {
+    await this.sucursalEnAlcance(sucursalId, usuario);
+    const valor = {
+      titulo: dto.titulo.trim() || 'Menú de almuerzos',
+      subtitulo: dto.subtitulo?.trim() || '',
+      pie: dto.pie?.trim() || '',
+      estilo: dto.estilo,
+      mostrarPrecios: dto.mostrarPrecios,
+      secciones: dto.secciones
+        .map((seccion) => ({
+          categoriaId: seccion.categoriaId,
+          titulo: seccion.titulo.trim(),
+          productoIds: [...new Set(seccion.productoIds)],
+        }))
+        .filter((seccion) => seccion.titulo && seccion.productoIds.length > 0),
+    };
+    const configuracion = await this.prisma.configuracionSucursal.upsert({
+      where: {
+        sucursalId_clave: {
+          sucursalId,
+          clave: 'CARTA_PLANTILLA',
+        },
+      },
+      update: { valor: valor as Prisma.InputJsonValue },
+      create: {
+        sucursalId,
+        clave: 'CARTA_PLANTILLA',
+        valor: valor as Prisma.InputJsonValue,
+      },
+      select: { actualizadoEn: true },
+    });
+    return { sucursalId, ...valor, actualizadoEn: configuracion.actualizadoEn };
   }
 
   private normalizarContenido(contenido: GuardarCartaDiaDto['contenido']) {

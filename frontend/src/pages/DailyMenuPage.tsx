@@ -1,29 +1,38 @@
 import {
-  CalendarDays,
+  Check,
+  ChevronDown,
+  ChevronUp,
   Download,
-  Plus,
+  Eye,
+  LayoutTemplate,
   Printer,
   Save,
-  Trash2,
+  Sparkles,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
+import type { ApiProduct } from "../features/salon/contracts";
 import { api, errorMessage } from "../lib/api";
 import { useApp } from "../store/app";
 
-type DailyGroup = { titulo: string; opciones: string[] };
-type DailySpecial = {
+type MenuStyle = "EDITORIAL_DORADO" | "CONTEMPORANEA" | "EJECUTIVA";
+type TemplateSection = { categoriaId: number; titulo: string; productoIds: number[] };
+type MenuTemplate = {
+  sucursalId: number;
   titulo: string;
-  nombre: string;
-  descripcion: string;
-  precio?: number;
+  subtitulo: string;
+  pie: string;
+  estilo: MenuStyle;
+  mostrarPrecios: boolean;
+  secciones: TemplateSection[];
+  actualizadoEn?: string | null;
 };
 type DailyContent = {
   titulo: string;
   subtitulo: string;
   precioBase?: number;
-  grupos: DailyGroup[];
-  especial?: DailySpecial | null;
+  grupos: Array<{ titulo: string; opciones: string[] }>;
+  especial?: { titulo: string; nombre: string; descripcion: string; precio?: number } | null;
   mensaje: string;
 };
 type DailyMenu = {
@@ -35,60 +44,39 @@ type DailyMenu = {
   actualizadoEn: string | null;
 };
 
-const money = new Intl.NumberFormat("es-CO", {
-  style: "currency",
-  currency: "COP",
-  maximumFractionDigits: 0,
-});
+const money = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
+const styles: Array<{ id: MenuStyle; name: string; note: string }> = [
+  { id: "EDITORIAL_DORADO", name: "Editorial dorado", note: "Elegante, crema, azul profundo y dorado." },
+  { id: "CONTEMPORANEA", name: "Contemporánea", note: "Limpia, moderna y de alto contraste." },
+  { id: "EJECUTIVA", name: "Ejecutiva", note: "Compacta para carta de almuerzos y WhatsApp." },
+];
 
 function todayKey() {
   const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
-
-function emptyMenu(branchId: number, fecha: string): DailyMenu {
+function emptyDaily(branchId: number, fecha: string): DailyMenu {
   return {
-    id: null,
-    sucursalId: branchId,
-    fecha,
-    publicada: false,
-    actualizadoEn: null,
+    id: null, sucursalId: branchId, fecha, publicada: false, actualizadoEn: null,
     contenido: {
-      titulo: "Almuerzo del día",
-      subtitulo: "",
-      grupos: [
-        { titulo: "Proteínas disponibles", opciones: [] },
-        { titulo: "Acompañamientos", opciones: [] },
-      ],
-      especial: {
-        titulo: "Especial de hoy",
-        nombre: "",
-        descripcion: "",
-      },
-      mensaje: "",
+      titulo: "Almuerzo del día", subtitulo: "", grupos: [], mensaje: "",
+      especial: { titulo: "Especial de hoy", nombre: "", descripcion: "" },
     },
   };
 }
-
-function wrapText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  maxWidth: number,
-) {
-  const words = text.split(/\s+/).filter(Boolean);
+function defaultTemplate(branchId: number): MenuTemplate {
+  return { sucursalId: branchId, titulo: "Menú de almuerzos", subtitulo: "Preparado fresco todos los días", pie: "Pregunta por disponibilidad y domicilios.", estilo: "EDITORIAL_DORADO", mostrarPrecios: true, secciones: [] };
+}
+function escapeHtml(value: string) {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+}
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
+  const words = text.split(/\\s+/).filter(Boolean);
   const lines: string[] = [];
   let line = "";
   for (const word of words) {
     const next = line ? `${line} ${word}` : word;
-    if (ctx.measureText(next).width > maxWidth && line) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = next;
-    }
+    if (ctx.measureText(next).width > maxWidth && line) { lines.push(line); line = word; } else line = next;
   }
   if (line) lines.push(line);
   return lines;
@@ -96,632 +84,225 @@ function wrapText(
 
 export function DailyMenuPage() {
   const { branchId, session } = useApp();
+  const [tab, setTab] = useState<"HOY" | "BASE">("HOY");
   const [date, setDate] = useState(todayKey());
-  const [menu, setMenu] = useState<DailyMenu>(() => emptyMenu(branchId ?? 0, date));
-  const [busy, setBusy] = useState(false);
+  const [daily, setDaily] = useState<DailyMenu>(() => emptyDaily(branchId ?? 0, date));
+  const [template, setTemplate] = useState<MenuTemplate>(() => defaultTemplate(branchId ?? 0));
+  const [products, setProducts] = useState<ApiProduct[]>([]);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const restaurantName = session?.user.restauranteNombre?.trim() || "Tu restaurante";
 
   useEffect(() => {
     if (!branchId) return;
     let active = true;
-
     if (session?.demo) {
       const timer = window.setTimeout(() => {
         if (!active) return;
-        setMenu(emptyMenu(branchId, date));
+        setDaily(emptyDaily(branchId, date));
+        setTemplate(defaultTemplate(branchId));
         setLoading(false);
       }, 0);
-      return () => {
-        active = false;
-        window.clearTimeout(timer);
-      };
+      return () => { active = false; window.clearTimeout(timer); };
     }
-
-    const loadingTimer = window.setTimeout(() => {
-      if (active) setLoading(true);
-    }, 0);
-
-    api
-      .get<DailyMenu>(`/cartas-dia/${branchId}/${date}`)
-      .then(({ data }) => {
-        if (active) setMenu(data);
-      })
-      .catch((error) => {
-        if (active) toast.error(errorMessage(error));
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-      window.clearTimeout(loadingTimer);
-    };
+    const timer = window.setTimeout(() => { if (active) setLoading(true); }, 0);
+    Promise.all([
+      api.get<DailyMenu>(`/cartas-dia/${branchId}/${date}`),
+      api.get<MenuTemplate>(`/cartas-dia/${branchId}/plantilla`),
+      api.get<ApiProduct[]>("/productos", { params: { sucursalId: branchId } }),
+    ]).then(([dailyResponse, templateResponse, productResponse]) => {
+      if (!active) return;
+      setDaily(dailyResponse.data);
+      setTemplate(templateResponse.data);
+      setProducts(productResponse.data);
+    }).catch((error) => { if (active) toast.error(errorMessage(error)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; window.clearTimeout(timer); };
   }, [branchId, date, session?.demo]);
 
-  const restaurantName =
-    session?.user.restauranteNombre?.trim() || "Tu restaurante";
-  const special = menu.contenido.especial;
-  const visibleGroups = useMemo(
-    () =>
-      menu.contenido.grupos
-        .map((group) => ({
-          ...group,
-          opciones: group.opciones.filter((item) => item.trim()),
-        }))
-        .filter((group) => group.titulo.trim() && group.opciones.length),
-    [menu.contenido.grupos],
-  );
+  const categories = useMemo(() => {
+    const map = new Map<number, { id: number; nombre: string; products: ApiProduct[] }>();
+    products.filter((product) => product.disponible !== false).forEach((product) => {
+      const current = map.get(product.categoria.id) ?? { id: product.categoria.id, nombre: product.categoria.nombre, products: [] };
+      current.products.push(product);
+      map.set(product.categoria.id, current);
+    });
+    return [...map.values()];
+  }, [products]);
 
-  const patchContent = (patch: Partial<DailyContent>) =>
-    setMenu((current) => ({
-      ...current,
-      contenido: { ...current.contenido, ...patch },
-    }));
+  const effectiveSections = useMemo<TemplateSection[]>(() => {
+    if (template.secciones.length) return template.secciones;
+    return categories.map((category) => ({ categoriaId: category.id, titulo: category.nombre, productoIds: category.products.map((product) => product.id) }));
+  }, [categories, template.secciones]);
 
-  const save = async () => {
-    if (session?.demo) {
-      toast.success("Vista demo actualizada.");
-      return;
-    }
-    setBusy(true);
-    try {
-      const { data } = await api.put<DailyMenu>(
-        `/cartas-dia/${branchId}/${date}`,
-        {
-          publicada: menu.publicada,
-          contenido: menu.contenido,
-        },
-      );
-      setMenu(data);
-      toast.success(
-        data.publicada
-          ? "Carta del día guardada y publicada."
-          : "Borrador de carta guardado.",
-      );
-    } catch (error) {
-      toast.error(errorMessage(error));
-    } finally {
-      setBusy(false);
-    }
+  const visibleSections = useMemo(() => effectiveSections.map((section) => ({
+    ...section,
+    products: section.productoIds.map((id) => products.find((product) => product.id === id)).filter((product): product is ApiProduct => Boolean(product && product.disponible !== false)),
+  })).filter((section) => section.products.length), [effectiveSections, products]);
+
+  const updateDailySpecial = (patch: Partial<NonNullable<DailyContent["especial"]>>) => {
+    setDaily((current) => ({ ...current, contenido: { ...current.contenido, especial: { titulo: current.contenido.especial?.titulo ?? "Especial de hoy", nombre: current.contenido.especial?.nombre ?? "", descripcion: current.contenido.especial?.descripcion ?? "", precio: current.contenido.especial?.precio, ...patch } } }));
   };
 
-  const addGroup = () =>
-    patchContent({
-      grupos: [
-        ...menu.contenido.grupos,
-        { titulo: "Nueva sección", opciones: [""] },
-      ],
-    });
+  const saveDaily = async () => {
+    if (session?.demo) return toast.success("Vista demo actualizada.");
+    setBusy(true);
+    try {
+      const { data } = await api.put<DailyMenu>(`/cartas-dia/${branchId}/${date}`, { publicada: daily.publicada, contenido: daily.contenido });
+      setDaily(data);
+      toast.success(data.publicada ? "Carta de hoy publicada." : "Borrador guardado.");
+    } catch (error) { toast.error(errorMessage(error)); } finally { setBusy(false); }
+  };
 
-  const updateGroup = (index: number, group: DailyGroup) =>
-    patchContent({
-      grupos: menu.contenido.grupos.map((item, current) =>
-        current === index ? group : item,
-      ),
-    });
+  const saveTemplate = async () => {
+    if (session?.demo) return toast.success("Plantilla demo actualizada.");
+    setBusy(true);
+    try {
+      const payload = { ...template, secciones: effectiveSections.map(({ categoriaId, titulo, productoIds }) => ({ categoriaId, titulo, productoIds })) };
+      const { data } = await api.put<MenuTemplate>(`/cartas-dia/${branchId}/plantilla`, payload);
+      setTemplate(data);
+      toast.success("Plantilla de carta guardada.");
+    } catch (error) { toast.error(errorMessage(error)); } finally { setBusy(false); }
+  };
 
-  const removeGroup = (index: number) =>
-    patchContent({
-      grupos: menu.contenido.grupos.filter((_, current) => current !== index),
+  const toggleCategory = (categoryId: number) => {
+    setTemplate((current) => {
+      const existing = effectiveSections.find((section) => section.categoriaId === categoryId);
+      const selected = current.secciones.length ? current.secciones : effectiveSections;
+      if (existing) return { ...current, secciones: selected.filter((section) => section.categoriaId !== categoryId) };
+      const category = categories.find((item) => item.id === categoryId);
+      if (!category) return current;
+      return { ...current, secciones: [...selected, { categoriaId: category.id, titulo: category.nombre, productoIds: category.products.map((product) => product.id) }] };
     });
+  };
+
+  const toggleProduct = (categoryId: number, productId: number) => {
+    setTemplate((current) => {
+      const selected = current.secciones.length ? current.secciones : effectiveSections;
+      return { ...current, secciones: selected.map((section) => section.categoriaId !== categoryId ? section : { ...section, productoIds: section.productoIds.includes(productId) ? section.productoIds.filter((id) => id !== productId) : [...section.productoIds, productId] }) };
+    });
+  };
+
+  const moveSection = (index: number, direction: -1 | 1) => {
+    const selected = template.secciones.length ? [...template.secciones] : [...effectiveSections];
+    const next = index + direction;
+    if (next < 0 || next >= selected.length) return;
+    [selected[index], selected[next]] = [selected[next], selected[index]];
+    setTemplate((current) => ({ ...current, secciones: selected }));
+  };
+
+  const palette = template.estilo === "CONTEMPORANEA"
+    ? { bg: "#f6f3ed", card: "#ffffff", dark: "#182329", accent: "#d85f3d", muted: "#667078" }
+    : template.estilo === "EJECUTIVA"
+      ? { bg: "#fff8e9", card: "#fffdf7", dark: "#18352d", accent: "#e3a72f", muted: "#617069" }
+      : { bg: "#f3ede1", card: "#fffdf8", dark: "#14283b", accent: "#b98a2d", muted: "#65717c" };
 
   const printMenu = () => {
     const popup = window.open("", "_blank", "noopener,noreferrer");
-    if (!popup) {
-      toast.error("El navegador bloqueó la ventana de impresión.");
-      return;
-    }
-    const groups = visibleGroups
-      .map(
-        (group) => `
-          <section>
-            <h3>${escapeHtml(group.titulo)}</h3>
-            <p>${group.opciones.map(escapeHtml).join(" · ")}</p>
-          </section>`,
-      )
-      .join("");
-    const specialBlock = special?.nombre?.trim()
-      ? `<section class="special"><small>${escapeHtml(special.titulo || "Especial de hoy")}</small><h2>${escapeHtml(special.nombre)}</h2>${special.descripcion ? `<p>${escapeHtml(special.descripcion)}</p>` : ""}${special.precio !== undefined ? `<strong>${money.format(Number(special.precio))}</strong>` : ""}</section>`
-      : "";
-    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Carta ${date}</title><style>
-      @page{size:A4;margin:12mm}*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;color:#15263a;background:#f4f0e8}
-      .sheet{min-height:270mm;padding:20mm 16mm;background:#fff;border:1px solid #e6dfd2}header{border-bottom:3px solid #d7aa45;padding-bottom:18px}
-      .brand{font-size:13px;letter-spacing:.18em;text-transform:uppercase;font-weight:800;color:#9b7624}.date{float:right;color:#667}
-      h1{font-size:42px;margin:10px 0 4px}.subtitle{font-size:17px;color:#667}.price{font-size:30px;font-weight:900;margin-top:14px}
-      main{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:26px}section{padding:18px;border:1px solid #ece6dc;border-radius:16px}
-      section h3{margin:0 0 10px;font-size:18px}section p{margin:0;line-height:1.6;color:#4f5b66}.special{grid-column:1/-1;background:#15263a;color:white;border:0}
-      .special small{color:#e9c66f;text-transform:uppercase;letter-spacing:.16em;font-weight:800}.special h2{font-size:30px;margin:8px 0}.special p{color:#d9e0e7}.special strong{display:block;margin-top:12px;font-size:22px}
-      footer{margin-top:28px;text-align:center;color:#667;font-style:italic}@media print{body{background:#fff}.sheet{border:0}}
-    </style></head><body><article class="sheet"><header><span class="brand">${escapeHtml(restaurantName)}</span><span class="date">${escapeHtml(date)}</span><h1>${escapeHtml(menu.contenido.titulo)}</h1>${menu.contenido.subtitulo ? `<div class="subtitle">${escapeHtml(menu.contenido.subtitulo)}</div>` : ""}${menu.contenido.precioBase !== undefined ? `<div class="price">${money.format(Number(menu.contenido.precioBase))}</div>` : ""}</header>${specialBlock}<main>${groups}</main>${menu.contenido.mensaje ? `<footer>${escapeHtml(menu.contenido.mensaje)}</footer>` : ""}</article><script>window.onload=()=>window.print();</script></body></html>`);
+    if (!popup) return toast.error("El navegador bloqueó la ventana de impresión.");
+    const special = daily.contenido.especial;
+    const sectionsHtml = visibleSections.map((section) => `<section class="menu-section"><h2>${escapeHtml(section.titulo)}</h2>${section.products.map((product) => `<div class="item"><div><strong>${escapeHtml(product.nombre)}</strong>${product.descripcion ? `<small>${escapeHtml(product.descripcion)}</small>` : ""}</div>${template.mostrarPrecios ? `<b>${money.format(Number(product.precio))}</b>` : ""}</div>`).join("")}</section>`).join("");
+    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(template.titulo)}</title><style>@page{size:A4;margin:0}*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:${palette.bg};color:${palette.dark}}.sheet{min-height:297mm;padding:16mm 15mm;background:${palette.bg}}header{display:grid;grid-template-columns:1fr auto;align-items:end;border-bottom:4px solid ${palette.accent};padding-bottom:12mm}.brand{font-size:11px;letter-spacing:.2em;font-weight:900;color:${palette.accent};text-transform:uppercase}h1{font-size:35px;line-height:1;margin:6px 0}.sub{color:${palette.muted};font-size:13px}.date{font-size:12px;color:${palette.muted}}.special{margin:9mm 0;background:${palette.dark};color:#fff;border-radius:8px;padding:8mm;display:flex;justify-content:space-between;gap:8mm}.special small{display:block;color:${palette.accent};text-transform:uppercase;letter-spacing:.16em;font-weight:900}.special h2{margin:3px 0;font-size:25px}.special p{margin:4px 0;color:#d9e1e6}.special b{font-size:22px;white-space:nowrap}.grid{columns:2;column-gap:9mm}.menu-section{break-inside:avoid;margin:0 0 7mm;padding:0 0 5mm;border-bottom:1px solid #cfc8bc}.menu-section h2{font-size:18px;text-transform:uppercase;letter-spacing:.08em;margin:0 0 3mm;color:${palette.accent}}.item{display:flex;justify-content:space-between;gap:6mm;margin:0 0 2.5mm}.item strong{font-size:13px}.item small{display:block;margin-top:2px;color:${palette.muted};font-size:10px;line-height:1.3}.item b{font-size:12px;white-space:nowrap}footer{border-top:1px solid #cfc8bc;margin-top:6mm;padding-top:4mm;text-align:center;color:${palette.muted};font-size:11px}@media print{.sheet{min-height:auto}}</style></head><body><article class="sheet"><header><div><div class="brand">${escapeHtml(restaurantName)}</div><h1>${escapeHtml(template.titulo)}</h1>${template.subtitulo ? `<div class="sub">${escapeHtml(template.subtitulo)}</div>` : ""}</div><div class="date">${escapeHtml(date)}</div></header>${special?.nombre?.trim() ? `<section class="special"><div><small>${escapeHtml(special.titulo || "Especial de hoy")}</small><h2>${escapeHtml(special.nombre)}</h2>${special.descripcion ? `<p>${escapeHtml(special.descripcion)}</p>` : ""}</div>${special.precio !== undefined ? `<b>${money.format(Number(special.precio))}</b>` : ""}</section>` : ""}<main class="grid">${sectionsHtml}</main>${template.pie || daily.contenido.mensaje ? `<footer>${escapeHtml(daily.contenido.mensaje || template.pie)}</footer>` : ""}</article><script>window.onload=()=>window.print();</script></body></html>`);
     popup.document.close();
   };
 
   const downloadPng = () => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 1080;
-    canvas.height = 1350;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    ctx.fillStyle = "#f4f0e8";
-    ctx.fillRect(0, 0, 1080, 1350);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(54, 54, 972, 1242);
-
-    ctx.fillStyle = "#b3882e";
-    ctx.font = "700 26px Arial";
-    ctx.fillText(restaurantName.toUpperCase(), 100, 125);
-
-    ctx.fillStyle = "#15263a";
-    ctx.font = "900 60px Arial";
-    let y = 210;
-    for (const line of wrapText(ctx, menu.contenido.titulo, 820)) {
-      ctx.fillText(line, 100, y);
-      y += 70;
-    }
-
-    if (menu.contenido.subtitulo) {
-      ctx.fillStyle = "#66727e";
-      ctx.font = "32px Arial";
-      for (const line of wrapText(ctx, menu.contenido.subtitulo, 820)) {
-        ctx.fillText(line, 100, y);
-        y += 42;
-      }
-    }
-    if (menu.contenido.precioBase !== undefined) {
-      ctx.fillStyle = "#15263a";
-      ctx.font = "900 48px Arial";
-      ctx.fillText(money.format(Number(menu.contenido.precioBase)), 100, y + 20);
-      y += 80;
-    }
-
+    const itemCount = visibleSections.reduce((sum, section) => sum + section.products.length, 0);
+    const height = Math.max(1350, Math.min(2600, 900 + visibleSections.length * 95 + itemCount * 54));
+    const canvas = document.createElement("canvas"); canvas.width = 1080; canvas.height = height;
+    const ctx = canvas.getContext("2d"); if (!ctx) return;
+    ctx.fillStyle = palette.bg; ctx.fillRect(0, 0, 1080, height);
+    ctx.fillStyle = palette.dark; ctx.fillRect(0, 0, 1080, 280);
+    ctx.fillStyle = palette.accent; ctx.fillRect(72, 72, 10, 136);
+    ctx.fillStyle = palette.accent; ctx.font = "800 25px Arial"; ctx.fillText(restaurantName.toUpperCase(), 112, 106);
+    ctx.fillStyle = "#fff"; ctx.font = "900 64px Arial"; let y = 174;
+    wrapText(ctx, template.titulo, 830).slice(0, 2).forEach((line) => { ctx.fillText(line, 112, y); y += 68; });
+    if (template.subtitulo) { ctx.fillStyle = "#dce3e7"; ctx.font = "27px Arial"; ctx.fillText(template.subtitulo.slice(0, 58), 112, 244); }
+    y = 330;
+    const special = daily.contenido.especial;
     if (special?.nombre?.trim()) {
-      ctx.fillStyle = "#15263a";
-      ctx.fillRect(100, y, 880, 210);
-      ctx.fillStyle = "#e9c66f";
-      ctx.font = "700 22px Arial";
-      ctx.fillText((special.titulo || "Especial de hoy").toUpperCase(), 135, y + 48);
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "900 38px Arial";
-      ctx.fillText(special.nombre, 135, y + 98);
-      if (special.descripcion) {
-        ctx.font = "25px Arial";
-        const lines = wrapText(ctx, special.descripcion, 760).slice(0, 2);
-        lines.forEach((line, index) => ctx.fillText(line, 135, y + 140 + index * 31));
-      }
-      if (special.precio !== undefined) {
-        ctx.font = "900 30px Arial";
-        ctx.fillText(money.format(Number(special.precio)), 760, y + 48);
-      }
-      y += 245;
+      ctx.fillStyle = palette.card; ctx.fillRect(72, y, 936, 190);
+      ctx.fillStyle = palette.accent; ctx.font = "800 24px Arial"; ctx.fillText((special.titulo || "Especial de hoy").toUpperCase(), 108, y + 48);
+      ctx.fillStyle = palette.dark; ctx.font = "900 42px Arial"; ctx.fillText(special.nombre.slice(0, 36), 108, y + 98);
+      if (special.descripcion) { ctx.fillStyle = palette.muted; ctx.font = "25px Arial"; wrapText(ctx, special.descripcion, 650).slice(0, 2).forEach((line, index) => ctx.fillText(line, 108, y + 137 + index * 30)); }
+      if (special.precio !== undefined) { ctx.fillStyle = palette.dark; ctx.font = "900 34px Arial"; ctx.textAlign = "right"; ctx.fillText(money.format(Number(special.precio)), 960, y + 54); ctx.textAlign = "left"; }
+      y += 235;
     }
-
-    const columns = 2;
-    const colWidth = 410;
-    visibleGroups.slice(0, 6).forEach((group, index) => {
-      const col = index % columns;
-      const row = Math.floor(index / columns);
-      const x = 100 + col * 460;
-      const top = y + row * 185;
-      ctx.fillStyle = "#15263a";
-      ctx.font = "800 28px Arial";
-      ctx.fillText(group.titulo, x, top + 30);
-      ctx.fillStyle = "#596774";
-      ctx.font = "25px Arial";
-      const text = group.opciones.join(" · ");
-      wrapText(ctx, text, colWidth)
-        .slice(0, 4)
-        .forEach((line, lineIndex) =>
-          ctx.fillText(line, x, top + 70 + lineIndex * 31),
-        );
+    const leftX = 72, rightX = 552, colW = 456; let leftY = y, rightY = y;
+    visibleSections.forEach((section, index) => {
+      const x = index % 2 === 0 ? leftX : rightX; let sy = index % 2 === 0 ? leftY : rightY;
+      ctx.fillStyle = palette.accent; ctx.font = "900 27px Arial"; ctx.fillText(section.titulo.toUpperCase(), x, sy + 30); sy += 55;
+      section.products.forEach((product) => {
+        ctx.fillStyle = palette.dark; ctx.font = "700 24px Arial"; ctx.fillText(product.nombre.slice(0, 25), x, sy);
+        if (template.mostrarPrecios) { ctx.font = "800 22px Arial"; ctx.textAlign = "right"; ctx.fillText(money.format(Number(product.precio)), x + colW - 10, sy); ctx.textAlign = "left"; }
+        sy += 39;
+        if (product.descripcion) { ctx.fillStyle = palette.muted; ctx.font = "20px Arial"; ctx.fillText(product.descripcion.slice(0, 36), x, sy); sy += 31; }
+        sy += 10;
+      });
+      ctx.fillStyle = "#cfc8bc"; ctx.fillRect(x, sy, colW - 12, 1); sy += 34;
+      if (index % 2 === 0) leftY = sy; else rightY = sy;
     });
-
-    if (menu.contenido.mensaje) {
-      ctx.fillStyle = "#7a6750";
-      ctx.font = "italic 25px Arial";
-      const lines = wrapText(ctx, menu.contenido.mensaje, 820).slice(0, 3);
-      lines.forEach((line, index) => ctx.fillText(line, 100, 1240 + index * 30));
-    }
-
-    const link = document.createElement("a");
-    link.download = `carta-${date}.png`;
-    link.href = canvas.toDataURL("image/png");
-    link.click();
+    const footerY = Math.min(height - 70, Math.max(leftY, rightY) + 40);
+    ctx.fillStyle = palette.dark; ctx.fillRect(72, footerY - 20, 936, 2);
+    ctx.fillStyle = palette.muted; ctx.font = "22px Arial"; ctx.textAlign = "center"; ctx.fillText((daily.contenido.mensaje || template.pie || "").slice(0, 90), 540, footerY + 26); ctx.textAlign = "left";
+    const link = document.createElement("a"); link.download = `carta-${date}.png`; link.href = canvas.toDataURL("image/png"); link.click();
   };
 
-  if (loading) {
-    return <div className="card">Cargando carta del día…</div>;
-  }
+  if (loading) return <div className="card">Cargando carta…</div>;
+  const special = daily.contenido.especial;
 
-  return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="eyebrow">Publicación diaria</p>
-          <h1 className="page-title">Carta del día</h1>
-          <p className="mt-2 max-w-2xl text-sm text-denim/55">
-            Cambia el especial, proteínas y secciones cada día sin modificar el
-            catálogo maestro.
-          </p>
-        </div>
-        <label className="text-sm font-bold">
-          Fecha
-          <input
-            className="input mt-1"
-            type="date"
-            value={date}
-            onChange={(event) => setDate(event.target.value)}
-          />
-        </label>
-      </header>
-
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(380px,.8fr)]">
-        <section className="card space-y-5">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="sm:col-span-2">
-              Título de la carta
-              <input
-                className="input mt-1"
-                value={menu.contenido.titulo}
-                onChange={(event) =>
-                  patchContent({ titulo: event.target.value })
-                }
-              />
-            </label>
-            <label className="sm:col-span-2">
-              Subtítulo / descripción
-              <input
-                className="input mt-1"
-                placeholder="Ej. Almuerzos frescos preparados hoy"
-                value={menu.contenido.subtitulo}
-                onChange={(event) =>
-                  patchContent({ subtitulo: event.target.value })
-                }
-              />
-            </label>
-            <label>
-              Precio base
-              <input
-                className="input mt-1"
-                type="number"
-                min="0"
-                step="100"
-                placeholder="18000"
-                value={menu.contenido.precioBase ?? ""}
-                onChange={(event) =>
-                  patchContent({
-                    precioBase: event.target.value
-                      ? Number(event.target.value)
-                      : undefined,
-                  })
-                }
-              />
-            </label>
-            <label className="flex items-end gap-3 pb-2 font-bold">
-              <input
-                type="checkbox"
-                checked={menu.publicada}
-                onChange={(event) =>
-                  setMenu((current) => ({
-                    ...current,
-                    publicada: event.target.checked,
-                  }))
-                }
-              />
-              Publicar esta carta
-            </label>
-          </div>
-
-          <div className="rounded-3xl border border-marigold/35 bg-marigold/5 p-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="eyebrow">Variable cada día</p>
-                <h2 className="text-xl font-black">Especial de hoy</h2>
-              </div>
-              {special?.nombre ? (
-                <button
-                  className="secondary h-10 w-auto px-4"
-                  onClick={() =>
-                    patchContent({
-                      especial: {
-                        titulo: "Especial de hoy",
-                        nombre: "",
-                        descripcion: "",
-                      },
-                    })
-                  }
-                >
-                  Limpiar especial
-                </button>
-              ) : null}
-            </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <label>
-                Encabezado
-                <input
-                  className="input mt-1"
-                  value={special?.titulo ?? "Especial de hoy"}
-                  onChange={(event) =>
-                    patchContent({
-                      especial: {
-                        titulo: event.target.value,
-                        nombre: special?.nombre ?? "",
-                        descripcion: special?.descripcion ?? "",
-                        precio: special?.precio,
-                      },
-                    })
-                  }
-                />
-              </label>
-              <label>
-                Nombre
-                <input
-                  className="input mt-1"
-                  placeholder="Ej. Carne desmechada"
-                  value={special?.nombre ?? ""}
-                  onChange={(event) =>
-                    patchContent({
-                      especial: {
-                        titulo: special?.titulo ?? "Especial de hoy",
-                        nombre: event.target.value,
-                        descripcion: special?.descripcion ?? "",
-                        precio: special?.precio,
-                      },
-                    })
-                  }
-                />
-              </label>
-              <label className="sm:col-span-2">
-                Descripción opcional
-                <textarea
-                  className="input mt-1 min-h-24"
-                  placeholder="Preparación, salsa, presentación…"
-                  value={special?.descripcion ?? ""}
-                  onChange={(event) =>
-                    patchContent({
-                      especial: {
-                        titulo: special?.titulo ?? "Especial de hoy",
-                        nombre: special?.nombre ?? "",
-                        descripcion: event.target.value,
-                        precio: special?.precio,
-                      },
-                    })
-                  }
-                />
-              </label>
-              <label>
-                Precio especial opcional
-                <input
-                  className="input mt-1"
-                  type="number"
-                  min="0"
-                  step="100"
-                  value={special?.precio ?? ""}
-                  onChange={(event) =>
-                    patchContent({
-                      especial: {
-                        titulo: special?.titulo ?? "Especial de hoy",
-                        nombre: special?.nombre ?? "",
-                        descripcion: special?.descripcion ?? "",
-                        precio: event.target.value
-                          ? Number(event.target.value)
-                          : undefined,
-                      },
-                    })
-                  }
-                />
-              </label>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="eyebrow">Secciones libres</p>
-                <h2 className="text-xl font-black">Opciones de hoy</h2>
-              </div>
-              <button
-                className="secondary flex h-10 w-auto items-center gap-2 px-4"
-                onClick={addGroup}
-              >
-                <Plus size={16} /> Sección
-              </button>
-            </div>
-
-            {menu.contenido.grupos.map((group, groupIndex) => (
-              <div
-                key={`${groupIndex}-${group.titulo}`}
-                className="rounded-2xl border border-denim/10 p-4"
-              >
-                <div className="flex gap-2">
-                  <input
-                    className="input flex-1"
-                    value={group.titulo}
-                    onChange={(event) =>
-                      updateGroup(groupIndex, {
-                        ...group,
-                        titulo: event.target.value,
-                      })
-                    }
-                  />
-                  <button
-                    aria-label="Eliminar sección"
-                    className="grid h-11 w-11 place-items-center rounded-xl border border-red-200 text-red-700"
-                    onClick={() => removeGroup(groupIndex)}
-                  >
-                    <Trash2 size={17} />
-                  </button>
-                </div>
-                <div className="mt-3 space-y-2">
-                  {group.opciones.map((option, optionIndex) => (
-                    <div
-                      className="flex gap-2"
-                      key={`${groupIndex}-${optionIndex}`}
-                    >
-                      <input
-                        className="input flex-1"
-                        placeholder="Escribe una opción"
-                        value={option}
-                        onChange={(event) =>
-                          updateGroup(groupIndex, {
-                            ...group,
-                            opciones: group.opciones.map((item, current) =>
-                              current === optionIndex
-                                ? event.target.value
-                                : item,
-                            ),
-                          })
-                        }
-                      />
-                      <button
-                        aria-label="Eliminar opción"
-                        className="grid h-11 w-11 place-items-center rounded-xl border border-denim/10"
-                        onClick={() =>
-                          updateGroup(groupIndex, {
-                            ...group,
-                            opciones: group.opciones.filter(
-                              (_, current) => current !== optionIndex,
-                            ),
-                          })
-                        }
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    className="text-sm font-black text-steel"
-                    onClick={() =>
-                      updateGroup(groupIndex, {
-                        ...group,
-                        opciones: [...group.opciones, ""],
-                      })
-                    }
-                  >
-                    + Agregar opción
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <label className="block">
-            Mensaje final opcional
-            <textarea
-              className="input mt-1 min-h-24"
-              placeholder="Ej. Sujeto a disponibilidad · Domicilios al..."
-              value={menu.contenido.mensaje}
-              onChange={(event) =>
-                patchContent({ mensaje: event.target.value })
-              }
-            />
-          </label>
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              className="primary flex h-11 w-auto items-center gap-2 px-5"
-              disabled={busy}
-              onClick={() => void save()}
-            >
-              <Save size={17} /> Guardar carta
-            </button>
-            <button
-              className="secondary flex h-11 w-auto items-center gap-2 px-5"
-              onClick={printMenu}
-            >
-              <Printer size={17} /> Imprimir / PDF
-            </button>
-            <button
-              className="secondary flex h-11 w-auto items-center gap-2 px-5"
-              onClick={downloadPng}
-            >
-              <Download size={17} /> Descargar PNG
-            </button>
-          </div>
-        </section>
-
-        <aside className="self-start xl:sticky xl:top-24">
-          <div className="overflow-hidden rounded-[2rem] border border-denim/10 bg-[#f4f0e8] p-4">
-            <article className="min-h-[660px] rounded-[1.6rem] bg-white p-7 shadow-sm">
-              <div className="border-b-2 border-marigold pb-5">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs font-black uppercase tracking-[.18em] text-[#9b7624]">
-                    {restaurantName}
-                  </span>
-                  <span className="flex items-center gap-1 text-xs text-denim/45">
-                    <CalendarDays size={14} /> {date}
-                  </span>
-                </div>
-                <h2 className="mt-4 text-4xl font-black leading-tight">
-                  {menu.contenido.titulo || "Carta del día"}
-                </h2>
-                {menu.contenido.subtitulo && (
-                  <p className="mt-2 text-sm text-denim/55">
-                    {menu.contenido.subtitulo}
-                  </p>
-                )}
-                {menu.contenido.precioBase !== undefined && (
-                  <strong className="mt-4 block text-3xl">
-                    {money.format(Number(menu.contenido.precioBase))}
-                  </strong>
-                )}
-              </div>
-
-              {special?.nombre?.trim() && (
-                <section className="mt-5 rounded-2xl bg-steel p-5 text-white">
-                  <p className="text-xs font-black uppercase tracking-[.16em] text-marigold">
-                    {special.titulo || "Especial de hoy"}
-                  </p>
-                  <h3 className="mt-1 text-2xl font-black">{special.nombre}</h3>
-                  {special.descripcion && (
-                    <p className="mt-2 text-sm text-white/70">
-                      {special.descripcion}
-                    </p>
-                  )}
-                  {special.precio !== undefined && (
-                    <strong className="mt-3 block text-xl">
-                      {money.format(Number(special.precio))}
-                    </strong>
-                  )}
-                </section>
-              )}
-
-              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-                {visibleGroups.map((group) => (
-                  <section
-                    key={group.titulo}
-                    className="rounded-2xl border border-denim/10 p-4"
-                  >
-                    <h3 className="font-black">{group.titulo}</h3>
-                    <p className="mt-2 text-sm leading-6 text-denim/60">
-                      {group.opciones.join(" · ")}
-                    </p>
-                  </section>
-                ))}
-              </div>
-
-              {menu.contenido.mensaje && (
-                <p className="mt-6 text-center text-sm italic text-denim/50">
-                  {menu.contenido.mensaje}
-                </p>
-              )}
-            </article>
-          </div>
-          <p className="mt-3 text-xs text-denim/45">
-            Esta misma información alimenta el menú QR cuando la carta está
-            publicada.
-          </p>
-        </aside>
+  return <div className="space-y-6">
+    <header className="flex flex-wrap items-end justify-between gap-4">
+      <div><p className="eyebrow">Carta dinámica</p><h1 className="page-title">Carta profesional</h1><p className="mt-2 max-w-2xl text-sm text-denim/55">Configura la carta base una vez. Cada día normalmente sólo cambias el especial y publicas.</p></div>
+      <div className="flex rounded-2xl border border-denim/10 bg-white p-1">
+        <button className={`rounded-xl px-4 py-2 text-sm font-black ${tab === "HOY" ? "bg-steel text-white" : "text-denim/60"}`} onClick={() => setTab("HOY")}>Carta de hoy</button>
+        <button className={`rounded-xl px-4 py-2 text-sm font-black ${tab === "BASE" ? "bg-steel text-white" : "text-denim/60"}`} onClick={() => setTab("BASE")}>Configurar carta base</button>
       </div>
-    </div>
-  );
-}
+    </header>
 
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(390px,.8fr)]">
+      <section className="card space-y-5">
+        {tab === "HOY" ? <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="font-bold">Fecha<input className="input mt-1" type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
+            <label className="flex items-end gap-3 pb-3 font-bold"><input type="checkbox" checked={daily.publicada} onChange={(event) => setDaily((current) => ({ ...current, publicada: event.target.checked }))} /> Publicar esta carta</label>
+          </div>
+          <div className="rounded-[1.75rem] border-2 border-marigold/45 bg-marigold/5 p-6">
+            <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-steel text-marigold"><Sparkles size={20}/></span><div><p className="eyebrow">Lo que cambia hoy</p><h2 className="text-2xl font-black">Especial del día</h2></div></div>
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <label className="sm:col-span-2">Nombre<input className="input mt-1" placeholder="Ej. Carne desmechada" value={special?.nombre ?? ""} onChange={(event) => updateDailySpecial({ nombre: event.target.value })}/></label>
+              <label className="sm:col-span-2">Descripción opcional<textarea className="input mt-1 min-h-24" placeholder="Ej. En salsa criolla, acompañado de arroz y ensalada" value={special?.descripcion ?? ""} onChange={(event) => updateDailySpecial({ descripcion: event.target.value })}/></label>
+              <label>Precio especial opcional<input className="input mt-1" type="number" min="0" step="100" value={special?.precio ?? ""} onChange={(event) => updateDailySpecial({ precio: event.target.value ? Number(event.target.value) : undefined })}/></label>
+            </div>
+          </div>
+          <label className="block">Mensaje de hoy opcional<textarea className="input mt-1 min-h-20" placeholder="Ej. Servicio desde las 11:30 a. m." value={daily.contenido.mensaje} onChange={(event) => setDaily((current) => ({ ...current, contenido: { ...current.contenido, mensaje: event.target.value } }))}/></label>
+          <div className="rounded-2xl bg-denim/5 p-4 text-sm text-denim/65"><b>La carta base ya aporta:</b> {visibleSections.map((section) => section.titulo).join(" · ") || "configura las secciones una vez en Carta base"}.</div>
+          <button className="primary flex h-11 w-auto items-center gap-2 px-5" disabled={busy} onClick={() => void saveDaily()}><Save size={17}/> Guardar y actualizar</button>
+        </> : <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="sm:col-span-2">Título principal<input className="input mt-1" value={template.titulo} onChange={(event) => setTemplate((current) => ({ ...current, titulo: event.target.value }))}/></label>
+            <label className="sm:col-span-2">Subtítulo<input className="input mt-1" value={template.subtitulo} onChange={(event) => setTemplate((current) => ({ ...current, subtitulo: event.target.value }))}/></label>
+            <label className="sm:col-span-2">Pie de carta<input className="input mt-1" value={template.pie} onChange={(event) => setTemplate((current) => ({ ...current, pie: event.target.value }))}/></label>
+          </div>
+          <div><p className="eyebrow">Diseño</p><div className="mt-3 grid gap-3 sm:grid-cols-3">{styles.map((style) => <button key={style.id} className={`rounded-2xl border p-4 text-left ${template.estilo === style.id ? "border-marigold bg-marigold/10" : "border-denim/10"}`} onClick={() => setTemplate((current) => ({ ...current, estilo: style.id }))}><LayoutTemplate size={20}/><b className="mt-3 block">{style.name}</b><span className="mt-1 block text-xs text-denim/50">{style.note}</span>{template.estilo === style.id && <Check className="mt-3 text-marigold" size={18}/>}</button>)}</div></div>
+          <label className="flex items-center gap-3 font-bold"><input type="checkbox" checked={template.mostrarPrecios} onChange={(event) => setTemplate((current) => ({ ...current, mostrarPrecios: event.target.checked }))}/> Mostrar precios en la carta</label>
+          <div><div className="flex items-end justify-between gap-3"><div><p className="eyebrow">Contenido permanente</p><h2 className="text-xl font-black">Secciones y productos</h2></div><span className="text-xs text-denim/45">Sale del catálogo actual</span></div><div className="mt-4 space-y-3">{categories.map((category) => { const section = effectiveSections.find((item) => item.categoriaId === category.id); const selected = Boolean(section); const index = effectiveSections.findIndex((item) => item.categoriaId === category.id); return <div key={category.id} className="rounded-2xl border border-denim/10 p-4"><div className="flex items-center gap-3"><input type="checkbox" checked={selected} onChange={() => toggleCategory(category.id)}/><input className="input h-10 flex-1" disabled={!selected} value={section?.titulo ?? category.nombre} onChange={(event) => setTemplate((current) => ({ ...current, secciones: (current.secciones.length ? current.secciones : effectiveSections).map((item) => item.categoriaId === category.id ? { ...item, titulo: event.target.value } : item) }))}/>{selected && <div className="flex"><button className="grid h-9 w-9 place-items-center" disabled={index <= 0} onClick={() => moveSection(index, -1)}><ChevronUp size={17}/></button><button className="grid h-9 w-9 place-items-center" disabled={index < 0 || index >= effectiveSections.length - 1} onClick={() => moveSection(index, 1)}><ChevronDown size={17}/></button></div>}</div>{selected && <div className="mt-3 grid gap-2 sm:grid-cols-2">{category.products.map((product) => <label key={product.id} className="flex items-center gap-2 rounded-xl bg-denim/5 px-3 py-2 text-sm"><input type="checkbox" checked={section?.productoIds.includes(product.id) ?? false} onChange={() => toggleProduct(category.id, product.id)}/><span className="min-w-0 flex-1 truncate">{product.nombre}</span>{template.mostrarPrecios && <small>{money.format(Number(product.precio))}</small>}</label>)}</div>}</div>; })}</div></div>
+          <button className="primary flex h-11 w-auto items-center gap-2 px-5" disabled={busy} onClick={() => void saveTemplate()}><Save size={17}/> Guardar carta base</button>
+        </>}
+      </section>
+
+      <aside className="self-start xl:sticky xl:top-24">
+        <div className="mb-3 flex flex-wrap gap-2"><button className="secondary flex h-10 w-auto items-center gap-2 px-4" onClick={downloadPng}><Download size={16}/> PNG completo</button><button className="secondary flex h-10 w-auto items-center gap-2 px-4" onClick={printMenu}><Printer size={16}/> Imprimir / PDF</button></div>
+        <div className="overflow-hidden rounded-[2rem] border border-denim/10 p-3" style={{ background: palette.bg }}>
+          <article className="overflow-hidden rounded-[1.6rem]" style={{ background: palette.card, color: palette.dark }}>
+            <header className="p-7 text-white" style={{ background: palette.dark }}><p className="text-xs font-black uppercase tracking-[.2em]" style={{ color: palette.accent }}>{restaurantName}</p><h2 className="mt-3 text-4xl font-black leading-none">{template.titulo}</h2>{template.subtitulo && <p className="mt-3 text-sm text-white/65">{template.subtitulo}</p>}</header>
+            {special?.nombre?.trim() && <section className="m-5 rounded-2xl p-5" style={{ background: palette.bg }}><p className="text-xs font-black uppercase tracking-[.16em]" style={{ color: palette.accent }}>{special.titulo || "Especial de hoy"}</p><div className="mt-1 flex items-start justify-between gap-3"><div><h3 className="text-2xl font-black">{special.nombre}</h3>{special.descripcion && <p className="mt-2 text-sm" style={{ color: palette.muted }}>{special.descripcion}</p>}</div>{special.precio !== undefined && <strong className="whitespace-nowrap text-xl">{money.format(Number(special.precio))}</strong>}</div></section>}
+            <div className="grid gap-x-6 gap-y-5 p-6 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">{visibleSections.map((section) => <section key={section.categoriaId}><h3 className="border-b pb-2 text-sm font-black uppercase tracking-[.1em]" style={{ color: palette.accent }}>{section.titulo}</h3><div className="mt-3 space-y-3">{section.products.map((product) => <div key={product.id} className="flex items-start justify-between gap-3"><div><b className="text-sm">{product.nombre}</b>{product.descripcion && <p className="mt-0.5 line-clamp-2 text-xs" style={{ color: palette.muted }}>{product.descripcion}</p>}</div>{template.mostrarPrecios && <span className="whitespace-nowrap text-xs font-black">{money.format(Number(product.precio))}</span>}</div>)}</div></section>)}</div>
+            {(daily.contenido.mensaje || template.pie) && <footer className="mx-6 border-t py-5 text-center text-xs" style={{ color: palette.muted }}>{daily.contenido.mensaje || template.pie}</footer>}
+          </article>
+        </div>
+        <p className="mt-3 flex items-center gap-2 text-xs text-denim/45"><Eye size={14}/> Vista previa de la misma composición que alimenta PNG, PDF y QR.</p>
+      </aside>
+    </div>
+  </div>;
 }

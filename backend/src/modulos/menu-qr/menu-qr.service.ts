@@ -65,6 +65,16 @@ export class MenuQrService {
         },
       },
     });
+    const plantillaCartaConfig =
+      await this.prisma.configuracionSucursal.findUnique({
+        where: {
+          sucursalId_clave: {
+            sucursalId: acceso.mesa.zona.sucursal.id,
+            clave: 'CARTA_PLANTILLA',
+          },
+        },
+        select: { valor: true },
+      });
     return {
       restaurante: acceso.mesa.zona.sucursal.restaurante.nombre,
       sucursal: acceso.mesa.zona.sucursal.nombre,
@@ -72,6 +82,12 @@ export class MenuQrService {
       modoQr,
       pedidosHabilitados: modoQr !== 'SOLO_MENU',
       requiereAceptacion: modoQr === 'PEDIDO_CON_APROBACION',
+      plantillaCarta:
+        plantillaCartaConfig?.valor &&
+        typeof plantillaCartaConfig.valor === 'object' &&
+        !Array.isArray(plantillaCartaConfig.valor)
+          ? plantillaCartaConfig.valor
+          : null,
       cartaDia:
         cartaDia?.publicada === true
           ? {

@@ -96,7 +96,7 @@ const nav: NavItem[] = [
   },
   {
     to: "/carta-dia",
-    label: "Carta del día",
+    label: "Cartas y QR",
     icon: CalendarDays,
     permission: "PRODUCTOS_EDITAR",
     capability: null,

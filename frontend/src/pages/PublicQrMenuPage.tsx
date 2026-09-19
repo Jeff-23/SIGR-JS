@@ -2,17 +2,26 @@ import { Minus, Plus, ShoppingCart, Sparkles, UtensilsCrossed } from "lucide-rea
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useParams } from "react-router-dom";
 import { api, errorMessage } from "../lib/api";
+import { frontendConfig } from "../lib/config";
 import { productImageUrl, type ProductImage } from "../lib/product-media";
 import { menu as demoProducts } from "../data/demo";
 
 type Product = { id: number; nombre: string; descripcion?: string; precio: number; imagenPrincipal?: ProductImage | null };
 type QrMode = "SOLO_MENU" | "PEDIDO_CON_APROBACION" | "PEDIDO_AUTOMATICO";
 type DailyContent = { especial?: { titulo: string; nombre: string; descripcion?: string; precio?: number } | null; mensaje?: string };
-type MenuTemplate = { titulo?: string; subtitulo?: string; pie?: string; estilo?: "EDITORIAL_DORADO" | "CONTEMPORANEA" | "EJECUTIVA"; mostrarPrecios?: boolean; fondoColor?: string; tarjetaColor?: string; textoColor?: string; acentoColor?: string; encabezadoColor?: string; mostrarImagenesProductos?: boolean; imagenPortadaProductoId?: number | null; secciones?: Array<{ categoriaId: number; titulo: string; productoIds: number[] }> };
-type Menu = { restaurante: string; sucursal: string; mesa: { numero: string }; modoQr: QrMode; pedidosHabilitados: boolean; requiereAceptacion: boolean; plantillaCarta?: MenuTemplate | null; cartaDia?: { fecha: string; contenido: DailyContent } | null; categorias: { id: number; nombre: string; productos: Product[] }[] };
+type MenuTemplate = { titulo?: string; subtitulo?: string; pie?: string; estilo?: "EDITORIAL_DORADO" | "CONTEMPORANEA" | "EJECUTIVA"; mostrarPrecios?: boolean; fondoColor?: string; tarjetaColor?: string; textoColor?: string; acentoColor?: string; encabezadoColor?: string; mostrarImagenesProductos?: boolean; logoUrl?: string | null; fondoImagenUrl?: string | null; fondoImagenOpacidad?: number; secciones?: Array<{ categoriaId: number; titulo: string; productoIds: number[] }> };
+type MenuProfilePublic = { id: number; nombre: string; descripcion?: string | null; plantilla: MenuTemplate; cartaDia?: { fecha: string; contenido: DailyContent } | null };
+type Menu = { restaurante: string; sucursal: string; mesa: { numero: string }; modoQr: QrMode; pedidosHabilitados: boolean; requiereAceptacion: boolean; perfilCartaId?: number | null; perfilesCarta?: MenuProfilePublic[]; identidadCarta?: { logoUrl?: string | null } | null; plantillaCarta?: MenuTemplate | null; cartaDia?: { fecha: string; contenido: DailyContent } | null; categorias: { id: number; nombre: string; productos: Product[] }[] };
 type RequestStatus = { id: string; estado: "PENDIENTE" | "ACEPTADA" | "RECHAZADA"; pedidoId?: number; motivoRechazo?: string };
 
 const money = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
+
+function cartaAssetUrl(path?: string | null) {
+  if (!path) return undefined;
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${frontendConfig.apiUrl.replace(/\/$/, "")}${path.startsWith("/") ? "" : "/"}${path}`;
+}
+
 const demoCategories = [...new Set(demoProducts.map((product) => product.category))].map((nombre, index) => ({ id: index + 1, nombre, productos: demoProducts.filter((product) => product.category === nombre).map((product) => ({ id: product.id, nombre: product.name, precio: product.price })) }));
 
 export function PublicQrMenuPage() {
@@ -24,6 +33,7 @@ export function PublicQrMenuPage() {
   const [request, setRequest] = useState<RequestStatus | null>(null);
   const [failure, setFailure] = useState("");
   const [sending, setSending] = useState(false);
+  const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
 
   useEffect(() => {
     if (token.startsWith("demo-mesa-")) {
@@ -40,9 +50,16 @@ export function PublicQrMenuPage() {
     return () => window.clearInterval(timer);
   }, [request, token]);
 
+  const activeProfile = useMemo(() => {
+    if (!menu?.perfilesCarta?.length) return null;
+    return menu.perfilesCarta.find((item) => item.id === selectedProfileId) ?? menu.perfilesCarta[0];
+  }, [menu, selectedProfileId]);
+  const activeTemplate = activeProfile?.plantilla ?? menu?.plantillaCarta ?? null;
+  const activeDaily = activeProfile?.cartaDia ?? menu?.cartaDia ?? null;
+
   const displayCategories = useMemo(() => {
     if (!menu) return [];
-    const configured = menu.plantillaCarta?.secciones ?? [];
+    const configured = activeTemplate?.secciones ?? [];
     if (!configured.length) return menu.categorias;
     return configured.map((section) => {
       const source = menu.categorias.find((category) => category.id === section.categoriaId);
@@ -50,7 +67,7 @@ export function PublicQrMenuPage() {
       const ids = new Set(section.productoIds);
       return { id: source.id, nombre: section.titulo || source.nombre, productos: source.productos.filter((product) => ids.has(product.id)) };
     }).filter((category): category is NonNullable<typeof category> => Boolean(category?.productos.length));
-  }, [menu]);
+  }, [menu, activeTemplate]);
 
   const products = useMemo(() => displayCategories.flatMap((category) => category.productos), [displayCategories]);
   const total = products.reduce((sum, product) => sum + Number(product.precio) * (cart[product.id] ?? 0), 0);
@@ -70,27 +87,30 @@ export function PublicQrMenuPage() {
   if (!menu) return <main className="grid min-h-screen place-items-center bg-[#f3ede1] font-bold">Cargando menú…</main>;
   if (request) return <main className="grid min-h-screen place-items-center bg-[#f3ede1] p-5"><section className="w-full max-w-md rounded-[2rem] bg-white p-8 text-center shadow-xl"><UtensilsCrossed className="mx-auto mb-4 text-marigold" size={42}/><p className="text-xs font-black uppercase tracking-[.25em] text-denim/45">Mesa {menu.mesa.numero}</p><h1 className="mt-2 text-3xl font-black">{request.estado === "PENDIENTE" ? "Pedido recibido" : request.estado === "ACEPTADA" ? "Pedido aceptado" : "Pedido no aceptado"}</h1><p className="mt-4 text-denim/65">{request.estado === "PENDIENTE" ? "El restaurante está revisando tu solicitud. Esta pantalla se actualizará automáticamente." : request.estado === "ACEPTADA" ? `Ya ingresó a operación${request.pedidoId ? ` como pedido #${request.pedidoId}` : ""}.` : request.motivoRechazo || "Consulta al personal del restaurante."}</p></section></main>;
 
-  const style = menu.plantillaCarta?.estilo ?? "EDITORIAL_DORADO";
+  const style = activeTemplate?.estilo ?? "EDITORIAL_DORADO";
   const preset = style === "CONTEMPORANEA" ? { bg: "#f6f3ed", card: "#ffffff", dark: "#182329", accent: "#d85f3d", muted: "#667078" } : style === "EJECUTIVA" ? { bg: "#fff8e9", card: "#fffdf7", dark: "#18352d", accent: "#e3a72f", muted: "#617069" } : { bg: "#f3ede1", card: "#fffdf8", dark: "#14283b", accent: "#b98a2d", muted: "#65717c" };
-  const palette = { bg: menu.plantillaCarta?.fondoColor || preset.bg, card: menu.plantillaCarta?.tarjetaColor || preset.card, dark: menu.plantillaCarta?.encabezadoColor || preset.dark, accent: menu.plantillaCarta?.acentoColor || preset.accent, text: menu.plantillaCarta?.textoColor || preset.dark, muted: preset.muted };
+  const palette = { bg: activeTemplate?.fondoColor || preset.bg, card: activeTemplate?.tarjetaColor || preset.card, dark: activeTemplate?.encabezadoColor || preset.dark, accent: activeTemplate?.acentoColor || preset.accent, text: activeTemplate?.textoColor || preset.dark, muted: preset.muted };
   const vars = { "--qr-bg": palette.bg, "--qr-card": palette.card, "--qr-dark": palette.dark, "--qr-accent": palette.accent, "--qr-text": palette.text, "--qr-muted": palette.muted } as CSSProperties;
-  const special = menu.cartaDia?.contenido.especial;
-  const showPrices = menu.plantillaCarta?.mostrarPrecios !== false;
-  const showImages = menu.plantillaCarta?.mostrarImagenesProductos !== false;
-  const heroProduct = products.find((product) => product.id === menu.plantillaCarta?.imagenPortadaProductoId && product.imagenPrincipal);
+  const special = activeDaily?.contenido.especial;
+  const showPrices = activeTemplate?.mostrarPrecios !== false;
+  const showImages = activeTemplate?.mostrarImagenesProductos === true;
+  const logoUrl = cartaAssetUrl(menu.identidadCarta?.logoUrl || activeTemplate?.logoUrl);
+  const backgroundUrl = cartaAssetUrl(activeTemplate?.fondoImagenUrl) || logoUrl;
+  const backgroundOpacity = activeTemplate?.fondoImagenOpacidad ?? 0.08;
 
   return <main style={vars} className={`min-h-screen bg-[var(--qr-bg)] text-[var(--qr-text)] ${menu.pedidosHabilitados ? "pb-32" : "pb-10"}`}>
     <header className="relative overflow-hidden bg-[var(--qr-dark)] px-5 pb-9 pt-7 text-white">
-      {heroProduct?.imagenPrincipal && <img src={productImageUrl(heroProduct.imagenPrincipal, "large")} alt="" className="absolute inset-y-0 right-0 h-full w-full object-cover opacity-30 sm:w-1/2" onError={(event) => { event.currentTarget.hidden = true; }}/>}
+      {backgroundUrl && <img src={backgroundUrl} alt="" className="absolute inset-0 h-full w-full object-contain p-8" style={{ opacity: Math.min(0.32, backgroundOpacity * 1.8) }} onError={(event) => { event.currentTarget.hidden = true; }}/>}
       <div className="absolute inset-0 bg-gradient-to-r from-[var(--qr-dark)] via-[var(--qr-dark)]/90 to-transparent" aria-hidden="true"/>
       <div className="absolute -right-16 -top-20 h-52 w-52 rounded-full border-[34px] border-white/5" aria-hidden="true"/>
-      <div className="relative mx-auto max-w-4xl"><p className="text-xs font-black uppercase tracking-[.24em] text-[var(--qr-accent)]">{menu.restaurante}</p><div className="mt-4 flex items-end justify-between gap-5"><div><h1 className="max-w-xl text-4xl font-black leading-[.95] sm:text-5xl">{menu.plantillaCarta?.titulo || "Menú"}</h1>{menu.plantillaCarta?.subtitulo && <p className="mt-3 max-w-lg text-sm text-white/70">{menu.plantillaCarta.subtitulo}</p>}</div><span className="shrink-0 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-bold">Mesa {menu.mesa.numero}</span></div><p className="mt-3 text-xs text-white/55">{menu.sucursal}</p></div>
+      <div className="relative mx-auto max-w-4xl"><div className="flex items-center justify-between gap-4"><p className="text-xs font-black uppercase tracking-[.24em] text-[var(--qr-accent)]">{menu.restaurante}</p>{logoUrl && <img src={logoUrl} alt="Logo" className="max-h-20 max-w-32 object-contain"/>}</div><div className="mt-4 flex items-end justify-between gap-5"><div><h1 className="max-w-xl text-4xl font-black leading-[.95] sm:text-5xl">{activeTemplate?.titulo || "Menú"}</h1>{activeTemplate?.subtitulo && <p className="mt-3 max-w-lg text-sm text-white/70">{activeTemplate.subtitulo}</p>}</div><span className="shrink-0 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-bold">Mesa {menu.mesa.numero}</span></div><p className="mt-3 text-xs text-white/55">{menu.sucursal}</p></div>
     </header>
     <div className="mx-auto max-w-4xl space-y-8 p-5 sm:p-7">
+      {(menu.perfilesCarta?.length ?? 0) > 1 && <section className="rounded-2xl bg-[var(--qr-card)] p-3 shadow-sm"><p className="px-2 pb-2 text-xs font-black uppercase tracking-[.16em] text-[var(--qr-muted)]">Elige la carta</p><div className="flex flex-wrap gap-2">{menu.perfilesCarta?.map((item) => <button key={item.id} onClick={() => setSelectedProfileId(item.id)} className={`rounded-full px-4 py-2 text-sm font-black ${activeProfile?.id === item.id ? "bg-[var(--qr-dark)] text-white" : "border border-black/10"}`}>{item.nombre}</button>)}</div></section>}
       {special?.nombre && <section className="relative overflow-hidden rounded-[2rem] bg-[var(--qr-card)] p-6 shadow-sm sm:p-8"><div className="absolute left-0 top-0 h-full w-2 bg-[var(--qr-accent)]"/><div className="flex items-start gap-4"><span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-[var(--qr-dark)] text-[var(--qr-accent)]"><Sparkles size={20}/></span><div className="min-w-0 flex-1"><p className="text-xs font-black uppercase tracking-[.18em] text-[var(--qr-accent)]">{special.titulo || "Especial de hoy"}</p><div className="mt-1 flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-3xl font-black">{special.nombre}</h2>{special.descripcion && <p className="mt-2 max-w-xl text-sm text-[var(--qr-muted)]">{special.descripcion}</p>}</div>{special.precio !== undefined && <strong className="text-xl">{money.format(Number(special.precio))}</strong>}</div></div></div></section>}
       {!menu.pedidosHabilitados && <section className="rounded-2xl border border-[var(--qr-accent)]/40 bg-[var(--qr-card)] px-5 py-4"><p className="text-xs font-black uppercase tracking-[.18em] text-[var(--qr-accent)]">Solo consulta</p><p className="mt-1 text-sm text-[var(--qr-muted)]">Para realizar tu pedido, comunícate con tu mesero.</p></section>}
       <div className="grid gap-8 md:grid-cols-2 md:items-start">{displayCategories.map((category) => <section key={category.id} className="rounded-[1.75rem] bg-[var(--qr-card)] p-5 shadow-sm sm:p-6"><div className="mb-5 flex items-center gap-3"><span className="h-1 w-10 rounded-full bg-[var(--qr-accent)]"/><h2 className="text-xl font-black uppercase tracking-[.06em]">{category.nombre}</h2></div><div className="divide-y divide-black/5">{category.productos.map((product) => <article key={product.id} className="grid grid-cols-[1fr_auto] gap-4 py-4 first:pt-0 last:pb-0"><div className="min-w-0"><div className="flex gap-3">{showImages && product.imagenPrincipal && <img src={productImageUrl(product.imagenPrincipal, "thumb")} alt="" loading="lazy" className="h-16 w-16 shrink-0 rounded-xl object-cover" onError={(event) => { event.currentTarget.hidden = true; }}/>}<div><h3 className="font-black leading-tight">{product.nombre}</h3>{product.descripcion && <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--qr-muted)]">{product.descripcion}</p>}{showPrices && <strong className="mt-2 block text-sm">{money.format(Number(product.precio))}</strong>}</div></div></div>{menu.pedidosHabilitados && <div className="flex items-center gap-2 self-center"><button aria-label={`Quitar ${product.nombre}`} className="grid h-9 w-9 place-items-center rounded-full border border-black/10" onClick={() => change(product.id, -1)}><Minus size={15}/></button><b className="w-5 text-center text-sm">{cart[product.id] ?? 0}</b><button aria-label={`Agregar ${product.nombre}`} className="grid h-9 w-9 place-items-center rounded-full bg-[var(--qr-accent)] text-[var(--qr-dark)]" onClick={() => change(product.id, 1)}><Plus size={15}/></button></div>}</article>)}</div></section>)}</div>
-      {(menu.cartaDia?.contenido.mensaje || menu.plantillaCarta?.pie) && <p className="text-center text-sm italic text-[var(--qr-muted)]">{menu.cartaDia?.contenido.mensaje || menu.plantillaCarta?.pie}</p>}
+      {(activeDaily?.contenido.mensaje || activeTemplate?.pie) && <p className="text-center text-sm italic text-[var(--qr-muted)]">{activeDaily?.contenido.mensaje || activeTemplate?.pie}</p>}
       {menu.pedidosHabilitados && <section className="rounded-[1.75rem] bg-[var(--qr-card)] p-5 shadow-sm"><h2 className="font-black">Datos del pedido</h2><input className="mt-4 w-full rounded-2xl border border-black/10 bg-transparent p-3" placeholder="Nombre (opcional)" value={name} onChange={(event) => setName(event.target.value)}/><textarea className="mt-3 w-full rounded-2xl border border-black/10 bg-transparent p-3" placeholder="Observaciones generales (opcional)" value={notes} onChange={(event) => setNotes(event.target.value)}/><p className="mt-3 text-xs text-[var(--qr-muted)]">{menu.requiereAceptacion ? "El restaurante confirmará el pedido antes de ingresarlo a operación." : "El pedido ingresará automáticamente a operación."}</p>{failure && <p className="mt-3 text-sm font-bold text-red-700">{failure}</p>}</section>}
     </div>
     {menu.pedidosHabilitados && <div className="fixed inset-x-0 bottom-0 z-20 border-t border-black/10 bg-[var(--qr-card)] p-4"><button disabled={!quantity || sending} onClick={send} className="mx-auto flex w-full max-w-4xl items-center justify-between rounded-2xl bg-[var(--qr-dark)] px-5 py-4 font-black text-white disabled:opacity-40"><span className="flex items-center gap-2"><ShoppingCart size={20}/>Enviar {quantity} producto(s)</span><span>{money.format(total)}</span></button></div>}

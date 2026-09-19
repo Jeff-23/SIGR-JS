@@ -28,10 +28,9 @@ export class MenuQrService {
 
   async menu(token: string) {
     const acceso = await this.accesoPublico(token);
-    const modoQr = await this.modoQr(
-      acceso.mesa.zona.sucursal.id,
-      acceso.mesa.zona.sucursal.restauranteId,
-    );
+    const sucursalId = acceso.mesa.zona.sucursal.id;
+    const restauranteId = acceso.mesa.zona.sucursal.restauranteId;
+    const modoQr = await this.modoQr(sucursalId, restauranteId);
     const ids = acceso.mesa.zona.sucursal.categorias.flatMap((categoria) =>
       categoria.productos.map((producto) => producto.id),
     );
@@ -45,10 +44,7 @@ export class MenuQrService {
     );
     const zonaConfig = await this.prisma.configuracionSucursal.findUnique({
       where: {
-        sucursalId_clave: {
-          sucursalId: acceso.mesa.zona.sucursal.id,
-          clave: 'ZONA_HORARIA',
-        },
+        sucursalId_clave: { sucursalId, clave: 'ZONA_HORARIA' },
       },
       select: { valor: true },
     });
@@ -56,25 +52,62 @@ export class MenuQrService {
       typeof zonaConfig?.valor === 'string'
         ? zonaConfig.valor
         : 'America/Bogota';
-    const fechaCarta = claveFechaEnZona(new Date(), zonaHoraria);
-    const cartaDia = await this.prisma.cartaDia.findUnique({
-      where: {
-        sucursalId_fecha: {
-          sucursalId: acceso.mesa.zona.sucursal.id,
-          fecha: new Date(`${fechaCarta}T00:00:00.000Z`),
-        },
-      },
-    });
-    const plantillaCartaConfig =
-      await this.prisma.configuracionSucursal.findUnique({
+    const ahora = new Date();
+    const fechaCarta = claveFechaEnZona(ahora, zonaHoraria);
+    const identidadConfig =
+      await this.prisma.configuracionRestaurante.findUnique({
         where: {
-          sucursalId_clave: {
-            sucursalId: acceso.mesa.zona.sucursal.id,
-            clave: 'CARTA_PLANTILLA',
+          restauranteId_clave: {
+            restauranteId,
+            clave: 'CARTA_IDENTIDAD',
           },
         },
         select: { valor: true },
       });
+    const identidadCarta =
+      identidadConfig?.valor &&
+      typeof identidadConfig.valor === 'object' &&
+      !Array.isArray(identidadConfig.valor)
+        ? identidadConfig.valor
+        : null;
+    const perfiles = await this.prisma.perfilCarta.findMany({
+      where: { sucursalId, estado: true },
+      orderBy: [{ orden: 'asc' }, { id: 'asc' }],
+    });
+    let activos = perfiles.filter((perfil) =>
+      this.perfilActivo(perfil, ahora, zonaHoraria),
+    );
+    if (!activos.length) {
+      const respaldo =
+        perfiles.find((perfil) => perfil.predeterminada) ?? perfiles[0];
+      activos = respaldo ? [respaldo] : [];
+    }
+    const perfilIds = activos.map((perfil) => perfil.id);
+    const cartas = perfilIds.length
+      ? await this.prisma.cartaDia.findMany({
+          where: {
+            perfilCartaId: { in: perfilIds },
+            fecha: new Date(`${fechaCarta}T00:00:00.000Z`),
+            publicada: true,
+          },
+        })
+      : [];
+    const cartaPorPerfil = new Map(
+      cartas.map((carta) => [carta.perfilCartaId, carta]),
+    );
+    const perfilesCarta = activos.map((perfil) => {
+      const carta = cartaPorPerfil.get(perfil.id);
+      return {
+        id: perfil.id,
+        nombre: perfil.nombre,
+        descripcion: perfil.descripcion,
+        plantilla: perfil.plantilla,
+        cartaDia: carta
+          ? { fecha: fechaCarta, contenido: carta.contenido }
+          : null,
+      };
+    });
+    const principal = perfilesCarta[0] ?? null;
     return {
       restaurante: acceso.mesa.zona.sucursal.restaurante.nombre,
       sucursal: acceso.mesa.zona.sucursal.nombre,
@@ -82,19 +115,12 @@ export class MenuQrService {
       modoQr,
       pedidosHabilitados: modoQr !== 'SOLO_MENU',
       requiereAceptacion: modoQr === 'PEDIDO_CON_APROBACION',
-      plantillaCarta:
-        plantillaCartaConfig?.valor &&
-        typeof plantillaCartaConfig.valor === 'object' &&
-        !Array.isArray(plantillaCartaConfig.valor)
-          ? plantillaCartaConfig.valor
-          : null,
-      cartaDia:
-        cartaDia?.publicada === true
-          ? {
-              fecha: fechaCarta,
-              contenido: cartaDia.contenido,
-            }
-          : null,
+      perfilCartaId: principal?.id ?? null,
+      perfilesCarta,
+      identidadCarta,
+      // Compatibilidad con clientes S56 anteriores.
+      plantillaCarta: principal?.plantilla ?? null,
+      cartaDia: principal?.cartaDia ?? null,
       categorias: acceso.mesa.zona.sucursal.categorias.map((categoria) => ({
         id: categoria.id,
         nombre: categoria.nombre,
@@ -337,12 +363,62 @@ export class MenuQrService {
     };
   }
 
+  private perfilActivo(
+    perfil: {
+      modoActivacion: string;
+      activoManual: boolean;
+      horaInicio: string | null;
+      horaFin: string | null;
+      diasSemana: Prisma.JsonValue;
+    },
+    ahora: Date,
+    zonaHoraria: string,
+  ) {
+    if (perfil.modoActivacion === 'SIEMPRE') return true;
+    if (perfil.modoActivacion === 'MANUAL') return perfil.activoManual;
+    if (perfil.modoActivacion !== 'HORARIO') return false;
+    if (!perfil.horaInicio || !perfil.horaFin) return false;
+    const partes = new Intl.DateTimeFormat('en-US', {
+      timeZone: zonaHoraria,
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(ahora);
+    const valor = (tipo: string) =>
+      partes.find((parte) => parte.type === tipo)?.value ?? '';
+    const dias: Record<string, number> = {
+      Mon: 1,
+      Tue: 2,
+      Wed: 3,
+      Thu: 4,
+      Fri: 5,
+      Sat: 6,
+      Sun: 7,
+    };
+    const dia = dias[valor('weekday')] ?? 1;
+    const hora = `${valor('hour')}:${valor('minute')}`;
+    const configurados = Array.isArray(perfil.diasSemana)
+      ? perfil.diasSemana.filter(
+          (item): item is number => typeof item === 'number',
+        )
+      : [1, 2, 3, 4, 5, 6, 7];
+    if (perfil.horaInicio <= perfil.horaFin) {
+      return (
+        configurados.includes(dia) &&
+        hora >= perfil.horaInicio &&
+        hora < perfil.horaFin
+      );
+    }
+    if (hora >= perfil.horaInicio) return configurados.includes(dia);
+    const diaAnterior = dia === 1 ? 7 : dia - 1;
+    return hora < perfil.horaFin && configurados.includes(diaAnterior);
+  }
+
   private async modoQr(
     sucursalId: number,
     restauranteId: number,
-  ): Promise<
-    'SOLO_MENU' | 'PEDIDO_CON_APROBACION' | 'PEDIDO_AUTOMATICO'
-  > {
+  ): Promise<'SOLO_MENU' | 'PEDIDO_CON_APROBACION' | 'PEDIDO_AUTOMATICO'> {
     const [modoSucursal, modoRestaurante] = await Promise.all([
       this.prisma.configuracionSucursal.findUnique({
         where: {
@@ -394,9 +470,7 @@ export class MenuQrService {
     ]);
     const requiere =
       sucursalAnterior?.valor ?? restauranteAnterior?.valor ?? true;
-    return requiere === false
-      ? 'PEDIDO_AUTOMATICO'
-      : 'PEDIDO_CON_APROBACION';
+    return requiere === false ? 'PEDIDO_AUTOMATICO' : 'PEDIDO_CON_APROBACION';
   }
 
   private aceptarAutomaticamente(id: string) {

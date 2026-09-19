@@ -382,6 +382,7 @@ model Sucursal {
   promociones            Promocion[]
   solicitudesPedidoQr    SolicitudPedidoQr[]
   cartasDia              CartaDia[]
+  perfilesCarta          PerfilCarta[]
   solicitudesCompra      SolicitudCompra[]
   ordenesCompra          OrdenCompra[]
   recepcionesCompra      RecepcionCompra[]
@@ -393,18 +394,45 @@ model Sucursal {
   eventosOperacionales   EventoOperacional[]
 }
 
+model PerfilCarta {
+  id             Int      @id @default(autoincrement())
+  globalId       String   @unique @default(uuid()) @db.Uuid
+  nombre         String   @db.VarChar(100)
+  descripcion    String?  @db.VarChar(220)
+  estado         Boolean  @default(true)
+  predeterminada Boolean  @default(false)
+  orden          Int      @default(0)
+  modoActivacion String   @default("SIEMPRE") @db.VarChar(20)
+  activoManual   Boolean  @default(false)
+  horaInicio     String?  @db.VarChar(5)
+  horaFin        String?  @db.VarChar(5)
+  diasSemana     Json
+  plantilla      Json
+  creadoEn       DateTime @default(now())
+  actualizadoEn  DateTime @updatedAt
+
+  sucursalId Int
+  sucursal   Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Cascade)
+  cartasDia CartaDia[]
+
+  @@index([sucursalId, estado, orden])
+}
+
 model CartaDia {
-  id           Int      @id @default(autoincrement())
-  fecha        DateTime @db.Date
-  contenido    Json
-  publicada    Boolean  @default(true)
-  creadoEn     DateTime @default(now())
+  id            Int      @id @default(autoincrement())
+  fecha         DateTime @db.Date
+  contenido     Json
+  publicada     Boolean  @default(true)
+  creadoEn      DateTime @default(now())
   actualizadoEn DateTime @updatedAt
 
   sucursalId Int
   sucursal   Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Cascade)
 
-  @@unique([sucursalId, fecha])
+  perfilCartaId Int
+  perfilCarta   PerfilCarta @relation(fields: [perfilCartaId], references: [id], onDelete: Cascade)
+
+  @@unique([perfilCartaId, fecha])
   @@index([sucursalId, publicada, fecha])
 }
 

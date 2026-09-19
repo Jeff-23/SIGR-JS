@@ -36,7 +36,6 @@ export class CreateProductoDto {
   @Min(1)
   estacionId?: number;
 
-
   @IsBoolean()
   @IsOptional()
   favorito?: boolean;
@@ -44,6 +43,10 @@ export class CreateProductoDto {
   @IsBoolean()
   @IsOptional()
   disponible?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  requierePreparacion?: boolean;
 
   @IsEnum(EstrategiaInventario)
   @IsOptional()

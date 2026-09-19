@@ -861,6 +861,10 @@ export class SyncBusinessApplyService {
       precio: decimal(p.precio, 'producto.precio'),
       favorito: booleano(p.favorito, 'producto.favorito'),
       disponible: booleano(p.disponible, 'producto.disponible'),
+      requierePreparacion:
+        p.requierePreparacion === undefined
+          ? true
+          : booleano(p.requierePreparacion, 'producto.requierePreparacion'),
       estrategiaInventario: texto(p.estrategiaInventario, 'producto.estrategiaInventario') as never,
       unidadInventario: texto(p.unidadInventario, 'producto.unidadInventario') as never,
       rendimientoPorcentaje: decimal(p.rendimientoPorcentaje, 'producto.rendimientoPorcentaje'),

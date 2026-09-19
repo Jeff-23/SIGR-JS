@@ -426,7 +426,12 @@ export class ComandasService {
     return this.prisma.$transaction(async (tx) => {
       const estacion = await tx.estacionPreparacion.findFirst({
         where: { id, sucursal: this.filtroSucursal(usuario) },
-        select: { id: true, nombre: true, sucursalId: true, modoOperacion: true },
+        select: {
+          id: true,
+          nombre: true,
+          sucursalId: true,
+          modoOperacion: true,
+        },
       });
       if (!estacion) throw new NotFoundException('Estación no encontrada');
 
@@ -481,7 +486,17 @@ export class ComandasService {
     return this.prisma.transaccionSerializable(async (tx) => {
       const comanda = await tx.comanda.findFirst({
         where: { id, pedido: this.filtroPedido(usuario) },
-        include: { detalles: true },
+        include: {
+          detalles: {
+            include: {
+              detallePedido: {
+                select: {
+                  producto: { select: { requierePreparacion: true } },
+                },
+              },
+            },
+          },
+        },
       });
       if (!comanda) throw new NotFoundException('Comanda no encontrada');
       if (
@@ -493,9 +508,21 @@ export class ComandasService {
           'La comanda ya no admite iniciar preparación',
         );
       }
+      const pendientesPreparacion = comanda.detalles
+        .filter(
+          (detalle) =>
+            detalle.estado === EstadoDetalleComanda.PENDIENTE &&
+            detalle.detallePedido.producto.requierePreparacion,
+        )
+        .map((detalle) => detalle.id);
+      if (pendientesPreparacion.length === 0) {
+        throw new BadRequestException(
+          'No hay líneas pendientes que requieran preparación',
+        );
+      }
       const ahora = new Date();
       await tx.detalleComanda.updateMany({
-        where: { comandaId: id, estado: EstadoDetalleComanda.PENDIENTE },
+        where: { id: { in: pendientesPreparacion } },
         data: {
           estado: EstadoDetalleComanda.EN_PREPARACION,
           fechaInicio: ahora,
@@ -543,7 +570,17 @@ export class ComandasService {
     return this.prisma.transaccionSerializable(async (tx) => {
       const comanda = await tx.comanda.findFirst({
         where: { id, pedido: this.filtroPedido(usuario) },
-        include: { detalles: true },
+        include: {
+          detalles: {
+            include: {
+              detallePedido: {
+                select: {
+                  producto: { select: { requierePreparacion: true } },
+                },
+              },
+            },
+          },
+        },
       });
       if (!comanda) throw new NotFoundException('Comanda no encontrada');
       if (
@@ -557,8 +594,12 @@ export class ComandasService {
       const detalle = comanda.detalles.find((item) => item.id === detalleId);
       if (!detalle)
         throw new NotFoundException('Línea de comanda no encontrada');
+      const requierePreparacion =
+        detalle.detallePedido.producto.requierePreparacion;
       const permitidas: Record<EstadoDetalleComanda, EstadoDetalleComanda[]> = {
-        PENDIENTE: [EstadoDetalleComanda.EN_PREPARACION],
+        PENDIENTE: requierePreparacion
+          ? [EstadoDetalleComanda.EN_PREPARACION]
+          : [EstadoDetalleComanda.LISTA],
         EN_PREPARACION: [EstadoDetalleComanda.LISTA],
         LISTA: [],
       };
@@ -617,29 +658,45 @@ export class ComandasService {
   ) {
     const comanda = await tx.comanda.findUnique({
       where: { id },
-      include: { detalles: true },
+      include: {
+        detalles: {
+          include: {
+            detallePedido: {
+              select: {
+                producto: { select: { requierePreparacion: true } },
+              },
+            },
+          },
+        },
+      },
     });
     if (!comanda || comanda.detalles.length === 0) return;
     const ahora = new Date();
     const todasListas = comanda.detalles.every(
       (item) => item.estado === EstadoDetalleComanda.LISTA,
     );
-    const algunaIniciada = comanda.detalles.some(
+    const algunaPreparacionIniciada = comanda.detalles.some(
+      (item) =>
+        item.detallePedido.producto.requierePreparacion &&
+        item.estado !== EstadoDetalleComanda.PENDIENTE,
+    );
+    const algunaAvanzada = comanda.detalles.some(
       (item) => item.estado !== EstadoDetalleComanda.PENDIENTE,
     );
     const estado = todasListas
       ? EstadoComanda.LISTA
-      : algunaIniciada
+      : algunaPreparacionIniciada
         ? EstadoComanda.EN_PREPARACION
         : EstadoComanda.PENDIENTE;
     await tx.comanda.update({
       where: { id },
       data: {
         estado,
-        fechaVista: comanda.fechaVista ?? (algunaIniciada ? ahora : null),
+        fechaVista: comanda.fechaVista ?? (algunaAvanzada ? ahora : null),
         vistoPorId:
-          comanda.fechaVista || !algunaIniciada ? undefined : usuario.id,
-        fechaInicio: comanda.fechaInicio ?? (algunaIniciada ? ahora : null),
+          comanda.fechaVista || !algunaAvanzada ? undefined : usuario.id,
+        fechaInicio:
+          comanda.fechaInicio ?? (algunaPreparacionIniciada ? ahora : null),
         fechaLista: todasListas ? (comanda.fechaLista ?? ahora) : null,
       },
     });
@@ -676,13 +733,33 @@ export class ComandasService {
             ...this.filtroPedido(usuario),
           },
         },
+        include: {
+          detalles: {
+            include: {
+              detallePedido: {
+                select: {
+                  producto: { select: { requierePreparacion: true } },
+                },
+              },
+            },
+          },
+        },
       });
 
       if (!comanda) {
         throw new NotFoundException('Comanda no encontrada');
       }
 
-      this.validarTransicion(comanda.estado, nuevoEstado);
+      const soloEntregaDirecta = comanda.detalles.every(
+        (detalle) => !detalle.detallePedido.producto.requierePreparacion,
+      );
+      const saltoDirectoALista =
+        comanda.estado === EstadoComanda.PENDIENTE &&
+        nuevoEstado === EstadoComanda.LISTA &&
+        soloEntregaDirecta;
+      if (!saltoDirectoALista) {
+        this.validarTransicion(comanda.estado, nuevoEstado);
+      }
 
       const ahora = new Date();
 
@@ -696,8 +773,20 @@ export class ComandasService {
         data.vistoPor = comanda.fechaVista
           ? undefined
           : { connect: { id: usuario.id } };
+        const idsPreparacion = comanda.detalles
+          .filter(
+            (detalle) =>
+              detalle.estado === EstadoDetalleComanda.PENDIENTE &&
+              detalle.detallePedido.producto.requierePreparacion,
+          )
+          .map((detalle) => detalle.id);
+        if (idsPreparacion.length === 0) {
+          throw new BadRequestException(
+            'La comanda no tiene líneas que requieran preparación',
+          );
+        }
         await tx.detalleComanda.updateMany({
-          where: { comandaId: id, estado: EstadoDetalleComanda.PENDIENTE },
+          where: { id: { in: idsPreparacion } },
           data: {
             estado: EstadoDetalleComanda.EN_PREPARACION,
             fechaInicio: ahora,
@@ -1036,7 +1125,10 @@ export class ComandasService {
         const nota = detalle.observaciones
           ? `<div class="note">OBS: ${esc(detalle.observaciones)}</div>`
           : '';
-        return `<div class="line"><div class="strong">${linea.cantidad}× ${esc(detalle.producto.nombre)}</div>${mods}${nota}</div>`;
+        const entregaDirecta = detalle.producto.requierePreparacion
+          ? ''
+          : '<div class="mods">ENTREGA DIRECTA · SIN PREPARACIÓN</div>';
+        return `<div class="line"><div class="strong">${linea.cantidad}× ${esc(detalle.producto.nombre)}</div>${entregaDirecta}${mods}${nota}</div>`;
       })
       .join('');
     const mesero = comanda.pedido.mesero
@@ -1067,6 +1159,9 @@ export class ComandasService {
     const lineasTexto = comanda.detalles.flatMap((linea) => {
       const detalle = linea.detallePedido;
       const salida = envolver(`${linea.cantidad}x ${detalle.producto.nombre}`);
+      if (!detalle.producto.requierePreparacion) {
+        salida.push(...envolver('ENTREGA DIRECTA - SIN PREPARACION', '  '));
+      }
       for (const modificador of detalle.modificadores) {
         salida.push(
           ...envolver(

@@ -10,6 +10,7 @@ export type Field = {
   options?: string[];
   lookup?: string;
   createOnly?: boolean;
+  defaultValue?: string | boolean;
 };
 export type Resource = {
   key: string;
@@ -120,8 +121,14 @@ export const catalogResources: Resource[] = [
       }),
       field("unidadInventario", "Unidad", { options: units }),
       field("favorito", "Favorito en POS", { type: "checkbox" }),
-      field("disponible", "Disponible para venta", { type: "checkbox" }),
-
+      field("disponible", "Disponible para venta", {
+        type: "checkbox",
+        defaultValue: true,
+      }),
+      field("requierePreparacion", "Requiere preparación", {
+        type: "checkbox",
+        defaultValue: true,
+      }),
     ],
   },
   {

@@ -31,7 +31,6 @@ export class UpdateProductoDto {
   @Min(0)
   precio?: number;
 
-
   @IsBoolean()
   @IsOptional()
   favorito?: boolean;
@@ -39,6 +38,10 @@ export class UpdateProductoDto {
   @IsBoolean()
   @IsOptional()
   disponible?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  requierePreparacion?: boolean;
 
   @IsEnum(EstrategiaInventario)
   @IsOptional()

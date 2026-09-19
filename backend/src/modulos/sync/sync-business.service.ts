@@ -583,6 +583,7 @@ export class SyncBusinessService {
       precio: producto.precio.toString(),
       favorito: producto.favorito,
       disponible: producto.disponible,
+      requierePreparacion: producto.requierePreparacion,
       estrategiaInventario: producto.estrategiaInventario,
       unidadInventario: producto.unidadInventario,
       rendimientoPorcentaje: producto.rendimientoPorcentaje.toString(),

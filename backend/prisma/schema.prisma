@@ -724,8 +724,9 @@ model Producto {
   nombre      String  @db.VarChar(100)
   descripcion String? @db.Text
   precio      Decimal @db.Decimal(10, 2)
-  favorito    Boolean @default(false)
-  disponible  Boolean @default(true)
+  favorito             Boolean @default(false)
+  disponible           Boolean @default(true)
+  requierePreparacion  Boolean @default(true)
 
   estrategiaInventario  EstrategiaInventario @default(NO_CONTROLAR)
   unidadInventario      UnidadInventario     @default(UNIDAD)

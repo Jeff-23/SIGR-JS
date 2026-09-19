@@ -29,7 +29,11 @@ export type CommandLine = {
   detallePedido: {
     observaciones?: string | null;
     modificadores?: CommandModifier[];
-    producto: { id: number; nombre: string };
+    producto: {
+      id: number;
+      nombre: string;
+      requierePreparacion?: boolean;
+    };
   };
 };
 

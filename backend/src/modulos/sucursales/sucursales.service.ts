@@ -126,6 +126,13 @@ export class SucursalesService {
           create: [
             { codigo: 'COCINA', nombre: 'Cocina', color: '#F97316', orden: 10 },
             { codigo: 'BAR', nombre: 'Bar', color: '#3B82F6', orden: 20 },
+            {
+              codigo: 'DESPACHO',
+              nombre: 'Despacho',
+              color: '#8B5CF6',
+              orden: 30,
+              objetivoPreparacionMin: 5,
+            },
           ],
         },
       },

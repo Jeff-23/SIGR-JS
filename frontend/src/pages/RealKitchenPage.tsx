@@ -832,8 +832,18 @@ function CommandCard({
   const minutes = elapsedMinutes(command.fechaEnvio, now);
   const promise = servicePromise(minutes, command.metaPreparacionMin);
   const level = urgency(minutes, command.metaPreparacionMin);
-  const pendingLines = command.detalles.some(
-    (line) => line.estado === "PENDIENTE",
+  const pendingPreparationLines = command.detalles.some(
+    (line) =>
+      line.estado === "PENDIENTE" &&
+      line.detallePedido.producto.requierePreparacion !== false,
+  );
+  const pendingDirectLines = command.detalles.some(
+    (line) =>
+      line.estado === "PENDIENTE" &&
+      line.detallePedido.producto.requierePreparacion === false,
+  );
+  const directOnly = command.detalles.every(
+    (line) => line.detallePedido.producto.requierePreparacion === false,
   );
   const paperOnly = command.estacion.modoOperacion === "IMPRESION";
   const canOperateKds = canEdit && !paperOnly;
@@ -873,14 +883,20 @@ function CommandCard({
             )}
           </div>
         </div>
-        <div className={["kds-timer", level].join(" ")}>
-          <Clock3 size={18} />
-          <span>{minutes}</span>
-          <small>min</small>
-        </div>
+        {directOnly ? (
+          <div className="rounded-xl bg-sky-100 px-3 py-2 text-center text-xs font-black uppercase text-sky-800">
+            Entrega directa
+          </div>
+        ) : (
+          <div className={["kds-timer", level].join(" ")}>
+            <Clock3 size={18} />
+            <span>{minutes}</span>
+            <small>min</small>
+          </div>
+        )}
       </header>
 
-      <PromisePanel promise={promise} />
+      {!directOnly && <PromisePanel promise={promise} />}
 
       <div className="kds-lines flex min-h-0 flex-1 flex-col overflow-y-auto p-4">
         <div className="space-y-3">
@@ -963,7 +979,9 @@ function CommandCard({
           </button>
         )}
 
-        {canOperateKds && command.estado !== "LISTA" && pendingLines && (
+        {canOperateKds &&
+          command.estado !== "LISTA" &&
+          pendingPreparationLines && (
           <button
             disabled={Boolean(busy)}
             onClick={() => void startAll(command)}
@@ -999,13 +1017,23 @@ function CommandCard({
               Operación en papel · actualiza aquí el estado general de la comanda
             </div>
 
-            {command.estado === "PENDIENTE" && (
+            {command.estado === "PENDIENTE" && pendingPreparationLines && (
               <button
                 disabled={Boolean(busy)}
                 onClick={() => void startAll(command)}
                 className="kds-action bg-steel text-white"
               >
                 <Play size={20} /> Iniciar preparación
+              </button>
+            )}
+
+            {command.estado === "PENDIENTE" && directOnly && pendingDirectLines && (
+              <button
+                disabled={Boolean(busy)}
+                onClick={() => void updateCommandState(command, "LISTA")}
+                className="kds-action bg-emerald-700 text-white"
+              >
+                <CheckCircle2 size={20} /> Marcar entrega directa lista
               </button>
             )}
 
@@ -1131,9 +1159,16 @@ function LineCard({
             <strong className="text-lg leading-tight">
               {line.detallePedido.producto.nombre}
             </strong>
-            <span className="rounded-full bg-denim/5 px-2 py-1 text-[10px] font-black uppercase text-denim/55">
-              {lineLabel[line.estado]}
-            </span>
+            <div className="flex flex-wrap justify-end gap-1.5">
+              {line.detallePedido.producto.requierePreparacion === false && (
+                <span className="rounded-full bg-sky-100 px-2 py-1 text-[10px] font-black uppercase text-sky-800">
+                  Entrega directa
+                </span>
+              )}
+              <span className="rounded-full bg-denim/5 px-2 py-1 text-[10px] font-black uppercase text-denim/55">
+                {lineLabel[line.estado]}
+              </span>
+            </div>
           </div>
           {modifiers.length > 0 && (
             <div className="mt-2 rounded-xl bg-blue-50 px-3 py-2 text-xs font-extrabold text-blue-700">
@@ -1158,29 +1193,36 @@ function LineCard({
 
       {canEdit && line.estado !== "LISTA" && (
         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {line.estado === "PENDIENTE" && (
-            <button
-              disabled={busy}
-              className="kds-line-action"
-              onClick={() =>
-                void updateLineState(command, line, "EN_PREPARACION")
-              }
-            >
-              <Flame size={17} /> Iniciar línea
-            </button>
-          )}
+          {line.estado === "PENDIENTE" &&
+            line.detallePedido.producto.requierePreparacion !== false && (
+              <button
+                disabled={busy}
+                className="kds-line-action"
+                onClick={() =>
+                  void updateLineState(command, line, "EN_PREPARACION")
+                }
+              >
+                <Flame size={17} /> Iniciar línea
+              </button>
+            )}
           <button
             disabled={busy}
             className="kds-line-action ready"
             onClick={() => void updateLineState(command, line, "LISTA")}
           >
-            <CheckCircle2 size={17} /> Línea lista
+            <CheckCircle2 size={17} />
+            {line.detallePedido.producto.requierePreparacion === false
+              ? " Entrega directa lista"
+              : " Línea lista"}
           </button>
         </div>
       )}
       {line.estado === "LISTA" && (
         <div className="mt-3 flex items-center gap-2 text-xs font-black text-emerald-700">
-          <CheckCircle2 size={16} /> Preparación terminada
+          <CheckCircle2 size={16} />
+          {line.detallePedido.producto.requierePreparacion === false
+            ? " Lista para entrega directa"
+            : " Preparación terminada"}
         </div>
       )}
     </div>

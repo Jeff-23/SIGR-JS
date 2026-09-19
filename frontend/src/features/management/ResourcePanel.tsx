@@ -243,8 +243,10 @@ export function ResourceEditor({
         f.type === "password"
           ? ""
           : f.type === "checkbox"
-            ? Boolean(initial?.[f.key])
-            : String(initial?.[f.key] ?? ""),
+            ? initial
+              ? Boolean(initial[f.key])
+              : Boolean(f.defaultValue)
+            : String(initial?.[f.key] ?? f.defaultValue ?? ""),
       ]),
     ),
   );

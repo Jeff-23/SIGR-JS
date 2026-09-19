@@ -173,23 +173,30 @@ function Inventory() {
                     <td>{r.unidad}</td>
                     <td>{r.estrategiaInventario ?? "INSUMO"}</td>
                     <td>
-                      {hasPermission("INVENTARIO_AJUSTAR") && (
-                        <button
-                          className="secondary my-2 h-10 w-auto px-3"
-                          disabled={
-                            r.estrategiaInventario !== undefined &&
-                            r.estrategiaInventario !== "STOCK_DIRECTO"
-                          }
-                          onClick={() =>
-                            adjust(
-                              r,
-                              kind === "productos" ? "producto" : "articulo",
-                            )
-                          }
-                        >
-                          Ajustar
-                        </button>
-                      )}
+                      {hasPermission("INVENTARIO_AJUSTAR") &&
+                        (kind === "productos" &&
+                        r.estrategiaInventario !== "STOCK_DIRECTO" ? (
+                          <span
+                            className="text-xs font-semibold text-denim/55"
+                            title="Los ajustes manuales de producto sólo aplican a productos con STOCK_DIRECTO."
+                          >
+                            {r.estrategiaInventario === "POR_RECETA"
+                              ? "No aplica · por receta"
+                              : "No aplica · sin control de stock"}
+                          </span>
+                        ) : (
+                          <button
+                            className="secondary my-2 h-10 w-auto px-3"
+                            onClick={() =>
+                              adjust(
+                                r,
+                                kind === "productos" ? "producto" : "articulo",
+                              )
+                            }
+                          >
+                            Ajustar
+                          </button>
+                        ))}
                     </td>
                   </tr>
                 ))}

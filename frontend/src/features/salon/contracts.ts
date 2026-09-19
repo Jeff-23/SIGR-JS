@@ -26,6 +26,7 @@ export type ApiProduct = {
   precio: string | number;
   favorito?: boolean;
   disponible?: boolean;
+  requierePreparacion?: boolean;
   stock?: string | number;
   estrategiaInventario?: string;
   categoria: { id: number; nombre: string };

@@ -630,7 +630,36 @@ export function DailyMenuPage() {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{([['fondoColor','Fondo'],['tarjetaColor','Tarjetas'],['textoColor','Texto'],['acentoColor','Acento'],['encabezadoColor','Encabezado']] as const).map(([key,label]) => <label key={key} className="rounded-xl border border-denim/10 p-3 text-sm font-bold">{label}<div className="mt-2 flex items-center gap-2"><input type="color" className="h-10 w-14" value={template[key]} onChange={(event) => updateTemplate({ [key]: event.target.value })}/><code>{template[key]}</code></div></label>)}</div>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="rounded-2xl border border-denim/10 p-4"><span className="flex items-center gap-2 font-black"><ImageIcon size={17}/> Logo del restaurante</span><input className="mt-3 block w-full text-sm" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadAsset(file, "logoUrl"); }}/>{logo && <img src={logo} alt="Logo" className="mt-3 h-24 max-w-full object-contain"/>}</label>
-            <label className="rounded-2xl border border-denim/10 p-4"><span className="flex items-center gap-2 font-black"><Sparkles size={17}/> Arte de fondo opcional</span><input className="mt-3 block w-full text-sm" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadAsset(file, "fondoImagenUrl"); }}/>{template.fondoImagenUrl && <img src={assetUrl(template.fondoImagenUrl)} alt="Fondo" className="mt-3 h-24 w-full rounded-xl object-cover"/>}</label>
+            <div className="rounded-2xl border border-denim/10 p-4">
+              <span className="flex items-center gap-2 font-black">
+                <Sparkles size={17}/> Arte de fondo opcional
+              </span>
+              <input
+                className="mt-3 block w-full text-sm"
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void uploadAsset(file, "fondoImagenUrl");
+                }}
+              />
+              {template.fondoImagenUrl && (
+                <>
+                  <img
+                    src={assetUrl(template.fondoImagenUrl)}
+                    alt="Fondo"
+                    className="mt-3 h-24 w-full rounded-xl object-cover"
+                  />
+                  <button
+                    type="button"
+                    className="secondary mt-3 h-10 w-auto px-4"
+                    onClick={() => updateTemplate({ fondoImagenUrl: null })}
+                  >
+                    Quitar fondo
+                  </button>
+                </>
+              )}
+            </div>
             <label>Opacidad del fondo / marca de agua: {Math.round(template.fondoImagenOpacidad * 100)}%<input className="mt-2 w-full" type="range" min="0" max="0.75" step="0.01" value={template.fondoImagenOpacidad} onChange={(event) => updateTemplate({ fondoImagenOpacidad: Number(event.target.value) })}/></label>
             <label>Transparencia de tarjetas: {Math.round(template.tarjetaOpacidad * 100)}%<input className="mt-2 w-full" type="range" min="0.25" max="1" step="0.01" value={template.tarjetaOpacidad} onChange={(event) => updateTemplate({ tarjetaOpacidad: Number(event.target.value) })}/></label>
             <label className="flex items-center gap-3 font-bold"><input type="checkbox" checked={template.mostrarPrecios} onChange={(event) => updateTemplate({ mostrarPrecios: event.target.checked })}/> Mostrar precios</label>

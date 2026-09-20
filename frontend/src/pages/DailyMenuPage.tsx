@@ -330,6 +330,20 @@ export function DailyMenuPage() {
     }
   };
 
+  const removeLogo = async () => {
+    if (!branchId) return;
+    try {
+      const { data } = await api.put<MenuIdentity>(
+        `/cartas-dia/${branchId}/identidad`,
+        { logoUrl: null },
+      );
+      setIdentity(data);
+      toast.success("Logo del restaurante eliminado de todas las cartas.");
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  };
+
   const toggleCategory = (categoryId: number) => {
     if (!profile) return;
     const current = effectiveSections;
@@ -361,7 +375,7 @@ export function DailyMenuPage() {
     if (!profile) return;
     const template = profile.plantilla;
     const special = daily?.contenido.especial;
-    const logo = assetUrl(identity.logoUrl || template.logoUrl);
+    const logo = assetUrl(identity.logoUrl);
     const customBackground = assetUrl(template.fondoImagenUrl);
     const watermark = customBackground || logo;
     const cardColor = hexToRgba(template.tarjetaColor, template.tarjetaOpacidad);
@@ -495,24 +509,16 @@ export function DailyMenuPage() {
     ctx.fillStyle = template.fondoColor;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     const customBackgroundUrl = assetUrl(template.fondoImagenUrl);
-    const identityLogoUrl = assetUrl(identity.logoUrl || template.logoUrl);
-    const background = await loadImage(customBackgroundUrl || identityLogoUrl);
+    const background = await loadImage(customBackgroundUrl);
     if (background) {
       ctx.save();
       ctx.globalAlpha = template.fondoImagenOpacidad;
-      if (customBackgroundUrl) {
-        drawImageCover(ctx, background, 0, 0, canvas.width, canvas.height);
-      } else {
-        const scale = Math.min(760 / background.width, 760 / background.height);
-        const w = background.width * scale;
-        const h = background.height * scale;
-        ctx.drawImage(background, (1080 - w) / 2, (height - h) / 2, w, h);
-      }
+      drawImageCover(ctx, background, 0, 0, canvas.width, canvas.height);
       ctx.restore();
     }
     ctx.fillStyle = template.encabezadoColor;
     ctx.fillRect(0, 0, 1080, 300);
-    const logo = await loadImage(assetUrl(identity.logoUrl || template.logoUrl));
+    const logo = await loadImage(assetUrl(identity.logoUrl));
     if (logo) {
       const scale = Math.min(220 / logo.width, 140 / logo.height);
       ctx.drawImage(logo, 800, 70, logo.width * scale, logo.height * scale);
@@ -585,8 +591,8 @@ export function DailyMenuPage() {
     "--menu-accent": template.acentoColor,
     "--menu-head": template.encabezadoColor,
   } as CSSProperties;
-  const logo = assetUrl(identity.logoUrl || template.logoUrl);
-  const background = assetUrl(template.fondoImagenUrl) || logo;
+  const logo = assetUrl(identity.logoUrl);
+  const background = assetUrl(template.fondoImagenUrl);
 
   return <div className="space-y-6">
     <header className="flex flex-wrap items-end justify-between gap-4">
@@ -629,36 +635,21 @@ export function DailyMenuPage() {
           <div className="grid gap-3 sm:grid-cols-3">{visualStyles.map((style) => <button key={style.id} className={`rounded-2xl border p-4 text-left ${template.estilo === style.id ? "border-marigold bg-marigold/10" : "border-denim/10"}`} onClick={() => updateTemplate({ estilo: style.id })}><LayoutTemplate size={20}/><b className="mt-2 block">{style.name}</b><small className="text-denim/50">{style.note}</small></button>)}</div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{([['fondoColor','Fondo'],['tarjetaColor','Tarjetas'],['textoColor','Texto'],['acentoColor','Acento'],['encabezadoColor','Encabezado']] as const).map(([key,label]) => <label key={key} className="rounded-xl border border-denim/10 p-3 text-sm font-bold">{label}<div className="mt-2 flex items-center gap-2"><input type="color" className="h-10 w-14" value={template[key]} onChange={(event) => updateTemplate({ [key]: event.target.value })}/><code>{template[key]}</code></div></label>)}</div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="rounded-2xl border border-denim/10 p-4"><span className="flex items-center gap-2 font-black"><ImageIcon size={17}/> Logo del restaurante</span><input className="mt-3 block w-full text-sm" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadAsset(file, "logoUrl"); }}/>{logo && <img src={logo} alt="Logo" className="mt-3 h-24 max-w-full object-contain"/>}</label>
             <div className="rounded-2xl border border-denim/10 p-4">
-              <span className="flex items-center gap-2 font-black">
-                <Sparkles size={17}/> Arte de fondo opcional
-              </span>
-              <input
-                className="mt-3 block w-full text-sm"
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void uploadAsset(file, "fondoImagenUrl");
-                }}
-              />
-              {template.fondoImagenUrl && (
-                <>
-                  <img
-                    src={assetUrl(template.fondoImagenUrl)}
-                    alt="Fondo"
-                    className="mt-3 h-24 w-full rounded-xl object-cover"
-                  />
-                  <button
-                    type="button"
-                    className="secondary mt-3 h-10 w-auto px-4"
-                    onClick={() => updateTemplate({ fondoImagenUrl: null })}
-                  >
-                    Quitar fondo
-                  </button>
-                </>
-              )}
+              <span className="flex items-center gap-2 font-black"><ImageIcon size={17}/> Logo del restaurante</span>
+              <input className="mt-3 block w-full text-sm" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadAsset(file, "logoUrl"); }}/>
+              {logo && <>
+                <img src={logo} alt="Logo" className="mt-3 h-24 max-w-full object-contain"/>
+                <button type="button" className="secondary mt-3 h-10 w-auto px-4" onClick={() => void removeLogo()}>Quitar logo</button>
+              </>}
+            </div>
+            <div className="rounded-2xl border border-denim/10 p-4">
+              <span className="flex items-center gap-2 font-black"><Sparkles size={17}/> Arte de fondo opcional</span>
+              <input className="mt-3 block w-full text-sm" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadAsset(file, "fondoImagenUrl"); }}/>
+              {template.fondoImagenUrl && <>
+                <img src={assetUrl(template.fondoImagenUrl)} alt="Fondo" className="mt-3 h-24 w-full rounded-xl object-cover"/>
+                <button type="button" className="secondary mt-3 h-10 w-auto px-4" onClick={() => updateTemplate({ fondoImagenUrl: null })}>Quitar fondo</button>
+              </>}
             </div>
             <label>Opacidad del fondo / marca de agua: {Math.round(template.fondoImagenOpacidad * 100)}%<input className="mt-2 w-full" type="range" min="0" max="0.75" step="0.01" value={template.fondoImagenOpacidad} onChange={(event) => updateTemplate({ fondoImagenOpacidad: Number(event.target.value) })}/></label>
             <label>Transparencia de tarjetas: {Math.round(template.tarjetaOpacidad * 100)}%<input className="mt-2 w-full" type="range" min="0.25" max="1" step="0.01" value={template.tarjetaOpacidad} onChange={(event) => updateTemplate({ tarjetaOpacidad: Number(event.target.value) })}/></label>
@@ -687,7 +678,7 @@ export function DailyMenuPage() {
 
       <aside className="self-start xl:sticky xl:top-24">
         <article style={vars} className="relative min-h-[760px] overflow-hidden rounded-[2rem] bg-[var(--menu-bg)] p-6 text-[var(--menu-text)] shadow-sm">
-          {background && <img src={background} alt="" className={`pointer-events-none absolute inset-0 h-full w-full ${template.fondoImagenUrl ? "object-cover" : "object-contain p-16"}`} style={{ opacity: template.fondoImagenOpacidad }}/>}<div className="relative z-10">
+          {background && <img src={background} alt="" className="pointer-events-none absolute inset-0 h-full w-full object-cover" style={{ opacity: template.fondoImagenOpacidad }}/>}<div className="relative z-10">
             <header className="rounded-[1.5rem] bg-[var(--menu-head)] p-6 text-white"><div className="flex items-start justify-between gap-5"><div><p className="text-xs font-black uppercase tracking-[.2em] text-[var(--menu-accent)]">{restaurantName}</p><h2 className="mt-3 text-4xl font-black leading-none">{template.titulo}</h2>{template.subtitulo && <p className="mt-3 text-sm text-white/65">{template.subtitulo}</p>}</div>{logo && <img src={logo} alt="Logo" className="max-h-24 max-w-32 object-contain"/>}</div></header>
             {daily?.contenido.especial?.nombre && <section className="mt-5 rounded-[1.5rem] bg-[var(--menu-card-alpha)] p-5"><p className="text-xs font-black uppercase tracking-[.18em] text-[var(--menu-accent)]">{daily.contenido.especial.titulo || "Especial de hoy"}</p><div className="mt-2 flex justify-between gap-4"><div><h3 className="text-2xl font-black">{daily.contenido.especial.nombre}</h3>{daily.contenido.especial.descripcion && <p className="mt-1 text-sm opacity-65">{daily.contenido.especial.descripcion}</p>}</div>{daily.contenido.especial.precio !== undefined && <b>{money.format(Number(daily.contenido.especial.precio))}</b>}</div></section>}
             <div className="mt-5 columns-1 gap-4 sm:columns-2">{displaySections.map((section) => <section key={section.categoriaId} className="mb-4 break-inside-avoid rounded-[1.35rem] bg-[var(--menu-card-alpha)] p-5"><div className="mb-3 h-1 w-10 rounded-full bg-[var(--menu-accent)]"/><h3 className="mb-4 text-lg font-black uppercase tracking-[.06em] text-[var(--menu-accent)]">{section.titulo}</h3><div className="space-y-3">{section.products.map((product) => <div key={product.id} className="grid grid-cols-[1fr_auto] gap-3 text-sm">{template.mostrarImagenesProductos && product.imagenPrincipal ? <div className="flex gap-2"><img src={productImageUrl(product.imagenPrincipal, "thumb")} alt="" className="h-11 w-11 rounded-lg object-cover"/><span className="font-bold">{product.nombre}</span></div> : <span className="font-bold">{product.nombre}</span>}{template.mostrarPrecios && <b>{money.format(Number(product.precio))}</b>}</div>)}</div></section>)}</div>

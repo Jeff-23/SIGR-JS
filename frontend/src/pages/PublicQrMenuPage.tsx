@@ -103,13 +103,13 @@ export function PublicQrMenuPage() {
   const special = activeDaily?.contenido.especial;
   const showPrices = activeTemplate?.mostrarPrecios !== false;
   const showImages = activeTemplate?.mostrarImagenesProductos === true;
-  const logoUrl = cartaAssetUrl(menu.identidadCarta?.logoUrl || activeTemplate?.logoUrl);
-  const backgroundUrl = cartaAssetUrl(activeTemplate?.fondoImagenUrl) || logoUrl;
+  const logoUrl = cartaAssetUrl(menu.identidadCarta?.logoUrl);
+  const backgroundUrl = cartaAssetUrl(activeTemplate?.fondoImagenUrl);
   const backgroundOpacity = activeTemplate?.fondoImagenOpacidad ?? 0.08;
 
   return <main style={vars} className={`min-h-screen bg-[var(--qr-bg)] text-[var(--qr-text)] ${menu.pedidosHabilitados ? "pb-32" : "pb-10"}`}>
     <header className="relative overflow-hidden bg-[var(--qr-dark)] px-5 pb-9 pt-7 text-white">
-      {backgroundUrl && <img src={backgroundUrl} alt="" className={`absolute inset-0 h-full w-full ${activeTemplate?.fondoImagenUrl ? "object-cover" : "object-contain p-8"}`} style={{ opacity: Math.min(0.32, backgroundOpacity * 1.8) }} onError={(event) => { event.currentTarget.hidden = true; }}/>}
+      {backgroundUrl && <img src={backgroundUrl} alt="" className="absolute inset-0 h-full w-full object-cover" style={{ opacity: Math.min(0.32, backgroundOpacity * 1.8) }} onError={(event) => { event.currentTarget.hidden = true; }}/>}
       <div className="absolute inset-0 bg-gradient-to-r from-[var(--qr-dark)] via-[var(--qr-dark)]/90 to-transparent" aria-hidden="true"/>
       <div className="absolute -right-16 -top-20 h-52 w-52 rounded-full border-[34px] border-white/5" aria-hidden="true"/>
       <div className="relative mx-auto max-w-4xl"><div className="flex items-center justify-between gap-4"><p className="text-xs font-black uppercase tracking-[.24em] text-[var(--qr-accent)]">{menu.restaurante}</p>{logoUrl && <img src={logoUrl} alt="Logo" className="max-h-20 max-w-32 object-contain"/>}</div><div className="mt-4 flex items-end justify-between gap-5"><div><h1 className="max-w-xl text-4xl font-black leading-[.95] sm:text-5xl">{activeTemplate?.titulo || "Menú"}</h1>{activeTemplate?.subtitulo && <p className="mt-3 max-w-lg text-sm text-white/70">{activeTemplate.subtitulo}</p>}</div><span className="shrink-0 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-bold">Mesa {menu.mesa.numero}</span></div><p className="mt-3 text-xs text-white/55">{menu.sucursal}</p></div>

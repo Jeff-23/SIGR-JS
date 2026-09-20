@@ -37,6 +37,7 @@ type MenuTemplate = {
   logoUrl?: string | null;
   fondoImagenUrl?: string | null;
   fondoImagenOpacidad: number;
+  tarjetaOpacidad: number;
   secciones: TemplateSection[];
 };
 type MenuProfile = {
@@ -105,7 +106,8 @@ function defaultTemplate(title = "Menú"): MenuTemplate {
     encabezadoColor: "#14283B",
     logoUrl: null,
     fondoImagenUrl: null,
-    fondoImagenOpacidad: 0.08,
+    fondoImagenOpacidad: 0.12,
+    tarjetaOpacidad: 0.82,
     secciones: [],
   };
 }
@@ -116,6 +118,38 @@ function assetUrl(path?: string | null) {
 }
 function escapeHtml(value: string) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+}
+
+function hexToRgba(hex: string, alpha: number) {
+  const value = hex.replace("#", "");
+  const red = Number.parseInt(value.slice(0, 2), 16);
+  const green = Number.parseInt(value.slice(2, 4), 16);
+  const blue = Number.parseInt(value.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${Math.max(0, Math.min(1, alpha))})`;
+}
+
+function canvasRgba(hex: string, alpha: number) {
+  return hexToRgba(hex, alpha);
+}
+
+function drawImageCover(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  const scale = Math.max(width / image.width, height / image.height);
+  const drawWidth = image.width * scale;
+  const drawHeight = image.height * scale;
+  ctx.drawImage(
+    image,
+    x + (width - drawWidth) / 2,
+    y + (height - drawHeight) / 2,
+    drawWidth,
+    drawHeight,
+  );
 }
 
 export function DailyMenuPage() {
@@ -328,12 +362,124 @@ export function DailyMenuPage() {
     const template = profile.plantilla;
     const special = daily?.contenido.especial;
     const logo = assetUrl(identity.logoUrl || template.logoUrl);
-    const background = assetUrl(template.fondoImagenUrl) || logo;
-    const sections = displaySections.map((section) => `<section class="menu-section"><h2>${escapeHtml(section.titulo)}</h2>${section.products.map((product) => `<div class="item"><span>${escapeHtml(product.nombre)}${product.descripcion ? `<small>${escapeHtml(product.descripcion)}</small>` : ""}</span>${template.mostrarPrecios ? `<b>${money.format(Number(product.precio))}</b>` : ""}</div>`).join("")}</section>`).join("");
-    const popup = window.open("", "_blank", "noopener,noreferrer");
-    if (!popup) return toast.error("El navegador bloqueó la ventana de impresión.");
-    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(template.titulo)}</title><style>@page{size:A4;margin:0}*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:${template.fondoColor};color:${template.textoColor}}.sheet{position:relative;min-height:297mm;padding:15mm;overflow:hidden}.watermark{position:absolute;inset:12%;width:76%;height:76%;object-fit:contain;opacity:${template.fondoImagenOpacidad};filter:grayscale(.1);pointer-events:none}.content{position:relative;z-index:1}.head{display:grid;grid-template-columns:1fr auto;gap:10mm;align-items:center;border-bottom:3px solid ${template.acentoColor};padding-bottom:8mm}.logo{max-width:42mm;max-height:28mm;object-fit:contain}.brand{font-size:10px;letter-spacing:.2em;color:${template.acentoColor};font-weight:900;text-transform:uppercase}h1{font-size:34px;line-height:1;margin:4px 0 0}.sub{margin-top:3mm;color:#667}.special{margin:8mm 0;background:${template.encabezadoColor};color:#fff;padding:7mm;border-radius:5mm}.special small{color:${template.acentoColor};font-weight:900;letter-spacing:.12em;text-transform:uppercase}.special h2{margin:2mm 0;font-size:24px}.grid{columns:2;column-gap:9mm}.menu-section{break-inside:avoid;margin:0 0 6mm;padding:5mm;background:${template.tarjetaColor};border-radius:4mm}.menu-section h2{margin:0 0 3mm;color:${template.acentoColor};font-size:17px;text-transform:uppercase}.item{display:grid;grid-template-columns:1fr auto;gap:3mm;margin:0 0 2.5mm;font-size:12px}.item small{display:block;color:#667;font-size:9px;margin-top:1mm}.item b{white-space:nowrap}footer{margin-top:7mm;border-top:1px solid ${template.acentoColor};padding-top:4mm;text-align:center;font-size:10px}</style></head><body><article class="sheet">${background ? `<img class="watermark" src="${background}" alt=""/>` : ""}<div class="content"><header class="head"><div><div class="brand">${escapeHtml(restaurantName)} · ${escapeHtml(profile.nombre)}</div><h1>${escapeHtml(template.titulo)}</h1>${template.subtitulo ? `<p class="sub">${escapeHtml(template.subtitulo)}</p>` : ""}</div>${logo ? `<img class="logo" src="${logo}" alt=""/>` : ""}</header>${special?.nombre ? `<section class="special"><small>${escapeHtml(special.titulo || "Especial de hoy")}</small><h2>${escapeHtml(special.nombre)}</h2>${special.descripcion ? `<p>${escapeHtml(special.descripcion)}</p>` : ""}${special.precio !== undefined ? `<b>${money.format(Number(special.precio))}</b>` : ""}</section>` : ""}<main class="grid">${sections}</main>${template.pie || daily?.contenido.mensaje ? `<footer>${escapeHtml(daily?.contenido.mensaje || template.pie)}</footer>` : ""}</div></article><script>window.onload=()=>window.print();</script></body></html>`);
-    popup.document.close();
+    const customBackground = assetUrl(template.fondoImagenUrl);
+    const watermark = customBackground || logo;
+    const cardColor = hexToRgba(template.tarjetaColor, template.tarjetaOpacidad);
+    const backgroundClass = customBackground ? "background-art cover" : "background-art contain";
+    const sections = displaySections
+      .map(
+        (section) =>
+          `<section class="menu-section"><h2>${escapeHtml(section.titulo)}</h2>${section.products
+            .map(
+              (product) =>
+                `<div class="item"><span>${escapeHtml(product.nombre)}${
+                  product.descripcion
+                    ? `<small>${escapeHtml(product.descripcion)}</small>`
+                    : ""
+                }</span>${
+                  template.mostrarPrecios
+                    ? `<b>${money.format(Number(product.precio))}</b>`
+                    : ""
+                }</div>`,
+            )
+            .join("")}</section>`,
+      )
+      .join("");
+
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(
+      template.titulo,
+    )}</title><style>
+      @page{size:A4;margin:0}
+      *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      html,body{margin:0;padding:0;background:${template.fondoColor};color:${template.textoColor};font-family:Arial,sans-serif}
+      .sheet{position:relative;min-height:297mm;padding:15mm;overflow:hidden;background:${template.fondoColor}}
+      .background-art{position:absolute;inset:0;width:100%;height:100%;opacity:${template.fondoImagenOpacidad};pointer-events:none}
+      .background-art.cover{object-fit:cover}
+      .background-art.contain{object-fit:contain;padding:24mm}
+      .content{position:relative;z-index:1}
+      .head{display:grid;grid-template-columns:1fr auto;gap:10mm;align-items:center;background:${hexToRgba(template.encabezadoColor, 0.96)};color:#fff;padding:8mm;border-radius:5mm}
+      .logo{max-width:42mm;max-height:28mm;object-fit:contain}
+      .brand{font-size:10px;letter-spacing:.2em;color:${template.acentoColor};font-weight:900;text-transform:uppercase}
+      h1{font-size:34px;line-height:1;margin:4px 0 0}
+      .sub{margin-top:3mm;color:rgba(255,255,255,.72)}
+      .special{margin:8mm 0;background:${hexToRgba(template.encabezadoColor, 0.94)};color:#fff;padding:7mm;border-radius:5mm}
+      .special small{color:${template.acentoColor};font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+      .special h2{margin:2mm 0;font-size:24px}
+      .grid{columns:2;column-gap:9mm}
+      .menu-section{break-inside:avoid;margin:0 0 6mm;padding:5mm;background:${cardColor};border:1px solid rgba(0,0,0,.05);border-radius:4mm;backdrop-filter:blur(2px)}
+      .menu-section h2{margin:0 0 3mm;color:${template.acentoColor};font-size:17px;text-transform:uppercase}
+      .item{display:grid;grid-template-columns:1fr auto;gap:3mm;margin:0 0 2.5mm;font-size:12px}
+      .item small{display:block;color:${template.textoColor};opacity:.62;font-size:9px;margin-top:1mm}
+      .item b{white-space:nowrap}
+      footer{margin-top:7mm;background:${cardColor};border-top:1px solid ${template.acentoColor};padding:4mm;text-align:center;font-size:10px;border-radius:3mm}
+    </style></head><body><article class="sheet">${
+      watermark ? `<img class="${backgroundClass}" src="${watermark}" alt=""/>` : ""
+    }<div class="content"><header class="head"><div><div class="brand">${escapeHtml(
+      restaurantName,
+    )} · ${escapeHtml(profile.nombre)}</div><h1>${escapeHtml(template.titulo)}</h1>${
+      template.subtitulo ? `<p class="sub">${escapeHtml(template.subtitulo)}</p>` : ""
+    }</div>${logo ? `<img class="logo" src="${logo}" alt="Logo"/>` : ""}</header>${
+      special?.nombre
+        ? `<section class="special"><small>${escapeHtml(
+            special.titulo || "Especial de hoy",
+          )}</small><h2>${escapeHtml(special.nombre)}</h2>${
+            special.descripcion ? `<p>${escapeHtml(special.descripcion)}</p>` : ""
+          }${
+            special.precio !== undefined
+              ? `<b>${money.format(Number(special.precio))}</b>`
+              : ""
+          }</section>`
+        : ""
+    }<main class="grid">${sections}</main>${
+      template.pie || daily?.contenido.mensaje
+        ? `<footer>${escapeHtml(daily?.contenido.mensaje || template.pie)}</footer>`
+        : ""
+    }</div></article></body></html>`;
+
+    const frame = document.createElement("iframe");
+    frame.setAttribute("aria-hidden", "true");
+    Object.assign(frame.style, {
+      position: "fixed",
+      right: "0",
+      bottom: "0",
+      width: "1px",
+      height: "1px",
+      border: "0",
+      opacity: "0",
+      pointerEvents: "none",
+    });
+    document.body.appendChild(frame);
+    const printDocument = frame.contentDocument;
+    const printWindow = frame.contentWindow;
+    if (!printDocument || !printWindow) {
+      frame.remove();
+      toast.error("No fue posible preparar la impresión.");
+      return;
+    }
+    printDocument.open();
+    printDocument.write(html);
+    printDocument.close();
+
+    const images = Array.from(printDocument.images);
+    Promise.all(
+      images.map(
+        (image) =>
+          new Promise<void>((resolve) => {
+            if (image.complete) {
+              resolve();
+              return;
+            }
+            image.addEventListener("load", () => resolve(), { once: true });
+            image.addEventListener("error", () => resolve(), { once: true });
+          }),
+      ),
+    ).then(() => {
+      window.setTimeout(() => {
+        printWindow.focus();
+        printWindow.print();
+        window.setTimeout(() => frame.remove(), 15000);
+      }, 150);
+    });
   };
 
   const downloadPng = async () => {
@@ -348,19 +494,25 @@ export function DailyMenuPage() {
     if (!ctx) return;
     ctx.fillStyle = template.fondoColor;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const background = await loadImage(assetUrl(template.fondoImagenUrl) || assetUrl(template.logoUrl));
+    const customBackgroundUrl = assetUrl(template.fondoImagenUrl);
+    const identityLogoUrl = assetUrl(identity.logoUrl || template.logoUrl);
+    const background = await loadImage(customBackgroundUrl || identityLogoUrl);
     if (background) {
       ctx.save();
       ctx.globalAlpha = template.fondoImagenOpacidad;
-      const scale = Math.min(760 / background.width, 760 / background.height);
-      const w = background.width * scale;
-      const h = background.height * scale;
-      ctx.drawImage(background, (1080 - w) / 2, (height - h) / 2, w, h);
+      if (customBackgroundUrl) {
+        drawImageCover(ctx, background, 0, 0, canvas.width, canvas.height);
+      } else {
+        const scale = Math.min(760 / background.width, 760 / background.height);
+        const w = background.width * scale;
+        const h = background.height * scale;
+        ctx.drawImage(background, (1080 - w) / 2, (height - h) / 2, w, h);
+      }
       ctx.restore();
     }
     ctx.fillStyle = template.encabezadoColor;
     ctx.fillRect(0, 0, 1080, 300);
-    const logo = await loadImage(assetUrl(template.logoUrl));
+    const logo = await loadImage(assetUrl(identity.logoUrl || template.logoUrl));
     if (logo) {
       const scale = Math.min(220 / logo.width, 140 / logo.height);
       ctx.drawImage(logo, 800, 70, logo.width * scale, logo.height * scale);
@@ -394,6 +546,10 @@ export function DailyMenuPage() {
       const col = index % 2;
       const x = columns[col];
       let sy = colY[col];
+      const cardTop = sy - 26;
+      const cardHeight = 62 + section.products.length * 38;
+      ctx.fillStyle = canvasRgba(template.tarjetaColor, template.tarjetaOpacidad);
+      ctx.fillRect(x - 18, cardTop, 458, cardHeight);
       ctx.fillStyle = template.acentoColor;
       ctx.font = "900 27px Arial";
       ctx.fillText(section.titulo.toUpperCase(), x, sy);
@@ -424,6 +580,7 @@ export function DailyMenuPage() {
   const vars = {
     "--menu-bg": template.fondoColor,
     "--menu-card": template.tarjetaColor,
+    "--menu-card-alpha": hexToRgba(template.tarjetaColor, template.tarjetaOpacidad),
     "--menu-text": template.textoColor,
     "--menu-accent": template.acentoColor,
     "--menu-head": template.encabezadoColor,
@@ -474,7 +631,8 @@ export function DailyMenuPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="rounded-2xl border border-denim/10 p-4"><span className="flex items-center gap-2 font-black"><ImageIcon size={17}/> Logo del restaurante</span><input className="mt-3 block w-full text-sm" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadAsset(file, "logoUrl"); }}/>{logo && <img src={logo} alt="Logo" className="mt-3 h-24 max-w-full object-contain"/>}</label>
             <label className="rounded-2xl border border-denim/10 p-4"><span className="flex items-center gap-2 font-black"><Sparkles size={17}/> Arte de fondo opcional</span><input className="mt-3 block w-full text-sm" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadAsset(file, "fondoImagenUrl"); }}/>{template.fondoImagenUrl && <img src={assetUrl(template.fondoImagenUrl)} alt="Fondo" className="mt-3 h-24 w-full rounded-xl object-cover"/>}</label>
-            <label className="sm:col-span-2">Opacidad de marca de agua: {Math.round(template.fondoImagenOpacidad * 100)}%<input className="mt-2 w-full" type="range" min="0" max="0.4" step="0.01" value={template.fondoImagenOpacidad} onChange={(event) => updateTemplate({ fondoImagenOpacidad: Number(event.target.value) })}/></label>
+            <label>Opacidad del fondo / marca de agua: {Math.round(template.fondoImagenOpacidad * 100)}%<input className="mt-2 w-full" type="range" min="0" max="0.75" step="0.01" value={template.fondoImagenOpacidad} onChange={(event) => updateTemplate({ fondoImagenOpacidad: Number(event.target.value) })}/></label>
+            <label>Transparencia de tarjetas: {Math.round(template.tarjetaOpacidad * 100)}%<input className="mt-2 w-full" type="range" min="0.25" max="1" step="0.01" value={template.tarjetaOpacidad} onChange={(event) => updateTemplate({ tarjetaOpacidad: Number(event.target.value) })}/></label>
             <label className="flex items-center gap-3 font-bold"><input type="checkbox" checked={template.mostrarPrecios} onChange={(event) => updateTemplate({ mostrarPrecios: event.target.checked })}/> Mostrar precios</label>
             <label className="flex items-center gap-3 font-bold"><input type="checkbox" checked={template.mostrarImagenesProductos} onChange={(event) => updateTemplate({ mostrarImagenesProductos: event.target.checked })}/> Mostrar fotos de productos (opcional)</label>
           </div>
@@ -500,10 +658,10 @@ export function DailyMenuPage() {
 
       <aside className="self-start xl:sticky xl:top-24">
         <article style={vars} className="relative min-h-[760px] overflow-hidden rounded-[2rem] bg-[var(--menu-bg)] p-6 text-[var(--menu-text)] shadow-sm">
-          {background && <img src={background} alt="" className="pointer-events-none absolute inset-0 h-full w-full object-contain p-16" style={{ opacity: template.fondoImagenOpacidad }}/>}<div className="relative z-10">
+          {background && <img src={background} alt="" className={`pointer-events-none absolute inset-0 h-full w-full ${template.fondoImagenUrl ? "object-cover" : "object-contain p-16"}`} style={{ opacity: template.fondoImagenOpacidad }}/>}<div className="relative z-10">
             <header className="rounded-[1.5rem] bg-[var(--menu-head)] p-6 text-white"><div className="flex items-start justify-between gap-5"><div><p className="text-xs font-black uppercase tracking-[.2em] text-[var(--menu-accent)]">{restaurantName}</p><h2 className="mt-3 text-4xl font-black leading-none">{template.titulo}</h2>{template.subtitulo && <p className="mt-3 text-sm text-white/65">{template.subtitulo}</p>}</div>{logo && <img src={logo} alt="Logo" className="max-h-24 max-w-32 object-contain"/>}</div></header>
-            {daily?.contenido.especial?.nombre && <section className="mt-5 rounded-[1.5rem] bg-[var(--menu-card)] p-5"><p className="text-xs font-black uppercase tracking-[.18em] text-[var(--menu-accent)]">{daily.contenido.especial.titulo || "Especial de hoy"}</p><div className="mt-2 flex justify-between gap-4"><div><h3 className="text-2xl font-black">{daily.contenido.especial.nombre}</h3>{daily.contenido.especial.descripcion && <p className="mt-1 text-sm opacity-65">{daily.contenido.especial.descripcion}</p>}</div>{daily.contenido.especial.precio !== undefined && <b>{money.format(Number(daily.contenido.especial.precio))}</b>}</div></section>}
-            <div className="mt-5 columns-1 gap-4 sm:columns-2">{displaySections.map((section) => <section key={section.categoriaId} className="mb-4 break-inside-avoid rounded-[1.35rem] bg-[var(--menu-card)] p-5"><div className="mb-3 h-1 w-10 rounded-full bg-[var(--menu-accent)]"/><h3 className="mb-4 text-lg font-black uppercase tracking-[.06em] text-[var(--menu-accent)]">{section.titulo}</h3><div className="space-y-3">{section.products.map((product) => <div key={product.id} className="grid grid-cols-[1fr_auto] gap-3 text-sm">{template.mostrarImagenesProductos && product.imagenPrincipal ? <div className="flex gap-2"><img src={productImageUrl(product.imagenPrincipal, "thumb")} alt="" className="h-11 w-11 rounded-lg object-cover"/><span className="font-bold">{product.nombre}</span></div> : <span className="font-bold">{product.nombre}</span>}{template.mostrarPrecios && <b>{money.format(Number(product.precio))}</b>}</div>)}</div></section>)}</div>
+            {daily?.contenido.especial?.nombre && <section className="mt-5 rounded-[1.5rem] bg-[var(--menu-card-alpha)] p-5"><p className="text-xs font-black uppercase tracking-[.18em] text-[var(--menu-accent)]">{daily.contenido.especial.titulo || "Especial de hoy"}</p><div className="mt-2 flex justify-between gap-4"><div><h3 className="text-2xl font-black">{daily.contenido.especial.nombre}</h3>{daily.contenido.especial.descripcion && <p className="mt-1 text-sm opacity-65">{daily.contenido.especial.descripcion}</p>}</div>{daily.contenido.especial.precio !== undefined && <b>{money.format(Number(daily.contenido.especial.precio))}</b>}</div></section>}
+            <div className="mt-5 columns-1 gap-4 sm:columns-2">{displaySections.map((section) => <section key={section.categoriaId} className="mb-4 break-inside-avoid rounded-[1.35rem] bg-[var(--menu-card-alpha)] p-5"><div className="mb-3 h-1 w-10 rounded-full bg-[var(--menu-accent)]"/><h3 className="mb-4 text-lg font-black uppercase tracking-[.06em] text-[var(--menu-accent)]">{section.titulo}</h3><div className="space-y-3">{section.products.map((product) => <div key={product.id} className="grid grid-cols-[1fr_auto] gap-3 text-sm">{template.mostrarImagenesProductos && product.imagenPrincipal ? <div className="flex gap-2"><img src={productImageUrl(product.imagenPrincipal, "thumb")} alt="" className="h-11 w-11 rounded-lg object-cover"/><span className="font-bold">{product.nombre}</span></div> : <span className="font-bold">{product.nombre}</span>}{template.mostrarPrecios && <b>{money.format(Number(product.precio))}</b>}</div>)}</div></section>)}</div>
             {(daily?.contenido.mensaje || template.pie) && <footer className="mt-5 border-t border-[var(--menu-accent)]/30 pt-4 text-center text-xs opacity-60">{daily?.contenido.mensaje || template.pie}</footer>}
           </div>
         </article>

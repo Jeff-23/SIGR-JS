@@ -17,6 +17,7 @@ export class CartaMediaController {
     response.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    response.setHeader('Access-Control-Allow-Origin', '*');
     response.send(recurso.contenido);
   }
 }

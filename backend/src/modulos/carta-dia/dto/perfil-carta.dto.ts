@@ -94,8 +94,13 @@ export class PlantillaPerfilCartaDto {
 
   @IsNumber()
   @Min(0)
-  @Max(0.4)
+  @Max(0.75)
   fondoImagenOpacidad!: number;
+
+  @IsNumber()
+  @Min(0.25)
+  @Max(1)
+  tarjetaOpacidad!: number;
 
   @IsArray()
   @ArrayMaxSize(30)

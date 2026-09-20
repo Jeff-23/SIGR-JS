@@ -51,7 +51,8 @@ function plantillaPredeterminada() {
     encabezadoColor: '#14283B',
     logoUrl: null,
     fondoImagenUrl: null,
-    fondoImagenOpacidad: 0.08,
+    fondoImagenOpacidad: 0.12,
+    tarjetaOpacidad: 0.82,
     secciones: [],
   };
 }
@@ -351,6 +352,7 @@ export class CartaDiaService {
       logoUrl: p.logoUrl || null,
       fondoImagenUrl: p.fondoImagenUrl || null,
       fondoImagenOpacidad: p.fondoImagenOpacidad,
+      tarjetaOpacidad: p.tarjetaOpacidad,
       secciones: p.secciones
         .map((seccion) => ({
           categoriaId: seccion.categoriaId,

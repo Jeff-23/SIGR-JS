@@ -1,4 +1,4 @@
-﻿import {
+import {
   Body,
   Controller,
   Delete,
@@ -11,21 +11,21 @@
   UseGuards,
 } from '@nestjs/common';
 
-import { SucursalesService } from './sucursales.service';
-import { CreateSucursalDto } from './dto/create-sucursal.dto';
-import { UpdateSucursalDto } from './dto/update-sucursal.dto';
-
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
 import { Permisos } from '../auth/permisos.decorator';
-import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
-
-type RequestAutenticada = {
-  user: UsuarioAutenticado;
-};
+import {
+  construirContextoAuditoria,
+  RequestAuditable,
+} from '../auditoria/auditoria-contexto';
+import { AuditoriaDetallada } from '../auditoria/auditoria-detallada.decorator';
+import { CreateSucursalDto } from './dto/create-sucursal.dto';
+import { UpdateSucursalDto } from './dto/update-sucursal.dto';
+import { SucursalesService } from './sucursales.service';
 
 @Controller('sucursales')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
+@AuditoriaDetallada()
 export class SucursalesController {
   constructor(private readonly sucursalesService: SucursalesService) {}
 
@@ -33,14 +33,18 @@ export class SucursalesController {
   @Permisos('SUCURSALES_CREAR')
   create(
     @Body() createSucursalDto: CreateSucursalDto,
-    @Req() request: RequestAutenticada,
+    @Req() request: RequestAuditable,
   ) {
-    return this.sucursalesService.create(createSucursalDto, request.user);
+    return this.sucursalesService.create(
+      createSucursalDto,
+      request.user,
+      construirContextoAuditoria(request),
+    );
   }
 
   @Get()
   @Permisos('SUCURSALES_VER')
-  findAll(@Req() request: RequestAutenticada) {
+  findAll(@Req() request: RequestAuditable) {
     return this.sucursalesService.findAll(request.user);
   }
 
@@ -48,7 +52,7 @@ export class SucursalesController {
   @Permisos('SUCURSALES_VER')
   findOne(
     @Param('id', ParseIntPipe) id: number,
-    @Req() request: RequestAutenticada,
+    @Req() request: RequestAuditable,
   ) {
     return this.sucursalesService.findOne(id, request.user);
   }
@@ -58,17 +62,26 @@ export class SucursalesController {
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateSucursalDto: UpdateSucursalDto,
-    @Req() request: RequestAutenticada,
+    @Req() request: RequestAuditable,
   ) {
-    return this.sucursalesService.update(id, updateSucursalDto, request.user);
+    return this.sucursalesService.update(
+      id,
+      updateSucursalDto,
+      request.user,
+      construirContextoAuditoria(request),
+    );
   }
 
   @Delete(':id')
   @Permisos('SUCURSALES_EDITAR')
   remove(
     @Param('id', ParseIntPipe) id: number,
-    @Req() request: RequestAutenticada,
+    @Req() request: RequestAuditable,
   ) {
-    return this.sucursalesService.remove(id, request.user);
+    return this.sucursalesService.remove(
+      id,
+      request.user,
+      construirContextoAuditoria(request),
+    );
   }
 }

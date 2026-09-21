@@ -238,16 +238,26 @@ export function ResourceEditor({
   const fields = resource.fields.filter((f) => !(initial && f.createOnly));
   const [values, setValues] = useState<Record<string, string | boolean>>(() =>
     Object.fromEntries(
-      fields.map((f) => [
-        f.key,
-        f.type === "password"
-          ? ""
-          : f.type === "checkbox"
-            ? initial
-              ? Boolean(initial[f.key])
-              : Boolean(f.defaultValue)
-            : String(initial?.[f.key] ?? f.defaultValue ?? ""),
-      ]),
+      fields.map((f) => {
+        const relationKey = f.lookup && f.key.endsWith("Id")
+          ? f.key.slice(0, -2)
+          : undefined;
+        const relation = relationKey && initial?.[relationKey];
+        const initialValue = initial?.[f.key] ??
+          (relation && typeof relation === "object" && "id" in relation
+            ? (relation as Row).id
+            : undefined);
+        return [
+          f.key,
+          f.type === "password"
+            ? ""
+            : f.type === "checkbox"
+              ? initial
+                ? Boolean(initialValue)
+                : Boolean(f.defaultValue)
+              : String(initialValue ?? f.defaultValue ?? ""),
+        ];
+      }),
     ),
   );
   const [options, setOptions] = useState<Record<string, Row[]>>({}),

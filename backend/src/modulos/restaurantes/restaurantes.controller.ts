@@ -11,42 +11,46 @@ import {
   UseGuards,
 } from '@nestjs/common';
 
-import { RestaurantesService } from './restaurantes.service';
-import { CreateRestauranteDto } from './dto/create-restaurante.dto';
-import { UpdateRestauranteDto } from './dto/update-restaurante.dto';
-
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
-import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
-
-type RequestAutenticada = {
-  user: UsuarioAutenticado;
-};
+import {
+  construirContextoAuditoria,
+  RequestAuditable,
+} from '../auditoria/auditoria-contexto';
+import { AuditoriaDetallada } from '../auditoria/auditoria-detallada.decorator';
+import { CreateRestauranteDto } from './dto/create-restaurante.dto';
+import { UpdateRestauranteDto } from './dto/update-restaurante.dto';
+import { RestaurantesService } from './restaurantes.service';
 
 @Controller('restaurantes')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('SUPERADMIN')
+@AuditoriaDetallada()
 export class RestaurantesController {
   constructor(private readonly restaurantesService: RestaurantesService) {}
 
   @Post()
   create(
     @Body() createRestauranteDto: CreateRestauranteDto,
-    @Req() request: RequestAutenticada,
+    @Req() request: RequestAuditable,
   ) {
-    return this.restaurantesService.create(createRestauranteDto, request.user);
+    return this.restaurantesService.create(
+      createRestauranteDto,
+      request.user,
+      construirContextoAuditoria(request),
+    );
   }
 
   @Get()
-  findAll(@Req() request: RequestAutenticada) {
+  findAll(@Req() request: RequestAuditable) {
     return this.restaurantesService.findAll(request.user);
   }
 
   @Get(':id')
   findOne(
     @Param('id', ParseIntPipe) id: number,
-    @Req() request: RequestAutenticada,
+    @Req() request: RequestAuditable,
   ) {
     return this.restaurantesService.findOne(id, request.user);
   }
@@ -55,20 +59,25 @@ export class RestaurantesController {
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateRestauranteDto: UpdateRestauranteDto,
-    @Req() request: RequestAutenticada,
+    @Req() request: RequestAuditable,
   ) {
     return this.restaurantesService.update(
       id,
       updateRestauranteDto,
       request.user,
+      construirContextoAuditoria(request),
     );
   }
 
   @Delete(':id')
   remove(
     @Param('id', ParseIntPipe) id: number,
-    @Req() request: RequestAutenticada,
+    @Req() request: RequestAuditable,
   ) {
-    return this.restaurantesService.remove(id, request.user);
+    return this.restaurantesService.remove(
+      id,
+      request.user,
+      construirContextoAuditoria(request),
+    );
   }
 }

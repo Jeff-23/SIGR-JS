@@ -5,14 +5,18 @@ import {
 } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
-
+import { AuditoriaService } from '../auditoria/auditoria.service';
+import { ContextoAuditoria } from '../auditoria/auditoria-contexto';
+import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { CreateSucursalDto } from './dto/create-sucursal.dto';
 import { UpdateSucursalDto } from './dto/update-sucursal.dto';
-import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 
 @Injectable()
 export class SucursalesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditoria: AuditoriaService,
+  ) {}
 
   private esSuperadmin(usuarioActual: UsuarioAutenticado) {
     return (
@@ -22,16 +26,9 @@ export class SucursalesService {
 
   private async validarRestauranteActivo(restauranteId: number) {
     const restaurante = await this.prisma.restaurante.findFirst({
-      where: {
-        id: restauranteId,
-        estado: true,
-      },
+      where: { id: restauranteId, estado: true },
     });
-
-    if (!restaurante) {
-      throw new NotFoundException('Restaurante no encontrado');
-    }
-
+    if (!restaurante) throw new NotFoundException('Restaurante no encontrado');
     return restaurante;
   }
 
@@ -56,7 +53,6 @@ export class SucursalesService {
     });
 
     if (!restaurante?.plan?.activo) return;
-
     const actuales = restaurante._count.sucursales;
     if (actuales >= restaurante.plan.maxSedes) {
       throw new ForbiddenException(
@@ -73,31 +69,24 @@ export class SucursalesService {
       throw new NotFoundException('Sucursal no encontrada');
     }
 
-    const where: {
-      id: number;
-      estado: boolean;
-      restauranteId?: number;
-    } = {
+    const where: { id: number; estado: boolean; restauranteId?: number } = {
       id,
       estado: true,
     };
-
     if (!this.esSuperadmin(usuarioActual)) {
       where.restauranteId = usuarioActual.restauranteId!;
     }
 
-    const sucursal = await this.prisma.sucursal.findFirst({
-      where,
-    });
-
-    if (!sucursal) {
-      throw new NotFoundException('Sucursal no encontrada');
-    }
-
+    const sucursal = await this.prisma.sucursal.findFirst({ where });
+    if (!sucursal) throw new NotFoundException('Sucursal no encontrada');
     return sucursal;
   }
 
-  async create(data: CreateSucursalDto, usuarioActual: UsuarioAutenticado) {
+  async create(
+    data: CreateSucursalDto,
+    usuarioActual: UsuarioAutenticado,
+    contexto: ContextoAuditoria,
+  ) {
     if (
       !this.esSuperadmin(usuarioActual) &&
       usuarioActual.sucursalId !== null
@@ -106,7 +95,6 @@ export class SucursalesService {
         'Un administrador limitado a sucursal no puede crear nuevas sucursales',
       );
     }
-
     if (
       !this.esSuperadmin(usuarioActual) &&
       data.restauranteId !== usuarioActual.restauranteId
@@ -119,39 +107,66 @@ export class SucursalesService {
     await this.validarRestauranteActivo(data.restauranteId);
     await this.validarLimiteSedes(data.restauranteId);
 
-    return this.prisma.sucursal.create({
-      data: {
-        ...data,
-        estacionesPreparacion: {
-          create: [
-            { codigo: 'COCINA', nombre: 'Cocina', color: '#F97316', orden: 10 },
-            { codigo: 'BAR', nombre: 'Bar', color: '#3B82F6', orden: 20 },
-            {
-              codigo: 'DESPACHO',
-              nombre: 'Despacho',
-              color: '#8B5CF6',
-              orden: 30,
-              objetivoPreparacionMin: 5,
-            },
-          ],
+    return this.prisma.$transaction(async (tx) => {
+      const sucursal = await tx.sucursal.create({
+        data: {
+          ...data,
+          estacionesPreparacion: {
+            create: [
+              {
+                codigo: 'COCINA',
+                nombre: 'Cocina',
+                color: '#F97316',
+                orden: 10,
+              },
+              { codigo: 'BAR', nombre: 'Bar', color: '#3B82F6', orden: 20 },
+              {
+                codigo: 'DESPACHO',
+                nombre: 'Despacho',
+                color: '#8B5CF6',
+                orden: 30,
+                objetivoPreparacionMin: 5,
+              },
+            ],
+          },
         },
-      },
-      include: { estacionesPreparacion: true },
+        include: { estacionesPreparacion: true },
+      });
+      await tx.configuracionSucursal.createMany({
+        data: [
+          {
+            sucursalId: sucursal.id,
+            clave: 'ZONA_HORARIA',
+            valor: 'America/Bogota',
+          },
+          { sucursalId: sucursal.id, clave: 'ANCHO_PAPEL', valor: 80 },
+          { sucursalId: sucursal.id, clave: 'QR_MODO', valor: 'SOLO_MENU' },
+        ],
+        skipDuplicates: true,
+      });
+      await this.auditoria.registrar(
+        tx,
+        {
+          accion: 'SUCURSAL_CREADA',
+          recurso: 'SUCURSAL',
+          recursoId: sucursal.id,
+          restauranteId: sucursal.restauranteId,
+          sucursalId: sucursal.id,
+          despues: sucursal,
+        },
+        contexto,
+      );
+      return sucursal;
     });
   }
 
   findAll(usuarioActual: UsuarioAutenticado) {
     if (this.esSuperadmin(usuarioActual)) {
       return this.prisma.sucursal.findMany({
-        where: {
-          estado: true,
-        },
-        orderBy: {
-          id: 'asc',
-        },
+        where: { estado: true },
+        orderBy: { id: 'asc' },
       });
     }
-
     if (usuarioActual.sucursalId !== null) {
       return this.prisma.sucursal.findMany({
         where: {
@@ -161,39 +176,63 @@ export class SucursalesService {
         },
       });
     }
-
     return this.prisma.sucursal.findMany({
-      where: {
-        restauranteId: usuarioActual.restauranteId,
-        estado: true,
-      },
-      orderBy: {
-        id: 'asc',
-      },
+      where: { restauranteId: usuarioActual.restauranteId, estado: true },
+      orderBy: { id: 'asc' },
     });
   }
 
   async findOne(id: number, usuarioActual: UsuarioAutenticado) {
-    return this.buscarDentroDelAlcance(id, usuarioActual);
+    await this.buscarDentroDelAlcance(id, usuarioActual);
+    return this.prisma.sucursal.findUnique({
+      where: { id },
+      include: {
+        configuraciones: {
+          where: { clave: { in: ['ZONA_HORARIA', 'ANCHO_PAPEL', 'QR_MODO'] } },
+          orderBy: { clave: 'asc' },
+        },
+      },
+    });
   }
 
   async update(
     id: number,
     data: UpdateSucursalDto,
     usuarioActual: UsuarioAutenticado,
+    contexto: ContextoAuditoria,
   ) {
-    await this.buscarDentroDelAlcance(id, usuarioActual);
+    const anterior = await this.buscarDentroDelAlcance(id, usuarioActual);
+    const cambios = { ...data };
+    delete cambios.restauranteId;
 
-    return this.prisma.sucursal.update({
-      where: {
-        id,
-      },
-      data,
+    return this.prisma.$transaction(async (tx) => {
+      const sucursal = await tx.sucursal.update({
+        where: { id },
+        data: cambios,
+      });
+      await this.auditoria.registrar(
+        tx,
+        {
+          accion: 'SUCURSAL_ACTUALIZADA',
+          recurso: 'SUCURSAL',
+          recursoId: id,
+          restauranteId: sucursal.restauranteId,
+          sucursalId: id,
+          antes: anterior,
+          despues: sucursal,
+        },
+        contexto,
+      );
+      return sucursal;
     });
   }
 
-  async remove(id: number, usuarioActual: UsuarioAutenticado) {
-    await this.buscarDentroDelAlcance(id, usuarioActual);
+  async remove(
+    id: number,
+    usuarioActual: UsuarioAutenticado,
+    contexto: ContextoAuditoria,
+  ) {
+    const anterior = await this.buscarDentroDelAlcance(id, usuarioActual);
 
     if (
       !this.esSuperadmin(usuarioActual) &&
@@ -204,13 +243,25 @@ export class SucursalesService {
       );
     }
 
-    return this.prisma.sucursal.update({
-      where: {
-        id,
-      },
-      data: {
-        estado: false,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const sucursal = await tx.sucursal.update({
+        where: { id },
+        data: { estado: false },
+      });
+      await this.auditoria.registrar(
+        tx,
+        {
+          accion: 'SUCURSAL_DESACTIVADA',
+          recurso: 'SUCURSAL',
+          recursoId: id,
+          restauranteId: sucursal.restauranteId,
+          sucursalId: id,
+          antes: anterior,
+          despues: sucursal,
+        },
+        contexto,
+      );
+      return sucursal;
     });
   }
 }

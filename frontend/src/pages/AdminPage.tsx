@@ -52,14 +52,19 @@ const resources: Resource[] = [
     edit: "SUCURSALES_EDITAR",
     columns: [
       name,
-      field("direccion", "Dirección"),
+      field("municipio", "Municipio"),
       field("telefono", "Teléfono"),
+      field("whatsapp", "WhatsApp"),
       field("estado", "Activa"),
     ],
     fields: [
       name,
       field("direccion", "Dirección", { maxLength: 200 }),
+      field("municipio", "Municipio", { maxLength: 100 }),
+      field("departamento", "Departamento", { maxLength: 100 }),
       field("telefono", "Teléfono", { maxLength: 20 }),
+      field("whatsapp", "WhatsApp", { maxLength: 30 }),
+      field("correo", "Correo", { type: "email", maxLength: 150 }),
       field("restauranteId", "ID restaurante", {
         type: "number",
         required: true,
@@ -119,24 +124,45 @@ const restaurants: Resource = {
   edit: "",
   columns: [
     name,
+    field("razonSocial", "Razón social"),
     field("nit", "NIT"),
-    field("correo", "Correo"),
+    field("dv", "DV"),
+    field("municipio", "Municipio"),
     field("estado", "Activo"),
   ],
   fields: [
-    name,
-    field("nit", "NIT", { required: true }),
-    field("direccion", "Dirección"),
-    field("telefono", "Teléfono"),
-    field("correo", "Correo", { type: "email" }),
+    field("nombre", "Nombre comercial", { required: true, maxLength: 100 }),
+    field("razonSocial", "Razón social", { maxLength: 150 }),
+    field("nit", "NIT", { required: true, maxLength: 20 }),
+    field("dv", "DV", { maxLength: 1 }),
+    field("direccion", "Dirección", { maxLength: 200 }),
+    field("municipio", "Municipio", { maxLength: 100 }),
+    field("departamento", "Departamento", { maxLength: 100 }),
+    field("telefono", "Teléfono", { maxLength: 20 }),
+    field("whatsapp", "WhatsApp", { maxLength: 30 }),
+    field("correo", "Correo", { type: "email", maxLength: 150 }),
   ],
+  notice:
+    "Datos maestros de puesta en marcha. Moneda y zona horaria se inicializan con COP y America/Bogota y pueden ajustarse en Configuración.",
 };
+const tenantResources: Resource[] = resources.map((resource) =>
+  resource.key === "usuarios"
+    ? {
+        ...resource,
+        fields: resource.fields.filter(
+          (fieldConfig) => fieldConfig.key !== "restauranteId",
+        ),
+      }
+    : resource,
+);
+
 export function AdminPage() {
   const { session, branchId, hasPermission, hasCapability } = useApp();
   const global =
     session?.user.rol === "SUPERADMIN" && session.user.restauranteId === null;
-  const available = resources.filter(
-    (r) => hasPermission(r.permission) && hasCapability(r.capability),
+  const available = (global ? resources : tenantResources).filter(
+    (resource) =>
+      hasPermission(resource.permission) && hasCapability(resource.capability),
   );
   if (global)
     available.unshift({

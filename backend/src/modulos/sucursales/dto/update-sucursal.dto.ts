@@ -1,18 +1,4 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { PartialType } from '@nestjs/mapped-types';
+import { CreateSucursalDto } from './create-sucursal.dto';
 
-export class UpdateSucursalDto {
-  @IsString()
-  @IsOptional()
-  @MaxLength(100)
-  nombre?: string;
-
-  @IsString()
-  @IsOptional()
-  @MaxLength(200)
-  direccion?: string;
-
-  @IsString()
-  @IsOptional()
-  @MaxLength(20)
-  telefono?: string;
-}
+export class UpdateSucursalDto extends PartialType(CreateSucursalDto) {}

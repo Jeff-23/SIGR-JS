@@ -1,6 +1,8 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsDate,
   IsInt,
   IsOptional,
@@ -9,6 +11,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 
 export class SucursalPersonalDto {
@@ -21,6 +24,21 @@ export class CrearEmpleadoDto extends SucursalPersonalDto {
   @IsOptional() @IsString() @MaxLength(40) documento?: string;
   @IsString() @MaxLength(80) cargo: string;
   @IsOptional() @IsInt() @Min(1) usuarioId?: number;
+  @IsOptional() @IsArray() @IsInt({ each: true }) unidadOperativaIds?: number[];
+}
+
+export class RetirarEmpleadoDto {
+  @IsString() @MaxLength(500) motivo: string;
+  @IsOptional() @IsBoolean() desactivarUsuario?: boolean;
+}
+
+export class CrearUnidadOperativaDto extends SucursalPersonalDto {
+  @IsString() @MaxLength(100) nombre: string;
+  @IsOptional() @IsString() @MaxLength(220) descripcion?: string;
+  @IsOptional() @IsInt() @Min(0) @Max(999) orden?: number;
+}
+export class AsignarUnidadesOperativasDto {
+  @IsArray() @IsInt({ each: true }) unidadOperativaIds: number[];
 }
 export class CrearFuncionDto {
   @IsString() @MaxLength(80) nombre: string;
@@ -39,7 +57,33 @@ export class ProgramarTurnoDto extends SucursalPersonalDto {
   @Type(() => Date) @IsDate() inicioProgramado: Date;
   @Type(() => Date) @IsDate() finProgramado: Date;
   @IsOptional() @IsString() @MaxLength(300) observaciones?: string;
+  @IsOptional() @IsString() @MaxLength(60) etiqueta?: string;
+  @IsOptional() @IsInt() @Min(0) @Max(480) minutosPausa?: number;
+  @IsOptional() @IsInt() @Min(1) unidadOperativaId?: number;
 }
+
+export class TurnoSemanaItemDto {
+  @Type(() => Date) @IsDate() inicioProgramado: Date;
+  @Type(() => Date) @IsDate() finProgramado: Date;
+  @IsOptional() @IsString() @MaxLength(300) observaciones?: string;
+  @IsOptional() @IsString() @MaxLength(60) etiqueta?: string;
+  @IsOptional() @IsInt() @Min(0) @Max(480) minutosPausa?: number;
+  @IsOptional() @IsInt() @Min(1) unidadOperativaId?: number;
+}
+export class ProgramarSemanaDto extends SucursalPersonalDto {
+  @IsInt() @Min(1) empleadoId: number;
+  @IsOptional() @IsInt() @Min(1) unidadOperativaId?: number;
+  @Type(() => Date) @IsDate() semanaInicio: Date;
+  @IsArray()
+  @ArrayMaxSize(7)
+  @ValidateNested({ each: true })
+  @Type(() => TurnoSemanaItemDto)
+  turnos: TurnoSemanaItemDto[];
+}
+export class CancelarTurnoDto {
+  @IsString() @MaxLength(300) motivo: string;
+}
+
 export class MarcacionDto {
   @IsOptional() @IsString() @MaxLength(250) observaciones?: string;
 }

@@ -1,0 +1,3 @@
+ALTER TABLE "TurnoPersonal"
+  ADD COLUMN "etiqueta" VARCHAR(60),
+  ADD COLUMN "minutosPausa" INTEGER NOT NULL DEFAULT 0;

@@ -286,9 +286,14 @@ model Restaurante {
   id            Int      @id @default(autoincrement())
   globalId String @unique @default(uuid()) @db.Uuid
   nombre        String   @db.VarChar(100)
+  razonSocial   String?  @db.VarChar(150)
   nit           String   @unique @db.VarChar(20)
+  dv            String?  @db.VarChar(1)
   direccion     String?  @db.VarChar(200)
+  municipio     String?  @db.VarChar(100)
+  departamento  String?  @db.VarChar(100)
   telefono      String?  @db.VarChar(20)
+  whatsapp      String?  @db.VarChar(30)
   correo        String?  @db.VarChar(150)
   estado        Boolean  @default(true)
   creadoEn      DateTime @default(now())
@@ -355,10 +360,14 @@ model Cliente {
 model Sucursal {
   id        Int      @id @default(autoincrement())
   globalId String @unique @default(uuid()) @db.Uuid
-  nombre    String   @db.VarChar(100)
-  direccion String?  @db.VarChar(200)
-  telefono  String?  @db.VarChar(20)
-  estado    Boolean  @default(true)
+  nombre       String   @db.VarChar(100)
+  direccion    String?  @db.VarChar(200)
+  municipio    String?  @db.VarChar(100)
+  departamento String?  @db.VarChar(100)
+  telefono     String?  @db.VarChar(20)
+  whatsapp     String?  @db.VarChar(30)
+  correo       String?  @db.VarChar(150)
+  estado       Boolean  @default(true)
   creadoEn  DateTime @default(now())
 
   restauranteId    Int
@@ -389,6 +398,7 @@ model Sucursal {
   facturasProveedor      FacturaProveedor[]
   cierresAdministrativos CierreAdministrativo[]
   empleados              Empleado[]
+  unidadesOperativas     UnidadOperativa[]
   turnosPersonal         TurnoPersonal[]
   metasOperativas        MetaOperativa[]
   eventosOperacionales   EventoOperacional[]
@@ -559,6 +569,7 @@ model Empleado {
   sucursal      Sucursal          @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
   usuario       Usuario?          @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
   funciones     EmpleadoFuncion[]
+  unidadesOperativas EmpleadoUnidadOperativa[]
   horarios      HorarioEmpleado[]
   turnos        TurnoPersonal[]
   novedades     NovedadPersonal[]
@@ -588,6 +599,36 @@ model EmpleadoFuncion {
   @@id([empleadoId, funcionId])
 }
 
+
+model UnidadOperativa {
+  id            Int      @id @default(autoincrement())
+  globalId      String   @unique @default(uuid()) @db.Uuid
+  nombre        String   @db.VarChar(100)
+  descripcion   String?  @db.VarChar(220)
+  activo        Boolean  @default(true)
+  orden         Int      @default(0)
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+  sucursalId    Int
+  sucursal      Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Cascade)
+  empleados     EmpleadoUnidadOperativa[]
+  turnos        TurnoPersonal[]
+
+  @@unique([sucursalId, nombre])
+  @@index([sucursalId, activo, orden])
+}
+
+model EmpleadoUnidadOperativa {
+  empleadoId       Int
+  unidadOperativaId Int
+  principal        Boolean @default(false)
+  empleado         Empleado        @relation(fields: [empleadoId], references: [id], onDelete: Cascade)
+  unidadOperativa  UnidadOperativa @relation(fields: [unidadOperativaId], references: [id], onDelete: Cascade)
+
+  @@id([empleadoId, unidadOperativaId])
+  @@index([unidadOperativaId, empleadoId])
+}
+
 model HorarioEmpleado {
   id         Int      @id @default(autoincrement())
   diaSemana  Int
@@ -609,14 +650,19 @@ model TurnoPersonal {
   salidaEn         DateTime?
   estado           EstadoTurnoPersonal @default(PROGRAMADO)
   observaciones    String?             @db.VarChar(300)
+  etiqueta         String?             @db.VarChar(60)
+  minutosPausa     Int                 @default(0)
   empleadoId       Int
   sucursalId       Int
+  unidadOperativaId Int?
   empleado         Empleado            @relation(fields: [empleadoId], references: [id], onDelete: Restrict)
   sucursal         Sucursal            @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  unidadOperativa   UnidadOperativa?     @relation(fields: [unidadOperativaId], references: [id], onDelete: SetNull)
   marcaciones      MarcacionPersonal[]
   novedades        NovedadPersonal[]
 
   @@index([sucursalId, estado, inicioProgramado])
+  @@index([unidadOperativaId, inicioProgramado])
   @@index([empleadoId, inicioProgramado])
 }
 

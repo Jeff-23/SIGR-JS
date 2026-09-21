@@ -1198,7 +1198,10 @@ export class VentasService {
         cliente: true,
         aplicacionesDescuento: true,
         pedido: { include: { mesa: true } },
-        divisionesCuenta: { include: { pagos: true }, orderBy: { id: 'asc' } },
+        divisionesCuenta: {
+          include: { pagos: { include: { devoluciones: true } } },
+          orderBy: { id: 'asc' },
+        },
       },
 
       orderBy: {
@@ -1235,7 +1238,10 @@ export class VentasService {
         pedido: { include: { mesa: true } },
         cliente: true,
         aplicacionesDescuento: true,
-        divisionesCuenta: { include: { pagos: true }, orderBy: { id: 'asc' } },
+        divisionesCuenta: {
+          include: { pagos: { include: { devoluciones: true } } },
+          orderBy: { id: 'asc' },
+        },
       },
     });
 
@@ -1345,7 +1351,7 @@ export class VentasService {
           pedido: { include: { mesa: true } },
           cliente: true,
           divisionesCuenta: {
-            include: { pagos: true },
+            include: { pagos: { include: { devoluciones: true } } },
             orderBy: { id: 'asc' },
           },
           aplicacionesDescuento: true,
@@ -1439,7 +1445,10 @@ export class VentasService {
           where: { id: ventaAlcanzable.id },
         });
 
-        const pagos = await tx.pago.findMany({ where: { ventaId: venta.id } });
+        const pagos = await tx.pago.findMany({
+          where: { ventaId: venta.id },
+          include: { devoluciones: true },
+        });
         const pedido = venta.pedidoId
           ? await tx.pedido.findUnique({
               where: { id: venta.pedidoId },
@@ -1466,12 +1475,6 @@ export class VentasService {
           );
         }
 
-        if (venta.estado === EstadoVenta.PAGADA) {
-          throw new BadRequestException(
-            'La venta ya está pagada completamente',
-          );
-        }
-
         const metodoPago = await tx.metodoPago.findFirst({
           where: {
             id: data.metodoPagoId,
@@ -1487,7 +1490,7 @@ export class VentasService {
 
         const divisiones = await tx.divisionCuenta.findMany({
           where: { ventaId: venta.id },
-          include: { pagos: true },
+          include: { pagos: { include: { devoluciones: true } } },
         });
         if (divisiones.length > 0 && data.divisionCuentaId === undefined) {
           throw new BadRequestException(
@@ -1502,10 +1505,13 @@ export class VentasService {
             throw new BadRequestException(
               'La parte seleccionada no pertenece a esta venta',
             );
-          const pagadoParte = parte.pagos.reduce(
-            (total, pago) => total.plus(pago.monto),
-            new Prisma.Decimal(0),
-          );
+          const pagadoParte = parte.pagos.reduce((total, pago) => {
+            const devuelto = pago.devoluciones.reduce(
+              (subtotal, devolucion) => subtotal.plus(devolucion.monto),
+              new Prisma.Decimal(0),
+            );
+            return total.plus(pago.monto.minus(devuelto));
+          }, new Prisma.Decimal(0));
           if (pagadoParte.plus(dinero(data.monto, 'monto')).gt(parte.total))
             throw new BadRequestException(
               'El pago supera el saldo de la parte seleccionada',
@@ -1598,11 +1604,19 @@ export class VentasService {
           );
         }
 
-        const pagadoActual = pagos.reduce(
-          (total, pago) => total.plus(pago.monto),
+        const pagadoActual = pagos.reduce((total, pago) => {
+          const devuelto = pago.devoluciones.reduce(
+            (subtotal, devolucion) => subtotal.plus(devolucion.monto),
+            new Prisma.Decimal(0),
+          );
+          return total.plus(pago.monto.minus(devuelto));
+        }, new Prisma.Decimal(0));
 
-          new Prisma.Decimal(0),
-        );
+        if (pagadoActual.gte(venta.total)) {
+          throw new BadRequestException(
+            'La venta ya está pagada completamente',
+          );
+        }
 
         const nuevoPago = dinero(data.monto, 'monto');
 
@@ -1831,6 +1845,15 @@ export class VentasService {
             movimientoCajaId,
           },
         });
+
+        // Una devolución reduce el recaudo neto de la venta. El frontend ya
+        // calcula el saldo con pagos menos devoluciones, por lo que el estado
+        // comercial debe volver a pendiente hasta que ese saldo se cubra.
+        await tx.venta.update({
+          where: { id: ventaId },
+          data: { estado: EstadoVenta.PENDIENTE_PAGO },
+        });
+
         return devolucion.id;
       });
     } catch (error) {

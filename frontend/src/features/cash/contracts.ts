@@ -48,7 +48,11 @@ export type Sale = {
     nombre: string;
     modo: string;
     total: string | number;
-    pagos: Array<{ id: number; monto: string | number }>;
+    pagos: Array<{
+      id: number;
+      monto: string | number;
+      devoluciones?: Array<{ monto: string | number }>;
+    }>;
   }>;
 };
 
@@ -59,7 +63,16 @@ export function divisionBalance(
     Math.max(
       0,
       cents(division.total) -
-        division.pagos.reduce((sum, payment) => sum + cents(payment.monto), 0),
+        division.pagos.reduce(
+          (sum, payment) =>
+            sum +
+            cents(payment.monto) -
+            (payment.devoluciones ?? []).reduce(
+              (returned, refund) => returned + cents(refund.monto),
+              0,
+            ),
+          0,
+        ),
     ) / 100
   );
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { automaticDiscount, balance, cashChange, cents, clampPaymentAmount, paid, type Sale } from "./contracts";
+import { automaticDiscount, balance, cashChange, cents, clampPaymentAmount, divisionBalance, paid, type Sale } from "./contracts";
 describe("saldo comercial", () => {
   it("calcula parciales en centavos", () => {
     expect(
@@ -36,6 +36,24 @@ describe("saldo comercial", () => {
     expect(clampPaymentAmount("100000", 65000)).toBe("65000");
     expect(clampPaymentAmount("20000", 65000)).toBe("20000");
     expect(clampPaymentAmount("", 65000)).toBe("");
+  });
+
+  it("reabre el saldo de una parte dividida cuando existe una devolución", () => {
+    expect(
+      divisionBalance({
+        id: 1,
+        nombre: "Persona 1",
+        modo: "PERSONAS",
+        total: "50.00",
+        pagos: [
+          {
+            id: 10,
+            monto: "50.00",
+            devoluciones: [{ monto: "15.00" }],
+          },
+        ],
+      }),
+    ).toBe(15);
   });
 
 });

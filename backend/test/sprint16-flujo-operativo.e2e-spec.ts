@@ -472,6 +472,69 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
     ).toBe('LIBRE');
   });
 
+  it('permite volver a cobrar el saldo neto después de una devolución parcial', async () => {
+    const metodo = await prisma.metodoPago.findFirstOrThrow({
+      where: { activo: true, tipo: 'EFECTIVO' },
+    });
+    const venta = await request(app.getHttpServer())
+      .post('/ventas/directa')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `s16-repago-venta-${sufijo}`)
+      .send({
+        sucursalId,
+        impuestos: 0,
+        impoconsumo: 0,
+        detalles: [{ productoId, cantidad: 1 }],
+      })
+      .expect(201);
+
+    const pagoInicial = await request(app.getHttpServer())
+      .post(`/ventas/${venta.body.id}/pagos`)
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `s16-repago-inicial-${sufijo}`)
+      .send({ metodoPagoId: metodo.id, monto: 20000, cajaId })
+      .expect(201);
+    expect(pagoInicial.body.estado).toBe('PAGADA');
+
+    const pagoId = pagoInicial.body.pagos[0].id as number;
+    await request(app.getHttpServer())
+      .post(`/ventas/${venta.body.id}/pagos/${pagoId}/devoluciones`)
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `s16-repago-dev-${sufijo}`)
+      .send({ monto: 5000, motivo: 'Cambio de medio de pago' })
+      .expect(201);
+
+    const trasDevolucion = await prisma.venta.findUniqueOrThrow({
+      where: { id: venta.body.id as number },
+      select: { estado: true },
+    });
+    expect(trasDevolucion.estado).toBe('PENDIENTE_PAGO');
+
+    const pagoReposicion = await request(app.getHttpServer())
+      .post(`/ventas/${venta.body.id}/pagos`)
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `s16-repago-final-${sufijo}`)
+      .send({ metodoPagoId: metodo.id, monto: 5000, cajaId })
+      .expect(201);
+    expect(pagoReposicion.body.estado).toBe('PAGADA');
+
+    const neto = pagoReposicion.body.pagos.reduce(
+      (
+        total: number,
+        pago: { monto: string; devoluciones?: Array<{ monto: string }> },
+      ) =>
+        total +
+        Number(pago.monto) -
+        (pago.devoluciones ?? []).reduce(
+          (subtotal: number, devolucion: { monto: string }) =>
+            subtotal + Number(devolucion.monto),
+          0,
+        ),
+      0,
+    );
+    expect(neto).toBe(20000);
+  });
+
   it('devuelve pagos y revierte la venta con movimientos append-only', async () => {
     const venta = await prisma.venta.findUniqueOrThrow({
       where: { id: ventaMesaId },
@@ -526,7 +589,7 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       detalles: [{ productoId, cantidad: 1, precioUnitario: 19000 }],
     };
     const venta = await request(app.getHttpServer())
-      .post('/ventas/manual')
+      .post('/ventas/directa')
       .set('Authorization', `Bearer ${token}`)
       .set('Idempotency-Key', `s16-manual-${sufijo}`)
       .send(cuerpo)
@@ -541,7 +604,7 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
     });
     expect(venta.body.detalles[0].precioUnitario).toBe('19000');
     await request(app.getHttpServer())
-      .post('/ventas/manual')
+      .post('/ventas/directa')
       .set('Authorization', `Bearer ${token}`)
       .set('Idempotency-Key', `s16-manual-duplicada-${sufijo}`)
       .send(cuerpo)
@@ -554,7 +617,7 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
     const duplicadas = await Promise.all(
       [1, 2].map((indice) =>
         request(app.getHttpServer())
-          .post('/ventas/manual')
+          .post('/ventas/directa')
           .set('Authorization', `Bearer ${token}`)
           .set('Idempotency-Key', `s16-con-${indice}-${sufijo}`)
           .send(concurrente),

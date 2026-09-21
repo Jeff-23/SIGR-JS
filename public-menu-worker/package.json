@@ -1,0 +1,13 @@
+{
+  "name": "sigr-public-menu-worker",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "kv:create": "wrangler kv namespace create MENU_SNAPSHOTS"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

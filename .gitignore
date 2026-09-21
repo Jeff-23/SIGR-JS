@@ -13,3 +13,6 @@ build/
 # Respaldos locales de base de datos
 backups/
 /backend/storage/
+
+# Configuración local de Cloudflare (puede contener IDs específicos del entorno)
+public-menu-worker/wrangler.toml

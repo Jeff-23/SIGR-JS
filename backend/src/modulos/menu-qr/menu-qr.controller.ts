@@ -15,6 +15,7 @@ import { PermissionsGuard } from '../auth/permissions.guard';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { CrearSolicitudQrDto, RechazarSolicitudQrDto } from './dto/menu-qr.dto';
 import { MenuQrService } from './menu-qr.service';
+import { MenuPublicacionService } from './menu-publicacion.service';
 
 @Controller('publico')
 export class MenuQrPublicoController {
@@ -38,7 +39,38 @@ type RequestAutenticada = { user: UsuarioAutenticado };
 @Controller('pedidos-qr')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class MenuQrController {
-  constructor(private readonly service: MenuQrService) {}
+  constructor(
+    private readonly service: MenuQrService,
+    private readonly publicacion: MenuPublicacionService,
+  ) {}
+
+  @Get('publicacion')
+  @Permisos('PEDIDOS_VER')
+  estadoPublicacion(
+    @Query('sucursalId', ParseIntPipe) sucursalId: number,
+    @Req() req: RequestAutenticada,
+  ) {
+    return this.publicacion.estado(sucursalId, req.user);
+  }
+
+  @Post('publicacion')
+  @Permisos('MESAS_EDITAR')
+  publicarMenu(
+    @Body() body: { sucursalId: number },
+    @Req() req: RequestAutenticada,
+  ) {
+    return this.publicacion.publicar(Number(body.sucursalId), req.user);
+  }
+
+  @Post('publicacion/desactivar')
+  @Permisos('MESAS_EDITAR')
+  desactivarPublicacion(
+    @Body() body: { sucursalId: number },
+    @Req() req: RequestAutenticada,
+  ) {
+    return this.publicacion.desactivar(Number(body.sucursalId), req.user);
+  }
+
   @Post('mesas/:mesaId/acceso')
   @Permisos('MESAS_EDITAR')
   acceso(

@@ -13,12 +13,16 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Permisos } from '../auth/permisos.decorator';
 import { PermissionsGuard } from '../auth/permissions.guard';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import {
+  construirContextoAuditoria,
+  RequestAuditable,
+} from '../auditoria/auditoria-contexto';
 import { CreateFacturaDto } from './dto/create-factura.dto';
 import { CreateFacturaVentaDto } from './dto/create-factura-venta.dto';
 import { FacturasService } from './facturas.service';
 import { ListarFacturasDto } from './dto/listar-facturas.dto';
 
-type RequestAutenticada = { user: UsuarioAutenticado };
+type RequestAutenticada = RequestAuditable & { user: UsuarioAutenticado };
 
 @Controller('facturas')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -59,6 +63,19 @@ export class FacturasController {
     @Req() request: RequestAutenticada,
   ) {
     return this.facturasService.obtener(id, request.user);
+  }
+
+  @Post(':id/impresiones')
+  @Permisos('FACTURAS_VER')
+  registrarImpresion(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.facturasService.registrarImpresion(
+      id,
+      request.user,
+      construirContextoAuditoria(request),
+    );
   }
 
   @Get(':id/representacion-impresa')

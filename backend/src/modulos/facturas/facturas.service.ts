@@ -11,6 +11,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateFacturaDto } from './dto/create-factura.dto';
 
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
+import { AuditoriaService } from '../auditoria/auditoria.service';
+import { ContextoAuditoria } from '../auditoria/auditoria-contexto';
 import {
   configuracionImpresionTermica,
   dineroTermico,
@@ -21,7 +23,10 @@ import {
 
 @Injectable()
 export class FacturasService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditoria: AuditoriaService,
+  ) {}
 
   private esSuperadmin(usuarioActual: UsuarioAutenticado) {
     return (
@@ -292,10 +297,7 @@ export class FacturasService {
     });
   }
 
-  listar(
-    usuarioActual: UsuarioAutenticado,
-    sucursalIdSolicitada?: number,
-  ) {
+  listar(usuarioActual: UsuarioAutenticado, sucursalIdSolicitada?: number) {
     return this.prisma.factura.findMany({
       where: {
         venta: {
@@ -332,6 +334,63 @@ export class FacturasService {
     });
     if (!factura) throw new NotFoundException('Factura no encontrada');
     return factura;
+  }
+
+  async registrarImpresion(
+    id: number,
+    usuarioActual: UsuarioAutenticado,
+    contexto: ContextoAuditoria,
+  ) {
+    return this.prisma.transaccionSerializable(async (tx) => {
+      const factura = await tx.factura.findFirst({
+        where: {
+          id,
+          venta: { sucursal: this.filtroSucursal(usuarioActual) },
+        },
+        select: {
+          id: true,
+          numero: true,
+          venta: { select: { sucursalId: true } },
+        },
+      });
+      if (!factura?.venta) throw new NotFoundException('Factura no encontrada');
+
+      await tx.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "Factura" WHERE "id" = ${id} FOR UPDATE`,
+      );
+
+      const impresionesPrevias = await tx.eventoAuditoria.count({
+        where: {
+          recurso: 'FACTURA',
+          recursoId: String(id),
+          accion: { in: ['FACTURA_IMPRESA', 'FACTURA_REIMPRESA'] },
+        },
+      });
+      const reimpresion = impresionesPrevias > 0;
+
+      await this.auditoria.registrar(
+        tx,
+        {
+          accion: reimpresion ? 'FACTURA_REIMPRESA' : 'FACTURA_IMPRESA',
+          recurso: 'FACTURA',
+          recursoId: id,
+          sucursalId: factura.venta.sucursalId,
+          despues: {
+            numero: factura.numero,
+            solicitudImpresion: impresionesPrevias + 1,
+            reimpresion,
+          },
+        },
+        contexto,
+      );
+
+      return {
+        facturaId: id,
+        numero: factura.numero,
+        solicitudImpresion: impresionesPrevias + 1,
+        reimpresion,
+      };
+    });
   }
 
   async representacionImpresa(id: number, usuarioActual: UsuarioAutenticado) {

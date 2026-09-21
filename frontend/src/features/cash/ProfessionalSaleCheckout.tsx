@@ -265,6 +265,22 @@ export function ProfessionalSaleCheckout({
     });
   }
 
+  async function printInvoice() {
+    if (!sale.factura) return;
+    await onRun(async () => {
+      const { data } = await api.post<{
+        solicitudImpresion: number;
+        reimpresion: boolean;
+      }>(`/facturas/${sale.factura!.id}/impresiones`);
+      invoiceFrame.current?.contentWindow?.print();
+      toast.success(
+        data.reimpresion
+          ? `Reimpresión #${data.solicitudImpresion} registrada`
+          : 'Impresión de factura registrada',
+      );
+    });
+  }
+
   async function prepareElectronic() {
     if (!sale.factura) return;
     await onRun(async () => {
@@ -1008,7 +1024,7 @@ export function ProfessionalSaleCheckout({
             <div className="flex justify-end gap-2 print:hidden">
               <button
                 className="primary w-auto"
-                onClick={() => invoiceFrame.current?.contentWindow?.print()}
+                onClick={() => void printInvoice()}
               >
                 <Printer size={18} /> Imprimir
               </button>

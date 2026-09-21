@@ -26,7 +26,6 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
   let cajaId = 0;
   let token = '';
   let ventaMesaId = 0;
-  let ventaManualId = 0;
 
   beforeAll(async () => {
     modulo = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -594,7 +593,6 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
       .set('Idempotency-Key', `s16-manual-${sufijo}`)
       .send(cuerpo)
       .expect(201);
-    ventaManualId = venta.body.id as number;
     expect(venta.body).toMatchObject({
       numeroComandaPapel: cuerpo.numeroComandaPapel,
       numeroSoporte: cuerpo.numeroSoporte,
@@ -921,12 +919,25 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
   });
 
   it('usa prefijo configurado y genera una tirilla interna segura', async () => {
+    const ventaFacturable = await request(app.getHttpServer())
+      .post('/ventas/directa')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', `s16-factura-${sufijo}`)
+      .send({
+        sucursalId,
+        detalles: [{ productoId, cantidad: 1 }],
+      })
+      .expect(201);
+    const ventaFacturableId = ventaFacturable.body.id as number;
+
     const factura = await request(app.getHttpServer())
       .post('/facturas/venta')
       .set('Authorization', `Bearer ${token}`)
-      .send({ ventaId: ventaManualId })
+      .send({ ventaId: ventaFacturableId })
       .expect(201);
-    expect(factura.body.numero).toBe(`POS-${sucursalId}-${ventaManualId}`);
+    expect(factura.body.numero).toBe(
+      `POS-${sucursalId}-${ventaFacturableId}`,
+    );
     const impresa = await request(app.getHttpServer())
       .get(`/facturas/${factura.body.id}/representacion-impresa`)
       .set('Authorization', `Bearer ${token}`)
@@ -934,6 +945,26 @@ describe('Sprint 16 | Flujo operativo integral (e2e)', () => {
     expect(impresa.body.mediaType).toContain('text/html');
     expect(impresa.body.contenido).toContain('Representación interna');
     expect(impresa.body.electronicaAceptada).toBe(false);
+
+    const primeraImpresion = await request(app.getHttpServer())
+      .post(`/facturas/${factura.body.id}/impresiones`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(201);
+    expect(primeraImpresion.body).toMatchObject({
+      facturaId: factura.body.id,
+      solicitudImpresion: 1,
+      reimpresion: false,
+    });
+
+    const reimpresion = await request(app.getHttpServer())
+      .post(`/facturas/${factura.body.id}/impresiones`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(201);
+    expect(reimpresion.body).toMatchObject({
+      facturaId: factura.body.id,
+      solicitudImpresion: 2,
+      reimpresion: true,
+    });
   });
 
   it('rechaza resoluciones fiscales activas solapadas', async () => {

@@ -18,6 +18,7 @@ import { AbrirCajaDto } from './dto/abrir-caja.dto';
 import { CerrarCajaDto } from './dto/cerrar-caja.dto';
 import { ListarCajasDto } from './dto/listar-cajas.dto';
 import { RegistrarMovimientoCajaDto } from './dto/registrar-movimiento-caja.dto';
+import { ExcluirDocumentosCierreDto } from './dto/excluir-documentos-cierre.dto';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
@@ -128,6 +129,25 @@ export class CajasController {
       `attachment; filename="${archivo.nombre}"`,
     );
     response.send(archivo.contenido);
+  }
+
+  @Get(':id/cierre-turno/exclusiones')
+  @Permisos('DOCUMENTOS_INTERNOS_EXCLUIR_CIERRE')
+  listarExclusionesCierre(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.cajasService.listarExclusionesCierre(id, request.user);
+  }
+
+  @Post(':id/cierre-turno/exclusiones')
+  @Permisos('DOCUMENTOS_INTERNOS_EXCLUIR_CIERRE')
+  excluirDocumentosCierre(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: ExcluirDocumentosCierreDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.cajasService.excluirDocumentosCierre(id, data, request.user);
   }
 
   @Post(':id/movimientos')

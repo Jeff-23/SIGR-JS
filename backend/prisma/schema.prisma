@@ -1550,6 +1550,13 @@ model Factura {
   estado         String   @default("EMITIDA")
   creadoEn       DateTime @default(now())
 
+  // Bloque 5E: exclusión operativa/fiscal durante el cierre de turno.
+  // La venta, los pagos y la caja no se borran ni se recalculan.
+  excluidaCierreEn        DateTime?
+  excluidaCierreCajaId    Int?
+  excluidaCierrePorId     Int?
+  exclusionCierreMotivo   String?   @db.VarChar(250)
+
   /**
    * Relación heredada.
    * Se mantiene opcional para facturas provenientes
@@ -1573,6 +1580,9 @@ model Factura {
 
   pagos             Pago[]
   registroOperativo RegistroFacturaOperativa?
+
+  @@index([excluidaCierreEn])
+  @@index([excluidaCierreCajaId])
 }
 
 model RegistroFacturaOperativa {

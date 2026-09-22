@@ -162,7 +162,7 @@ export class FacturasService {
           id: ventaAlcanzable.id,
         },
 
-        include: { factura: { select: { id: true } } },
+        include: { factura: { select: { id: true, estado: true } } },
       });
 
       if (venta.estado === EstadoVenta.ANULADA) {
@@ -170,6 +170,11 @@ export class FacturasService {
       }
 
       if (venta.factura) {
+        if (venta.factura.estado === 'EXCLUIDA_CIERRE') {
+          throw new BadRequestException(
+            'El comprobante interno de esta venta fue excluido durante el cierre y no puede reemitirse',
+          );
+        }
         return venta.factura.id;
       }
 
@@ -300,6 +305,7 @@ export class FacturasService {
   listar(usuarioActual: UsuarioAutenticado, sucursalIdSolicitada?: number) {
     return this.prisma.factura.findMany({
       where: {
+        estado: { not: 'EXCLUIDA_CIERRE' },
         venta: {
           sucursal: this.filtroSucursal(usuarioActual, sucursalIdSolicitada),
         },
@@ -319,7 +325,11 @@ export class FacturasService {
 
   async obtener(id: number, usuarioActual: UsuarioAutenticado) {
     const factura = await this.prisma.factura.findFirst({
-      where: { id, venta: { sucursal: this.filtroSucursal(usuarioActual) } },
+      where: {
+        id,
+        estado: { not: 'EXCLUIDA_CIERRE' },
+        venta: { sucursal: this.filtroSucursal(usuarioActual) },
+      },
       include: {
         venta: {
           include: {
@@ -345,6 +355,7 @@ export class FacturasService {
       const factura = await tx.factura.findFirst({
         where: {
           id,
+          estado: { not: 'EXCLUIDA_CIERRE' },
           venta: { sucursal: this.filtroSucursal(usuarioActual) },
         },
         select: {

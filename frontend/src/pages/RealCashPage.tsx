@@ -37,6 +37,18 @@ export function RealCashPage() {
     operaciones: number;
     listoParaCerrar: boolean;
   } | null>(null);
+  const [turnExclusions, setTurnExclusions] = useState<
+    Array<{
+      ventaId: number;
+      facturaId: number;
+      numero: string;
+      total: number;
+      fechaOperacion: string;
+    }>
+  >([]);
+  const [selectedExclusionIds, setSelectedExclusionIds] = useState<number[]>([]);
+  const [exclusionReason, setExclusionReason] = useState("");
+  const [exclusionPassword, setExclusionPassword] = useState("");
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [failure, setFailure] = useState("");
   const [loading, setLoading] = useState(true);
@@ -144,6 +156,31 @@ export function RealCashPage() {
       if (mounted.current) setBusy(false);
     }
   }
+  async function loadTurnExclusions(id: number) {
+    if (!hasPermission("DOCUMENTOS_INTERNOS_EXCLUIR_CIERRE")) {
+      if (mounted.current) setTurnExclusions([]);
+      return;
+    }
+    const { data } = await api.get<{
+      habilitado: boolean;
+      candidatos: Array<{
+        ventaId: number;
+        facturaId: number;
+        numero: string;
+        total: number;
+        fechaOperacion: string;
+      }>;
+    }>(`/cajas/${id}/cierre-turno/exclusiones`);
+    if (mounted.current) {
+      setTurnExclusions(data.habilitado ? data.candidatos : []);
+      setSelectedExclusionIds((current) =>
+        current.filter((ventaId) =>
+          data.candidatos.some((item) => item.ventaId === ventaId),
+        ),
+      );
+    }
+  }
+
   async function drawerDetail(id: number) {
     const [{ data }, closeState] = await Promise.all([
       api.get<CashDrawer>(`/cajas/${id}`),
@@ -155,6 +192,12 @@ export function RealCashPage() {
       setSelectedDrawer(data);
       setTurnClose(closeState.data);
       setCounted("");
+      setExclusionReason("");
+      setExclusionPassword("");
+      setSelectedExclusionIds([]);
+    }
+    if (closeState.data?.excelDescargadoEn) {
+      await loadTurnExclusions(id);
     }
   }
 
@@ -195,9 +238,40 @@ export function RealCashPage() {
         `/cajas/${selectedDrawer.id}/cierre-turno/estado`,
       );
       if (mounted.current) setTurnClose(closeState);
+      await loadTurnExclusions(selectedDrawer.id);
       toast.success("Excel obligatorio y PDF previo descargados");
     });
   }
+  async function processTurnExclusions() {
+    if (!selectedDrawer || selectedExclusionIds.length === 0) return;
+    if (!exclusionReason.trim()) {
+      toast.error("Indica el motivo de la exclusión");
+      return;
+    }
+    if (!exclusionPassword) {
+      toast.error("Confirma con tu contraseña");
+      return;
+    }
+    if (
+      !window.confirm(
+        `¿Excluir ${selectedExclusionIds.length} comprobante(s) interno(s) del cierre fiscal?`,
+      )
+    )
+      return;
+    await run(async () => {
+      await api.post(`/cajas/${selectedDrawer.id}/cierre-turno/exclusiones`, {
+        ventaIds: selectedExclusionIds,
+        motivo: exclusionReason.trim(),
+        password: exclusionPassword,
+      });
+      setSelectedExclusionIds([]);
+      setExclusionReason("");
+      setExclusionPassword("");
+      await loadTurnExclusions(selectedDrawer.id);
+      toast.success("Comprobantes internos excluidos del cierre fiscal");
+    });
+  }
+
   function chooseSale(sale: Sale) {
     if (uncertain)
       return toast.error(
@@ -371,7 +445,7 @@ export function RealCashPage() {
           bloqueadas hasta recuperar conexión.
         </div>
       )}
-      {loading && <p role="status">Consultando cajas y ventas…</p>}
+      {loading && <p role="status">Consultando cajas y ventasâ€¦</p>}
       <fieldset
         disabled={busy || Boolean(failure) || loading}
         className="space-y-6 disabled:opacity-60"
@@ -502,7 +576,7 @@ export function RealCashPage() {
                 className="input"
                 value={saleSearch}
                 onChange={(event) => setSaleSearch(event.target.value)}
-                placeholder="Ej. mesa 12, venta 1050, cliente…"
+                placeholder="Ej. mesa 12, venta 1050, clienteâ€¦"
               />
             </label>
           </div>
@@ -747,6 +821,92 @@ export function RealCashPage() {
                         </button>
                       </div>
                     )}
+                    {turnClose?.modoFlexible &&
+                      turnClose.excelDescargadoEn &&
+                      hasPermission("DOCUMENTOS_INTERNOS_EXCLUIR_CIERRE") && (
+                        <div className="rounded-2xl border border-denim/15 bg-white/60 p-4 text-sm">
+                          <p className="font-bold">Exclusión de comprobantes internos</p>
+                          <p className="mt-1 text-denim/60">
+                            Solo aparecen comprobantes del Excel previo que aún no
+                            iniciaron facturación electrónica. La venta, el pago y
+                            la caja no se eliminan.
+                          </p>
+                          {turnExclusions.length === 0 ? (
+                            <p className="mt-3 text-denim/60">
+                              No hay comprobantes internos disponibles para excluir.
+                            </p>
+                          ) : (
+                            <>
+                              <div className="mt-3 max-h-48 space-y-2 overflow-auto">
+                                {turnExclusions.map((item) => (
+                                  <label
+                                    key={item.facturaId}
+                                    className="flex items-center justify-between gap-3 rounded-xl border border-denim/10 bg-white p-3"
+                                  >
+                                    <span className="flex items-center gap-2">
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedExclusionIds.includes(
+                                          item.ventaId,
+                                        )}
+                                        onChange={(event) =>
+                                          setSelectedExclusionIds((current) =>
+                                            event.target.checked
+                                              ? [...current, item.ventaId]
+                                              : current.filter(
+                                                  (id) => id !== item.ventaId,
+                                                ),
+                                          )
+                                        }
+                                      />
+                                      <span>
+                                        <b>{item.numero}</b>
+                                        <span className="ml-2 text-denim/50">
+                                          Venta #{item.ventaId}
+                                        </span>
+                                      </span>
+                                    </span>
+                                    <b>{money.format(Number(item.total))}</b>
+                                  </label>
+                                ))}
+                              </div>
+                              <label className="mt-3 block">
+                                Motivo
+                                <input
+                                  className="input"
+                                  maxLength={250}
+                                  value={exclusionReason}
+                                  onChange={(event) =>
+                                    setExclusionReason(event.target.value)
+                                  }
+                                />
+                              </label>
+                              <label className="mt-3 block">
+                                Contraseña del usuario que confirma
+                                <input
+                                  className="input"
+                                  type="password"
+                                  autoComplete="current-password"
+                                  value={exclusionPassword}
+                                  onChange={(event) =>
+                                    setExclusionPassword(event.target.value)
+                                  }
+                                />
+                              </label>
+                              <button
+                                className="secondary mt-3 w-auto px-4"
+                                type="button"
+                                disabled={
+                                  busy || selectedExclusionIds.length === 0
+                                }
+                                onClick={() => void processTurnExclusions()}
+                              >
+                                Excluir seleccionados del cierre fiscal
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
                     <label>
                       Efectivo contado
                       <input

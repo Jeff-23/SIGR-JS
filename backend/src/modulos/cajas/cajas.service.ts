@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import * as bcrypt from 'bcrypt';
 
 import {
   EstadoCaja,
@@ -20,6 +21,7 @@ import { AbrirCajaDto } from './dto/abrir-caja.dto';
 import { CerrarCajaDto } from './dto/cerrar-caja.dto';
 import { ListarCajasDto } from './dto/listar-cajas.dto';
 import { RegistrarMovimientoCajaDto } from './dto/registrar-movimiento-caja.dto';
+import { ExcluirDocumentosCierreDto } from './dto/excluir-documentos-cierre.dto';
 import {
   CierreTurnoSnapshot,
   generarXlsx,
@@ -806,6 +808,173 @@ export class CajasService {
       contenido: generarPdfSimple(snapshot),
       nombre: `cierre-turno-${cajaId}-previo.pdf`,
     };
+  }
+
+  async listarExclusionesCierre(cajaId: number, usuario: UsuarioAutenticado) {
+    const caja = await this.prisma.caja.findFirst({
+      where: { id: cajaId, sucursal: this.filtroSucursal(usuario) },
+      select: {
+        id: true,
+        estado: true,
+        sucursalId: true,
+        preCierreSnapshot: true,
+        preCierreExcelDescargadoEn: true,
+        sucursal: { select: { restauranteId: true } },
+      },
+    });
+    if (!caja) throw new NotFoundException('Caja no encontrada');
+    const configFlexible =
+      await this.prisma.configuracionRestaurante.findUnique({
+        where: {
+          restauranteId_clave: {
+            restauranteId: caja.sucursal.restauranteId,
+            clave: 'POLITICA_DOCUMENTOS_INTERNOS',
+          },
+        },
+        select: { valor: true },
+      });
+    const flexible = configFlexible?.valor === 'FLEXIBLE';
+    const snapshot = caja.preCierreSnapshot as CierreTurnoSnapshot | null;
+    if (!flexible || !snapshot || !caja.preCierreExcelDescargadoEn) {
+      return { habilitado: false, candidatos: [] };
+    }
+
+    const ventaIds = snapshot.ventas.map((venta) => venta.ventaId);
+    const facturas = ventaIds.length
+      ? await this.prisma.factura.findMany({
+          where: { ventaId: { in: ventaIds } },
+          include: {
+            documentoElectronico: {
+              select: { id: true, estado: true, numeroCompleto: true },
+            },
+          },
+        })
+      : [];
+    const porVenta = new Map(
+      facturas.map((factura) => [factura.ventaId, factura]),
+    );
+    const candidatos = snapshot.ventas
+      .map((venta) => {
+        const factura = porVenta.get(venta.ventaId);
+        if (!factura || factura.documentoElectronico) return null;
+        if (factura.excluidaCierreEn) return null;
+        return {
+          ventaId: venta.ventaId,
+          facturaId: factura.id,
+          numero: factura.numero,
+          total: venta.total,
+          fechaOperacion: venta.fechaOperacion,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+    return { habilitado: true, candidatos };
+  }
+
+  async excluirDocumentosCierre(
+    cajaId: number,
+    data: ExcluirDocumentosCierreDto,
+    usuario: UsuarioAutenticado,
+  ) {
+    const ventaIds = [...new Set(data.ventaIds)];
+    if (ventaIds.length !== data.ventaIds.length) {
+      throw new BadRequestException('No repitas documentos en la exclusión');
+    }
+
+    return this.prisma.transaccionSerializable(async (tx) => {
+      await this.bloquearCaja(tx, cajaId);
+      const caja = await this.obtenerCajaTurno(tx, cajaId, usuario);
+      if (caja.estado !== EstadoCaja.ABIERTA) {
+        throw new BadRequestException(
+          'Las exclusiones solo se procesan antes de cerrar el turno',
+        );
+      }
+      const flexible = await this.politicaDocumentosInternosFlexible(
+        tx,
+        caja.sucursal.restaurante.id,
+      );
+      if (!flexible) {
+        throw new BadRequestException(
+          'El restaurante no tiene habilitado el modo FLEXIBLE',
+        );
+      }
+      if (!caja.preCierreSnapshot || !caja.preCierreExcelDescargadoEn) {
+        throw new BadRequestException(
+          'Descarga primero el Excel previo del turno',
+        );
+      }
+
+      const usuarioDb = await tx.usuario.findUnique({
+        where: { id: usuario.id },
+        select: { id: true, activo: true, password: true },
+      });
+      if (
+        !usuarioDb?.activo ||
+        !(await bcrypt.compare(data.password, usuarioDb.password))
+      ) {
+        throw new BadRequestException('La contraseña del usuario no es válida');
+      }
+
+      const snapshot = caja.preCierreSnapshot as CierreTurnoSnapshot;
+      const idsSnapshot = new Set(
+        snapshot.ventas.map((venta) => venta.ventaId),
+      );
+      if (ventaIds.some((ventaId) => !idsSnapshot.has(ventaId))) {
+        throw new BadRequestException(
+          'Solo puedes excluir documentos incluidos en el Excel previo de este turno',
+        );
+      }
+
+      const facturas = await tx.factura.findMany({
+        where: { ventaId: { in: ventaIds } },
+        include: {
+          venta: { select: { sucursalId: true } },
+          documentoElectronico: { select: { id: true, estado: true } },
+        },
+      });
+      if (facturas.length !== ventaIds.length) {
+        throw new BadRequestException(
+          'Todas las operaciones seleccionadas deben tener comprobante interno',
+        );
+      }
+      for (const factura of facturas) {
+        if (factura.venta?.sucursalId !== caja.sucursalId) {
+          throw new BadRequestException(
+            'El documento no pertenece a la sucursal de este turno',
+          );
+        }
+        if (factura.documentoElectronico) {
+          throw new BadRequestException(
+            `El documento ${factura.numero} ya inició su flujo electrónico y no puede excluirse`,
+          );
+        }
+        if (factura.excluidaCierreEn) {
+          throw new BadRequestException(
+            `El documento ${factura.numero} ya fue excluido`,
+          );
+        }
+      }
+
+      const motivo = data.motivo.trim();
+      if (!motivo) {
+        throw new BadRequestException('El motivo de exclusión es obligatorio');
+      }
+      const ahora = new Date();
+      await tx.factura.updateMany({
+        where: { id: { in: facturas.map((factura) => factura.id) } },
+        data: {
+          estado: 'EXCLUIDA_CIERRE',
+          excluidaCierreEn: ahora,
+          excluidaCierreCajaId: caja.id,
+          excluidaCierrePorId: usuario.id,
+          exclusionCierreMotivo: motivo,
+        },
+      });
+
+      return {
+        cajaId: caja.id,
+        cantidad: facturas.length,
+      };
+    });
   }
 
   async cerrar(

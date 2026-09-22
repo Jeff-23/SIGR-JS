@@ -49,6 +49,37 @@ export function RealCashPage() {
   const [selectedExclusionIds, setSelectedExclusionIds] = useState<number[]>([]);
   const [exclusionReason, setExclusionReason] = useState("");
   const [exclusionPassword, setExclusionPassword] = useState("");
+  const [fiscalUniverse, setFiscalUniverse] = useState<{
+    habilitado: boolean;
+    resumen: {
+      operaciones: number;
+      excluidas: number;
+      yaFiscalizadas: number;
+      enProceso: number;
+      elegibles: number;
+      sinComprobante: number;
+    };
+    yaFiscalizadas: Array<{
+      facturaId: number;
+      numeroInterno: string;
+      total: number;
+      estadoDocumento: string;
+      numeroFiscal: string | null;
+    }>;
+    enProceso: Array<{
+      facturaId: number;
+      numeroInterno: string;
+      total: number;
+      estadoDocumento: string;
+      numeroFiscal: string | null;
+    }>;
+    elegibles: Array<{
+      facturaId: number;
+      numeroInterno: string;
+      total: number;
+    }>;
+  } | null>(null);
+  const [selectedFiscalIds, setSelectedFiscalIds] = useState<number[]>([]);
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [failure, setFailure] = useState("");
   const [loading, setLoading] = useState(true);
@@ -181,6 +212,27 @@ export function RealCashPage() {
     }
   }
 
+  async function loadFiscalUniverse(id: number) {
+    if (!hasPermission("CAJA_CERRAR") || !hasPermission("FACTURAS_EMITIR")) {
+      if (mounted.current) {
+        setFiscalUniverse(null);
+        setSelectedFiscalIds([]);
+      }
+      return;
+    }
+    const { data } = await api.get(`/cajas/${id}/cierre-turno/fiscalizacion`);
+    if (mounted.current) {
+      setFiscalUniverse(data);
+      setSelectedFiscalIds((current) =>
+        current.filter((facturaId) =>
+          data.elegibles.some(
+            (item: { facturaId: number }) => item.facturaId === facturaId,
+          ),
+        ),
+      );
+    }
+  }
+
   async function drawerDetail(id: number) {
     const [{ data }, closeState] = await Promise.all([
       api.get<CashDrawer>(`/cajas/${id}`),
@@ -195,9 +247,11 @@ export function RealCashPage() {
       setExclusionReason("");
       setExclusionPassword("");
       setSelectedExclusionIds([]);
+      setSelectedFiscalIds([]);
+      setFiscalUniverse(null);
     }
     if (closeState.data?.excelDescargadoEn) {
-      await loadTurnExclusions(id);
+      await Promise.all([loadTurnExclusions(id), loadFiscalUniverse(id)]);
     }
   }
 
@@ -238,7 +292,10 @@ export function RealCashPage() {
         `/cajas/${selectedDrawer.id}/cierre-turno/estado`,
       );
       if (mounted.current) setTurnClose(closeState);
-      await loadTurnExclusions(selectedDrawer.id);
+      await Promise.all([
+        loadTurnExclusions(selectedDrawer.id),
+        loadFiscalUniverse(selectedDrawer.id),
+      ]);
       toast.success("Excel obligatorio y PDF previo descargados");
     });
   }
@@ -267,8 +324,31 @@ export function RealCashPage() {
       setSelectedExclusionIds([]);
       setExclusionReason("");
       setExclusionPassword("");
-      await loadTurnExclusions(selectedDrawer.id);
+      await Promise.all([
+        loadTurnExclusions(selectedDrawer.id),
+        loadFiscalUniverse(selectedDrawer.id),
+      ]);
       toast.success("Comprobantes internos excluidos del cierre fiscal");
+    });
+  }
+
+  async function prepareFiscalSelection() {
+    if (!selectedDrawer || selectedFiscalIds.length === 0) return;
+    if (
+      !window.confirm(
+        `¿Preparar ${selectedFiscalIds.length} comprobante(s) para facturación electrónica? Esto todavía no asigna consecutivo ni transmite a DIAN.`,
+      )
+    )
+      return;
+    await run(async () => {
+      await api.post(
+        `/cajas/${selectedDrawer.id}/cierre-turno/fiscalizacion/preparar`,
+        { facturaIds: selectedFiscalIds },
+      );
+      setSelectedFiscalIds([]);
+      await loadFiscalUniverse(selectedDrawer.id);
+      await loadTurnExclusions(selectedDrawer.id);
+      toast.success("Documentos preparados para el flujo fiscal");
     });
   }
 
@@ -445,7 +525,7 @@ export function RealCashPage() {
           bloqueadas hasta recuperar conexión.
         </div>
       )}
-      {loading && <p role="status">Consultando cajas y ventasâ€¦</p>}
+      {loading && <p role="status">Consultando cajas y ventas…</p>}
       <fieldset
         disabled={busy || Boolean(failure) || loading}
         className="space-y-6 disabled:opacity-60"
@@ -576,7 +656,7 @@ export function RealCashPage() {
                 className="input"
                 value={saleSearch}
                 onChange={(event) => setSaleSearch(event.target.value)}
-                placeholder="Ej. mesa 12, venta 1050, clienteâ€¦"
+                placeholder="Ej. mesa 12, venta 1050, cliente…"
               />
             </label>
           </div>
@@ -902,6 +982,144 @@ export function RealCashPage() {
                                 onClick={() => void processTurnExclusions()}
                               >
                                 Excluir seleccionados del cierre fiscal
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    {turnClose?.modoFlexible &&
+                      turnClose.excelDescargadoEn &&
+                      hasPermission("FACTURAS_EMITIR") &&
+                      fiscalUniverse?.habilitado && (
+                        <div className="rounded-2xl border border-denim/15 bg-white/60 p-4 text-sm">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="font-bold">Preparación fiscal del turno</p>
+                              <p className="mt-1 text-denim/60">
+                                Separa automáticamente lo ya fiscalizado, lo que está en
+                                proceso y lo que todavía puede prepararse. Preparar no
+                                asigna consecutivo ni transmite a DIAN.
+                              </p>
+                            </div>
+                            {fiscalUniverse.elegibles.length > 0 && (
+                              <button
+                                className="secondary w-auto px-3"
+                                type="button"
+                                onClick={() =>
+                                  setSelectedFiscalIds(
+                                    fiscalUniverse.elegibles.map(
+                                      (item) => item.facturaId,
+                                    ),
+                                  )
+                                }
+                              >
+                                Seleccionar elegibles
+                              </button>
+                            )}
+                          </div>
+                          <div className="mt-3 grid gap-2 sm:grid-cols-4">
+                            <div className="rounded-xl border border-denim/10 bg-white p-3">
+                              <span className="block text-denim/50">Excluidos</span>
+                              <b>{fiscalUniverse.resumen.excluidas}</b>
+                            </div>
+                            <div className="rounded-xl border border-denim/10 bg-white p-3">
+                              <span className="block text-denim/50">Ya fiscalizados</span>
+                              <b>{fiscalUniverse.resumen.yaFiscalizadas}</b>
+                            </div>
+                            <div className="rounded-xl border border-denim/10 bg-white p-3">
+                              <span className="block text-denim/50">En proceso</span>
+                              <b>{fiscalUniverse.resumen.enProceso}</b>
+                            </div>
+                            <div className="rounded-xl border border-denim/10 bg-white p-3">
+                              <span className="block text-denim/50">Elegibles</span>
+                              <b>{fiscalUniverse.resumen.elegibles}</b>
+                            </div>
+                          </div>
+                          {fiscalUniverse.resumen.sinComprobante > 0 && (
+                            <p className="mt-3 rounded-xl border border-amber-300/50 bg-amber-50 p-3 text-amber-900">
+                              Hay {fiscalUniverse.resumen.sinComprobante} operación(es)
+                              del Excel previo sin comprobante interno y no se incluirán
+                              en la preparación fiscal.
+                            </p>
+                          )}
+                          {fiscalUniverse.yaFiscalizadas.length > 0 && (
+                            <div className="mt-3">
+                              <p className="font-semibold">Ya fiscalizados durante la atención</p>
+                              <div className="mt-2 space-y-2">
+                                {fiscalUniverse.yaFiscalizadas.map((item) => (
+                                  <div
+                                    key={item.facturaId}
+                                    className="flex justify-between rounded-xl border border-denim/10 bg-white p-3"
+                                  >
+                                    <span>
+                                      {item.numeroInterno}
+                                      {item.numeroFiscal
+                                        ? ` · ${item.numeroFiscal}`
+                                        : ""}
+                                    </span>
+                                    <b>{item.estadoDocumento}</b>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {fiscalUniverse.enProceso.length > 0 && (
+                            <div className="mt-3">
+                              <p className="font-semibold">Flujo electrónico ya iniciado</p>
+                              <div className="mt-2 space-y-2">
+                                {fiscalUniverse.enProceso.map((item) => (
+                                  <div
+                                    key={item.facturaId}
+                                    className="flex justify-between rounded-xl border border-denim/10 bg-white p-3"
+                                  >
+                                    <span>{item.numeroInterno}</span>
+                                    <b>{item.estadoDocumento}</b>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {fiscalUniverse.elegibles.length === 0 ? (
+                            <p className="mt-3 text-denim/60">
+                              No quedan comprobantes internos elegibles para preparar.
+                            </p>
+                          ) : (
+                            <>
+                              <div className="mt-3 max-h-52 space-y-2 overflow-auto">
+                                {fiscalUniverse.elegibles.map((item) => (
+                                  <label
+                                    key={item.facturaId}
+                                    className="flex items-center justify-between gap-3 rounded-xl border border-denim/10 bg-white p-3"
+                                  >
+                                    <span className="flex items-center gap-2">
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedFiscalIds.includes(
+                                          item.facturaId,
+                                        )}
+                                        onChange={(event) =>
+                                          setSelectedFiscalIds((current) =>
+                                            event.target.checked
+                                              ? [...current, item.facturaId]
+                                              : current.filter(
+                                                  (id) => id !== item.facturaId,
+                                                ),
+                                          )
+                                        }
+                                      />
+                                      <span>{item.numeroInterno}</span>
+                                    </span>
+                                    <b>{money.format(Number(item.total))}</b>
+                                  </label>
+                                ))}
+                              </div>
+                              <button
+                                className="primary mt-3 w-auto px-4"
+                                type="button"
+                                disabled={busy || selectedFiscalIds.length === 0}
+                                onClick={() => void prepareFiscalSelection()}
+                              >
+                                Preparar seleccionados para facturación electrónica
                               </button>
                             </>
                           )}

@@ -19,6 +19,7 @@ import { CerrarCajaDto } from './dto/cerrar-caja.dto';
 import { ListarCajasDto } from './dto/listar-cajas.dto';
 import { RegistrarMovimientoCajaDto } from './dto/registrar-movimiento-caja.dto';
 import { ExcluirDocumentosCierreDto } from './dto/excluir-documentos-cierre.dto';
+import { PrepararFiscalizacionCierreDto } from './dto/preparar-fiscalizacion-cierre.dto';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
@@ -148,6 +149,29 @@ export class CajasController {
     @Req() request: RequestAutenticada,
   ) {
     return this.cajasService.excluirDocumentosCierre(id, data, request.user);
+  }
+
+  @Get(':id/cierre-turno/fiscalizacion')
+  @Permisos('CAJA_CERRAR', 'FACTURAS_EMITIR')
+  universoFiscalCierre(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.cajasService.universoFiscalCierre(id, request.user);
+  }
+
+  @Post(':id/cierre-turno/fiscalizacion/preparar')
+  @Permisos('CAJA_CERRAR', 'FACTURAS_EMITIR')
+  prepararFiscalizacionCierre(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: PrepararFiscalizacionCierreDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.cajasService.prepararFiscalizacionCierre(
+      id,
+      data,
+      request.user,
+    );
   }
 
   @Post(':id/movimientos')

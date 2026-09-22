@@ -22,6 +22,7 @@ import { CerrarCajaDto } from './dto/cerrar-caja.dto';
 import { ListarCajasDto } from './dto/listar-cajas.dto';
 import { RegistrarMovimientoCajaDto } from './dto/registrar-movimiento-caja.dto';
 import { ExcluirDocumentosCierreDto } from './dto/excluir-documentos-cierre.dto';
+import { PrepararFiscalizacionCierreDto } from './dto/preparar-fiscalizacion-cierre.dto';
 import {
   CierreTurnoSnapshot,
   generarXlsx,
@@ -973,6 +974,224 @@ export class CajasService {
       return {
         cajaId: caja.id,
         cantidad: facturas.length,
+      };
+    });
+  }
+
+  async universoFiscalCierre(cajaId: number, usuario: UsuarioAutenticado) {
+    const caja = await this.prisma.caja.findFirst({
+      where: { id: cajaId, sucursal: this.filtroSucursal(usuario) },
+      select: {
+        id: true,
+        estado: true,
+        sucursalId: true,
+        preCierreSnapshot: true,
+        preCierreExcelDescargadoEn: true,
+      },
+    });
+    if (!caja) throw new NotFoundException('Caja no encontrada');
+    if (!caja.preCierreSnapshot || !caja.preCierreExcelDescargadoEn) {
+      return {
+        habilitado: false,
+        motivo: 'Descarga primero el Excel previo del turno',
+        resumen: {
+          operaciones: 0,
+          excluidas: 0,
+          yaFiscalizadas: 0,
+          enProceso: 0,
+          elegibles: 0,
+          sinComprobante: 0,
+        },
+        yaFiscalizadas: [],
+        enProceso: [],
+        elegibles: [],
+      };
+    }
+
+    const snapshot = caja.preCierreSnapshot as CierreTurnoSnapshot;
+    const ventaIds = snapshot.ventas.map((venta) => venta.ventaId);
+    const facturas = ventaIds.length
+      ? await this.prisma.factura.findMany({
+          where: { ventaId: { in: ventaIds } },
+          include: {
+            documentoElectronico: {
+              select: {
+                id: true,
+                estado: true,
+                numeroCompleto: true,
+                numeroFiscal: true,
+              },
+            },
+          },
+        })
+      : [];
+    const facturaPorVenta = new Map(
+      facturas.map((factura) => [factura.ventaId, factura]),
+    );
+    const yaFiscalizadas: Array<{
+      ventaId: number;
+      facturaId: number;
+      numeroInterno: string;
+      total: number;
+      documentoId: number;
+      estadoDocumento: string;
+      numeroFiscal: string | null;
+    }> = [];
+    const enProceso: typeof yaFiscalizadas = [];
+    const elegibles: Array<{
+      ventaId: number;
+      facturaId: number;
+      numeroInterno: string;
+      total: number;
+    }> = [];
+    let excluidas = 0;
+    let sinComprobante = 0;
+
+    for (const venta of snapshot.ventas) {
+      const factura = facturaPorVenta.get(venta.ventaId);
+      if (!factura) {
+        sinComprobante += 1;
+        continue;
+      }
+      if (factura.excluidaCierreEn || factura.estado === 'EXCLUIDA_CIERRE') {
+        excluidas += 1;
+        continue;
+      }
+      if (factura.documentoElectronico) {
+        const item = {
+          ventaId: venta.ventaId,
+          facturaId: factura.id,
+          numeroInterno: factura.numero,
+          total: venta.total,
+          documentoId: factura.documentoElectronico.id,
+          estadoDocumento: factura.documentoElectronico.estado,
+          numeroFiscal: factura.documentoElectronico.numeroCompleto,
+        };
+        if (factura.documentoElectronico.estado === 'ACEPTADO') {
+          yaFiscalizadas.push(item);
+        } else {
+          enProceso.push(item);
+        }
+        continue;
+      }
+      if (factura.estado === 'EMITIDA') {
+        elegibles.push({
+          ventaId: venta.ventaId,
+          facturaId: factura.id,
+          numeroInterno: factura.numero,
+          total: venta.total,
+        });
+      }
+    }
+
+    return {
+      habilitado: true,
+      motivo: null,
+      cajaEstado: caja.estado,
+      resumen: {
+        operaciones: snapshot.ventas.length,
+        excluidas,
+        yaFiscalizadas: yaFiscalizadas.length,
+        enProceso: enProceso.length,
+        elegibles: elegibles.length,
+        sinComprobante,
+      },
+      yaFiscalizadas,
+      enProceso,
+      elegibles,
+    };
+  }
+
+  async prepararFiscalizacionCierre(
+    cajaId: number,
+    data: PrepararFiscalizacionCierreDto,
+    usuario: UsuarioAutenticado,
+  ) {
+    const facturaIds = [...new Set(data.facturaIds)];
+    if (facturaIds.length !== data.facturaIds.length) {
+      throw new BadRequestException(
+        'No repitas documentos en la preparación fiscal',
+      );
+    }
+
+    return this.prisma.transaccionSerializable(async (tx) => {
+      await this.bloquearCaja(tx, cajaId);
+      const caja = await this.obtenerCajaTurno(tx, cajaId, usuario);
+      if (!caja.preCierreSnapshot || !caja.preCierreExcelDescargadoEn) {
+        throw new BadRequestException(
+          'Descarga primero el Excel previo del turno',
+        );
+      }
+
+      const snapshot = caja.preCierreSnapshot as CierreTurnoSnapshot;
+      const ventasSnapshot = new Set(
+        snapshot.ventas.map((venta) => venta.ventaId),
+      );
+      const facturas = await tx.factura.findMany({
+        where: { id: { in: facturaIds } },
+        include: {
+          venta: { select: { id: true, sucursalId: true } },
+          documentoElectronico: { select: { id: true, estado: true } },
+        },
+      });
+      if (facturas.length !== facturaIds.length) {
+        throw new BadRequestException(
+          'Una o más facturas no están disponibles para este cierre',
+        );
+      }
+
+      for (const factura of facturas) {
+        if (
+          !factura.venta ||
+          factura.venta.sucursalId !== caja.sucursalId ||
+          !ventasSnapshot.has(factura.venta.id)
+        ) {
+          throw new BadRequestException(
+            'Solo puedes preparar documentos incluidos en este turno',
+          );
+        }
+        if (factura.excluidaCierreEn || factura.estado === 'EXCLUIDA_CIERRE') {
+          throw new BadRequestException(
+            `El documento ${factura.numero} fue excluido del cierre`,
+          );
+        }
+        if (factura.documentoElectronico) {
+          throw new BadRequestException(
+            `El documento ${factura.numero} ya inició su flujo electrónico`,
+          );
+        }
+        if (factura.estado !== 'EMITIDA') {
+          throw new BadRequestException(
+            `El documento ${factura.numero} no está disponible para fiscalizar`,
+          );
+        }
+      }
+
+      await tx.documentoElectronico.createMany({
+        data: facturas.map((factura) => ({
+          facturaId: factura.id,
+          tipo: 'FACTURA_VENTA',
+        })),
+        skipDuplicates: true,
+      });
+
+      const documentos = await tx.documentoElectronico.findMany({
+        where: { facturaId: { in: facturaIds } },
+        select: {
+          id: true,
+          facturaId: true,
+          estado: true,
+          numeroCompleto: true,
+        },
+        orderBy: { id: 'asc' },
+      });
+
+      return {
+        cajaId: caja.id,
+        preparados: documentos.length,
+        documentos,
+        mensaje:
+          'Documentos preparados. Aún no se asignó numeración ni se transmitió a DIAN.',
       };
     });
   }

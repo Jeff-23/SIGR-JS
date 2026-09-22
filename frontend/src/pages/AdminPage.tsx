@@ -193,6 +193,14 @@ export function AdminPage() {
             Roles y planes
           </button>
         )}
+        {global && (
+          <button
+            className="secondary w-auto px-4"
+            onClick={() => setTab("politica-documentos")}
+          >
+            Política interna
+          </button>
+        )}
         {hasPermission("AUDITORIA_VER") && (
           <button
             className="secondary w-auto px-4"
@@ -204,6 +212,8 @@ export function AdminPage() {
       </nav>
       {tab === "accesos" && hasPermission("AUTORIZACION_VER") ? (
         <AccessPanel key={session?.user.id} />
+      ) : tab === "politica-documentos" && global ? (
+        <InternalDocumentPolicyPanel key={session?.user.id} />
       ) : tab === "auditoria" && hasPermission("AUDITORIA_VER") ? (
         <AuditPanel key={`${session?.user.id}:${branchId}`} />
       ) : selected ? (
@@ -398,6 +408,172 @@ function AccessPanel() {
           </button>
         </Modal>
       )}
+    </section>
+  );
+}
+type InternalDocumentPolicy = {
+  restauranteId: number;
+  modo: "CONTROLADA" | "FLEXIBLE";
+  permisoCajero: string;
+  actualizadoEn: string | null;
+};
+function InternalDocumentPolicyPanel() {
+  const { session } = useApp();
+  const [restaurantId, setRestaurantId] = useState("");
+  const [policy, setPolicy] = useState<InternalDocumentPolicy | null>(null);
+  const [mode, setMode] = useState<"CONTROLADA" | "FLEXIBLE">("CONTROLADA");
+  const [password, setPassword] = useState("");
+  const [pin, setPin] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function loadPolicy() {
+    const id = Number(restaurantId);
+    if (!Number.isInteger(id) || id < 1) {
+      setError("Indica un ID de restaurante válido.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const { data } = await api.get<InternalDocumentPolicy>(
+        `/autorizacion/restaurantes/${id}/politica-documentos-internos`,
+      );
+      setPolicy(data);
+      setMode(data.modo);
+    } catch (e) {
+      setPolicy(null);
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function savePolicy() {
+    const id = Number(restaurantId);
+    if (!Number.isInteger(id) || id < 1) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const { data } = await api.put<InternalDocumentPolicy>(
+        `/autorizacion/restaurantes/${id}/politica-documentos-internos`,
+        { modo: mode, password, pin },
+      );
+      setPolicy(data);
+      setPassword("");
+      setPin("");
+      setMessage(
+        `Política ${data.modo} aplicada. El permiso ${data.permisoCajero} se administra desde Roles y planes.`,
+      );
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="space-y-4">
+      <div>
+        <h2 className="text-2xl font-bold">Política privada de documentos internos</h2>
+        <p className="mt-2 text-sm opacity-80">
+          Solo SUPERADMIN global puede cambiar este modo. CONTROLADA mantiene el
+          flujo sin exclusiones; FLEXIBLE habilita el futuro flujo de exclusión
+          en cierre para roles que reciban el permiso específico.
+        </p>
+      </div>
+      <div className="card space-y-4">
+        <label>
+          ID del restaurante
+          <input
+            className="input"
+            type="number"
+            min="1"
+            value={restaurantId}
+            onChange={(e) => {
+              setRestaurantId(e.target.value);
+              setPolicy(null);
+              setMessage("");
+              setError("");
+            }}
+          />
+        </label>
+        <button
+          className="secondary"
+          disabled={busy || !restaurantId}
+          onClick={() => void loadPolicy()}
+        >
+          Consultar política
+        </button>
+        {policy && (
+          <div className="rounded-xl border p-4">
+            <p>
+              Modo actual: <strong>{policy.modo}</strong>
+            </p>
+            <p className="mt-1 text-xs opacity-70">
+              Permiso delegable: {policy.permisoCajero}
+            </p>
+            <fieldset className="mt-4 space-y-2">
+              <legend className="font-semibold">Nuevo modo</legend>
+              {(["CONTROLADA", "FLEXIBLE"] as const).map((value) => (
+                <label className="flex items-start gap-2" key={value}>
+                  <input
+                    type="radio"
+                    name="document-policy"
+                    value={value}
+                    checked={mode === value}
+                    onChange={() => setMode(value)}
+                  />
+                  <span>
+                    <strong>{value}</strong>
+                    <span className="block text-sm opacity-75">
+                      {value === "CONTROLADA"
+                        ? "No habilita exclusión de documentos internos en el cierre."
+                        : "Permite que el ADMIN delegue el permiso a cajeros concretos; la exclusión real seguirá protegida por el cierre y reautenticación."}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <label>
+                Contraseña SUPERADMIN
+                <input
+                  className="input"
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </label>
+              <label>
+                PIN privado de plataforma
+                <input
+                  className="input"
+                  type="password"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autoComplete="off"
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                />
+              </label>
+            </div>
+            <button
+              className="primary mt-4"
+              disabled={busy || session?.demo || password.length < 10 || pin.length < 6}
+              onClick={() => void savePolicy()}
+            >
+              Confirmar cambio privado
+            </button>
+          </div>
+        )}
+        {message && <p role="status">{message}</p>}
+        {error && <p role="alert">{error}</p>}
+      </div>
     </section>
   );
 }

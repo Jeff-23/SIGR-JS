@@ -560,6 +560,11 @@ const PERMISOS = [
     modulo: 'AUTORIZACION',
   },
   {
+    codigo: 'DOCUMENTOS_INTERNOS_EXCLUIR_CIERRE',
+    nombre: 'Excluir documentos internos durante cierre',
+    modulo: 'FACTURACION',
+  },
+  {
     codigo: 'AUDITORIA_VER',
     nombre: 'Consultar auditoría',
     modulo: 'AUDITORIA',

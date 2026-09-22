@@ -4,8 +4,12 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { AmbitoRol } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
+import { createHash, timingSafeEqual } from 'crypto';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
@@ -13,6 +17,7 @@ import { ContextoAuditoria } from '../auditoria/auditoria-contexto';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { obtenerEntorno } from '../../config/entorno';
 import { SyncBusinessService } from '../sync/sync-business.service';
+import { ActualizarPoliticaDocumentosInternosDto } from './dto/actualizar-politica-documentos-internos.dto';
 
 @Injectable()
 export class AutorizacionService {
@@ -76,6 +81,94 @@ export class AutorizacionService {
         },
       },
       orderBy: { nombre: 'asc' },
+    });
+  }
+
+  async obtenerPoliticaDocumentosInternos(
+    restauranteId: number,
+    usuario: UsuarioAutenticado,
+  ) {
+    this.exigirSuperadminGlobal(usuario);
+    await this.exigirRestauranteActivo(restauranteId);
+    const configuracion = await this.prisma.configuracionRestaurante.findUnique(
+      {
+        where: {
+          restauranteId_clave: {
+            restauranteId,
+            clave: 'POLITICA_DOCUMENTOS_INTERNOS',
+          },
+        },
+        select: { valor: true, actualizadoEn: true },
+      },
+    );
+    const modo =
+      configuracion?.valor === 'FLEXIBLE' ? 'FLEXIBLE' : 'CONTROLADA';
+    return {
+      restauranteId,
+      modo,
+      permisoCajero: 'DOCUMENTOS_INTERNOS_EXCLUIR_CIERRE',
+      actualizadoEn: configuracion?.actualizadoEn ?? null,
+    };
+  }
+
+  async actualizarPoliticaDocumentosInternos(
+    restauranteId: number,
+    data: ActualizarPoliticaDocumentosInternosDto,
+    usuario: UsuarioAutenticado,
+    contexto: ContextoAuditoria,
+  ) {
+    this.exigirSuperadminGlobal(usuario);
+    await this.exigirRestauranteActivo(restauranteId);
+    await this.reautenticarSuperadmin(usuario, data.password, data.pin);
+
+    return this.prisma.$transaction(async (tx) => {
+      const anterior = await tx.configuracionRestaurante.findUnique({
+        where: {
+          restauranteId_clave: {
+            restauranteId,
+            clave: 'POLITICA_DOCUMENTOS_INTERNOS',
+          },
+        },
+      });
+      const resultado = await tx.configuracionRestaurante.upsert({
+        where: {
+          restauranteId_clave: {
+            restauranteId,
+            clave: 'POLITICA_DOCUMENTOS_INTERNOS',
+          },
+        },
+        update: { valor: data.modo },
+        create: {
+          restauranteId,
+          clave: 'POLITICA_DOCUMENTOS_INTERNOS',
+          valor: data.modo,
+        },
+      });
+
+      // Auditoría de plataforma: restauranteId queda NULL para que no aparezca
+      // en la auditoría del tenant. Solo SUPERADMIN global puede consultarla.
+      await this.auditoria.registrar(
+        tx,
+        {
+          accion: 'POLITICA_DOCUMENTOS_INTERNOS_ACTUALIZADA',
+          recurso: 'PLATAFORMA_RESTAURANTE',
+          recursoId: restauranteId,
+          restauranteId: null,
+          antes: {
+            modo: anterior?.valor === 'FLEXIBLE' ? 'FLEXIBLE' : 'CONTROLADA',
+          },
+          despues: { modo: data.modo },
+        },
+        contexto,
+      );
+      await this.sync.encolarConfiguracionRestaurante(tx, resultado.id);
+
+      return {
+        restauranteId,
+        modo: data.modo,
+        permisoCajero: 'DOCUMENTOS_INTERNOS_EXCLUIR_CIERRE',
+        actualizadoEn: resultado.actualizadoEn,
+      };
     });
   }
 
@@ -251,6 +344,43 @@ export class AutorizacionService {
         permisos: { select: { permiso: { select: { codigo: true } } } },
       },
     });
+  }
+
+  private async exigirRestauranteActivo(restauranteId: number) {
+    const restaurante = await this.prisma.restaurante.findFirst({
+      where: { id: restauranteId, estado: true },
+      select: { id: true },
+    });
+    if (!restaurante) throw new NotFoundException('Restaurante no encontrado');
+  }
+
+  private async reautenticarSuperadmin(
+    usuario: UsuarioAutenticado,
+    password: string,
+    pin: string,
+  ) {
+    const registro = await this.prisma.usuario.findUnique({
+      where: { id: usuario.id },
+      select: { password: true },
+    });
+    if (!registro || !(await bcrypt.compare(password, registro.password))) {
+      throw new UnauthorizedException('Reautenticación inválida');
+    }
+
+    const esperado = process.env.PLATFORM_ADMIN_PIN_HASH?.trim().toLowerCase();
+    if (!esperado || !/^[a-f0-9]{64}$/.test(esperado)) {
+      throw new ServiceUnavailableException(
+        'El PIN privado de plataforma no está configurado',
+      );
+    }
+    const recibido = createHash('sha256')
+      .update(`${this.entorno.jwtSecret}:${pin}`)
+      .digest('hex');
+    const coincide = timingSafeEqual(
+      Buffer.from(esperado, 'hex'),
+      Buffer.from(recibido, 'hex'),
+    );
+    if (!coincide) throw new UnauthorizedException('Reautenticación inválida');
   }
 
   private validarCodigosCompletos(

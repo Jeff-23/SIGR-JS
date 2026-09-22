@@ -20,6 +20,7 @@ import { AuditoriaDetallada } from '../auditoria/auditoria-detallada.decorator';
 import { AutorizacionService } from './autorizacion.service';
 import { ActualizarCodigosDto } from './dto/actualizar-codigos.dto';
 import { AsignarPlanDto } from './dto/asignar-plan.dto';
+import { ActualizarPoliticaDocumentosInternosDto } from './dto/actualizar-politica-documentos-internos.dto';
 
 @Controller('autorizacion')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -37,6 +38,33 @@ export class AutorizacionController {
   @Permisos('AUTORIZACION_VER')
   listarRoles(@Req() request: RequestAuditable) {
     return this.autorizacionService.listarRoles(request.user);
+  }
+
+  @Get('restaurantes/:restauranteId/politica-documentos-internos')
+  @Permisos('AUTORIZACION_GESTIONAR')
+  obtenerPoliticaDocumentosInternos(
+    @Param('restauranteId', ParseIntPipe) restauranteId: number,
+    @Req() request: RequestAuditable,
+  ) {
+    return this.autorizacionService.obtenerPoliticaDocumentosInternos(
+      restauranteId,
+      request.user,
+    );
+  }
+
+  @Put('restaurantes/:restauranteId/politica-documentos-internos')
+  @Permisos('AUTORIZACION_GESTIONAR')
+  actualizarPoliticaDocumentosInternos(
+    @Param('restauranteId', ParseIntPipe) restauranteId: number,
+    @Body() data: ActualizarPoliticaDocumentosInternosDto,
+    @Req() request: RequestAuditable,
+  ) {
+    return this.autorizacionService.actualizarPoliticaDocumentosInternos(
+      restauranteId,
+      data,
+      request.user,
+      construirContextoAuditoria(request),
+    );
   }
 
   @Put('restaurantes/:restauranteId/plan')

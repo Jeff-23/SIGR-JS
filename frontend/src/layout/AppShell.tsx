@@ -453,9 +453,7 @@ export function AppShell() {
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-bold uppercase tracking-[.14em] text-denim/38">
               {session?.user.restauranteNombre ??
-                (session?.demo
-                  ? "Restaurante El Mono"
-                  : `Restaurante ${session?.user.restauranteId ?? "SIGR"}`)}
+                `Restaurante ${session?.user.restauranteId ?? "SIGR"}`}
             </p>
             <select
               aria-label="Sucursal activa"

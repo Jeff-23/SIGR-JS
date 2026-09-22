@@ -39,7 +39,6 @@ export function CommercialPresentationPage() {
       </header>
       <section className="hero-panel">
         <div>
-          <p className="eyebrow">Restaurante El Mono · 3 sedes</p>
           <h2>El servicio avanza sin perder trazabilidad.</h2>
           <p>
             Pedidos digitales o comandas en papel conviven con inventario,

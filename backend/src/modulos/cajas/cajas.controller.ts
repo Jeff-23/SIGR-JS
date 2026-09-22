@@ -8,8 +8,10 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 
 import { CajasService } from './cajas.service';
 import { AbrirCajaDto } from './dto/abrir-caja.dto';
@@ -67,6 +69,65 @@ export class CajasController {
     @Req() request: RequestAutenticada,
   ) {
     return this.cajasService.detalle(id, request.user);
+  }
+
+  @Get(':id/cierre-turno/estado')
+  @Permisos('CAJA_CERRAR')
+  estadoCierreTurno(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.cajasService.estadoCierreTurno(id, request.user);
+  }
+
+  @Post(':id/cierre-turno/preparar')
+  @Permisos('CAJA_CERRAR')
+  prepararCierreTurno(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.cajasService.prepararCierreTurno(id, request.user);
+  }
+
+  @Get(':id/cierre-turno/excel')
+  @Permisos('CAJA_CERRAR')
+  async descargarExcelCierreTurno(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+    @Res() response: Response,
+  ) {
+    const archivo = await this.cajasService.descargarExcelCierreTurno(
+      id,
+      request.user,
+    );
+    response.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${archivo.nombre}"`,
+    );
+    response.send(archivo.contenido);
+  }
+
+  @Get(':id/cierre-turno/pdf')
+  @Permisos('CAJA_CERRAR')
+  async descargarPdfCierreTurno(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+    @Res() response: Response,
+  ) {
+    const archivo = await this.cajasService.descargarPdfCierreTurno(
+      id,
+      request.user,
+    );
+    response.setHeader('Content-Type', 'application/pdf');
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${archivo.nombre}"`,
+    );
+    response.send(archivo.contenido);
   }
 
   @Post(':id/movimientos')

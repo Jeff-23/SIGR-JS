@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 
 import {
   EstadoCaja,
@@ -20,6 +21,11 @@ import { CerrarCajaDto } from './dto/cerrar-caja.dto';
 import { ListarCajasDto } from './dto/listar-cajas.dto';
 import { RegistrarMovimientoCajaDto } from './dto/registrar-movimiento-caja.dto';
 import {
+  CierreTurnoSnapshot,
+  generarXlsx,
+  generarPdfSimple,
+} from './cierre-turno-reportes';
+import {
   hashSolicitud,
   normalizarClaveIdempotencia,
   validarReplayIdempotente,
@@ -27,7 +33,10 @@ import {
 
 @Injectable()
 export class CajasService {
-  constructor(private readonly prisma: PrismaService, private readonly syncBusiness: SyncBusinessService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly syncBusiness: SyncBusinessService,
+  ) {}
 
   private esSuperadmin(usuario: UsuarioAutenticado) {
     return usuario.rol === 'SUPERADMIN' && usuario.restauranteId === null;
@@ -478,6 +487,11 @@ export class CajasService {
       }
       if (caja.estado !== EstadoCaja.ABIERTA)
         throw new BadRequestException('La caja está cerrada');
+      if (caja.preCierreGeneradoEn) {
+        throw new BadRequestException(
+          'El turno está congelado para cierre y no admite nuevos movimientos',
+        );
+      }
 
       const concepto = data.concepto.trim();
 
@@ -514,6 +528,286 @@ export class CajasService {
     });
   }
 
+  private async politicaDocumentosInternosFlexible(
+    tx: Prisma.TransactionClient,
+    restauranteId: number,
+  ) {
+    const config = await tx.configuracionRestaurante.findUnique({
+      where: {
+        restauranteId_clave: {
+          restauranteId,
+          clave: 'POLITICA_DOCUMENTOS_INTERNOS',
+        },
+      },
+      select: { valor: true },
+    });
+    return config?.valor === 'FLEXIBLE';
+  }
+
+  private async obtenerCajaTurno(
+    tx: Prisma.TransactionClient,
+    cajaId: number,
+    usuario: UsuarioAutenticado,
+  ) {
+    const caja = await tx.caja.findFirst({
+      where: { id: cajaId, sucursal: this.filtroSucursal(usuario) },
+      include: {
+        sucursal: {
+          include: { restaurante: { select: { id: true } } },
+        },
+      },
+    });
+    if (!caja) throw new NotFoundException('Caja no encontrada');
+    return caja;
+  }
+
+  private async construirSnapshotTurno(
+    tx: Prisma.TransactionClient,
+    cajaId: number,
+    usuario: UsuarioAutenticado,
+  ): Promise<CierreTurnoSnapshot> {
+    const caja = await this.obtenerCajaTurno(tx, cajaId, usuario);
+    if (caja.estado !== EstadoCaja.ABIERTA) {
+      throw new BadRequestException(
+        'Solo una caja abierta puede preparar el cierre de turno',
+      );
+    }
+
+    const pagos = await tx.pago.findMany({
+      where: { cajaId: caja.id, ventaId: { not: null } },
+      select: { ventaId: true },
+    });
+    const ventaIds = [
+      ...new Set(
+        pagos
+          .map((pago) => pago.ventaId)
+          .filter((id): id is number => id !== null),
+      ),
+    ];
+
+    const ventas = ventaIds.length
+      ? await tx.venta.findMany({
+          where: { id: { in: ventaIds }, sucursalId: caja.sucursalId },
+          include: {
+            cliente: true,
+            pedido: { include: { mesa: true } },
+            detalles: { include: { producto: true }, orderBy: { id: 'asc' } },
+            factura: { include: { documentoElectronico: true } },
+            pagos: {
+              where: { cajaId: caja.id },
+              include: { metodoPago: true, devoluciones: true },
+              orderBy: { id: 'asc' },
+            },
+          },
+          orderBy: [{ fechaOperacion: 'asc' }, { id: 'asc' }],
+        })
+      : [];
+
+    let totalVentas = 0;
+    let totalPagos = 0;
+    let totalDevoluciones = 0;
+    let efectivo = 0;
+    let otrosPagos = 0;
+
+    const snapshotVentas: CierreTurnoSnapshot['ventas'] = ventas.map(
+      (venta) => {
+        const pagosVenta = venta.pagos.map((pago) => {
+          const devoluciones = pago.devoluciones.reduce(
+            (sum, item) => sum + Number(item.monto),
+            0,
+          );
+          const monto = Number(pago.monto);
+          const neto = monto - devoluciones;
+          totalPagos += monto;
+          totalDevoluciones += devoluciones;
+          if (pago.metodoPago.tipo === TipoMetodoPago.EFECTIVO)
+            efectivo += neto;
+          else otrosPagos += neto;
+          return {
+            metodo: pago.metodoPago.nombre,
+            tipo: pago.metodoPago.tipo,
+            monto,
+            devoluciones,
+            neto,
+            referencia: pago.referencia,
+          };
+        });
+        totalVentas += Number(venta.total);
+        const documento = venta.factura?.documentoElectronico ?? null;
+        return {
+          ventaId: venta.id,
+          fechaOperacion: venta.fechaOperacion.toISOString(),
+          estado: venta.estado,
+          origen: venta.origen,
+          total: Number(venta.total),
+          subtotal: Number(venta.subtotal),
+          descuentos: Number(venta.descuentos),
+          impuestos: Number(venta.impuestos),
+          impoconsumo: Number(venta.impoconsumo),
+          propina: Number(venta.propina),
+          domicilio: Number(venta.domicilioCosto),
+          pedidoId: venta.pedidoId,
+          mesa: venta.pedido?.mesa?.numero ?? null,
+          cliente: venta.cliente
+            ? `${venta.cliente.nombres}${venta.cliente.apellidos ? ` ${venta.cliente.apellidos}` : ''}`
+            : null,
+          identificacionCliente: venta.cliente?.numeroDocumento ?? null,
+          facturaInterna: venta.factura?.numero ?? null,
+          estadoFactura: venta.factura?.estado ?? null,
+          documentoElectronicoEstado: documento?.estado ?? null,
+          documentoElectronicoNumero: documento?.numeroCompleto ?? null,
+          fiscalizada: documento?.estado === 'ACEPTADO',
+          detalles: venta.detalles.map((detalle) => ({
+            producto: detalle.producto.nombre,
+            cantidad: detalle.cantidad,
+            precioUnitario: Number(detalle.precioUnitario),
+            subtotal: Number(detalle.subtotal),
+          })),
+          pagos: pagosVenta,
+        };
+      },
+    );
+
+    return {
+      version: 1,
+      caja: {
+        id: caja.id,
+        nombre: caja.nombre,
+        sucursalId: caja.sucursalId,
+        sucursal: caja.sucursal.nombre,
+        fechaApertura: caja.fechaApertura.toISOString(),
+        generadoEn: new Date().toISOString(),
+      },
+      resumen: {
+        operaciones: snapshotVentas.length,
+        totalVentas,
+        totalPagos,
+        totalDevoluciones,
+        totalNetoCobrado: totalPagos - totalDevoluciones,
+        efectivo,
+        otrosPagos,
+      },
+      ventas: snapshotVentas,
+    };
+  }
+
+  async prepararCierreTurno(cajaId: number, usuario: UsuarioAutenticado) {
+    return this.prisma.transaccionSerializable(async (tx) => {
+      await this.bloquearCaja(tx, cajaId);
+      const caja = await this.obtenerCajaTurno(tx, cajaId, usuario);
+      if (caja.preCierreSnapshot) {
+        return {
+          cajaId,
+          generadoEn: caja.preCierreGeneradoEn,
+          excelDescargadoEn: caja.preCierreExcelDescargadoEn,
+          hash: caja.preCierreHash,
+          snapshot: caja.preCierreSnapshot,
+        };
+      }
+      const snapshot = await this.construirSnapshotTurno(tx, cajaId, usuario);
+      const serialized = JSON.stringify(snapshot);
+      const hash = createHash('sha256').update(serialized).digest('hex');
+      const updated = await tx.caja.update({
+        where: { id: cajaId },
+        data: {
+          preCierreGeneradoEn: new Date(snapshot.caja.generadoEn),
+          preCierreSnapshot: snapshot,
+          preCierreHash: hash,
+          preCierreGeneradoPorId: usuario.id,
+        },
+        select: {
+          id: true,
+          preCierreGeneradoEn: true,
+          preCierreExcelDescargadoEn: true,
+          preCierreHash: true,
+          preCierreSnapshot: true,
+        },
+      });
+      return {
+        cajaId: updated.id,
+        generadoEn: updated.preCierreGeneradoEn,
+        excelDescargadoEn: updated.preCierreExcelDescargadoEn,
+        hash: updated.preCierreHash,
+        snapshot: updated.preCierreSnapshot,
+      };
+    });
+  }
+
+  async estadoCierreTurno(cajaId: number, usuario: UsuarioAutenticado) {
+    const caja = await this.prisma.caja.findFirst({
+      where: { id: cajaId, sucursal: this.filtroSucursal(usuario) },
+      select: {
+        id: true,
+        estado: true,
+        preCierreGeneradoEn: true,
+        preCierreExcelDescargadoEn: true,
+        preCierreHash: true,
+        preCierreSnapshot: true,
+        sucursal: { select: { restauranteId: true } },
+      },
+    });
+    if (!caja) throw new NotFoundException('Caja no encontrada');
+    const flexible = await this.prisma.configuracionRestaurante.findUnique({
+      where: {
+        restauranteId_clave: {
+          restauranteId: caja.sucursal.restauranteId,
+          clave: 'POLITICA_DOCUMENTOS_INTERNOS',
+        },
+      },
+      select: { valor: true },
+    });
+    const snapshot = caja.preCierreSnapshot as CierreTurnoSnapshot | null;
+    return {
+      cajaId: caja.id,
+      cajaEstado: caja.estado,
+      modoFlexible: flexible?.valor === 'FLEXIBLE',
+      generadoEn: caja.preCierreGeneradoEn,
+      excelDescargadoEn: caja.preCierreExcelDescargadoEn,
+      hash: caja.preCierreHash,
+      operaciones: snapshot?.resumen.operaciones ?? 0,
+      listoParaCerrar:
+        flexible?.valor !== 'FLEXIBLE' ||
+        caja.preCierreExcelDescargadoEn !== null,
+    };
+  }
+
+  async descargarExcelCierreTurno(cajaId: number, usuario: UsuarioAutenticado) {
+    await this.prepararCierreTurno(cajaId, usuario);
+    return this.prisma.transaccionSerializable(async (tx) => {
+      await this.bloquearCaja(tx, cajaId);
+      const caja = await this.obtenerCajaTurno(tx, cajaId, usuario);
+      const snapshot = caja.preCierreSnapshot as CierreTurnoSnapshot | null;
+      if (!snapshot)
+        throw new BadRequestException('No existe fotografía previa del turno');
+      const contenido = generarXlsx(snapshot);
+      if (!caja.preCierreExcelDescargadoEn) {
+        await tx.caja.update({
+          where: { id: cajaId },
+          data: { preCierreExcelDescargadoEn: new Date() },
+        });
+      }
+      return {
+        contenido,
+        nombre: `cierre-turno-${caja.id}-previo.xlsx`,
+      };
+    });
+  }
+
+  async descargarPdfCierreTurno(cajaId: number, usuario: UsuarioAutenticado) {
+    await this.prepararCierreTurno(cajaId, usuario);
+    const caja = await this.prisma.caja.findFirst({
+      where: { id: cajaId, sucursal: this.filtroSucursal(usuario) },
+      select: { preCierreSnapshot: true },
+    });
+    const snapshot = caja?.preCierreSnapshot as CierreTurnoSnapshot | null;
+    if (!snapshot)
+      throw new BadRequestException('No existe fotografía previa del turno');
+    return {
+      contenido: generarPdfSimple(snapshot),
+      nombre: `cierre-turno-${cajaId}-previo.pdf`,
+    };
+  }
+
   async cerrar(
     cajaId: number,
     data: CerrarCajaDto,
@@ -537,6 +831,20 @@ export class CajasService {
 
       if (!caja) {
         throw new NotFoundException('Caja abierta no encontrada');
+      }
+
+      const sucursal = await tx.sucursal.findUniqueOrThrow({
+        where: { id: caja.sucursalId },
+        select: { restauranteId: true },
+      });
+      const modoFlexible = await this.politicaDocumentosInternosFlexible(
+        tx,
+        sucursal.restauranteId,
+      );
+      if (modoFlexible && !caja.preCierreExcelDescargadoEn) {
+        throw new BadRequestException(
+          'Descarga el Excel previo del turno antes de cerrar la caja',
+        );
       }
 
       if (clave && caja.cierreClave === clave) {

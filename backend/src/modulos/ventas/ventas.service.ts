@@ -1603,6 +1603,11 @@ export class VentasService {
             'La caja seleccionada ya no se encuentra abierta',
           );
         }
+        if (caja.preCierreGeneradoEn) {
+          throw new BadRequestException(
+            'El turno está congelado para cierre y no admite nuevos pagos',
+          );
+        }
 
         const pagadoActual = pagos.reduce((total, pago) => {
           const devuelto = pago.devoluciones.reduce(

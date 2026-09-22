@@ -30,6 +30,13 @@ export function RealCashPage() {
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
   const [history, setHistory] = useState<CashDrawer[]>([]);
   const [selectedDrawer, setSelectedDrawer] = useState<CashDrawer | null>(null);
+  const [turnClose, setTurnClose] = useState<{
+    modoFlexible: boolean;
+    generadoEn: string | null;
+    excelDescargadoEn: string | null;
+    operaciones: number;
+    listoParaCerrar: boolean;
+  } | null>(null);
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [failure, setFailure] = useState("");
   const [loading, setLoading] = useState(true);
@@ -138,11 +145,58 @@ export function RealCashPage() {
     }
   }
   async function drawerDetail(id: number) {
-    const { data } = await api.get<CashDrawer>(`/cajas/${id}`);
+    const [{ data }, closeState] = await Promise.all([
+      api.get<CashDrawer>(`/cajas/${id}`),
+      hasPermission("CAJA_CERRAR")
+        ? api.get(`/cajas/${id}/cierre-turno/estado`)
+        : Promise.resolve({ data: null }),
+    ]);
     if (mounted.current) {
       setSelectedDrawer(data);
+      setTurnClose(closeState.data);
       setCounted("");
     }
+  }
+
+  function downloadBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function prepareTurnClose() {
+    if (!selectedDrawer) return;
+    await run(async () => {
+      await api.post(`/cajas/${selectedDrawer.id}/cierre-turno/preparar`);
+      const excel = await api.get(
+        `/cajas/${selectedDrawer.id}/cierre-turno/excel`,
+        { responseType: "blob" },
+      );
+      downloadBlob(
+        excel.data as Blob,
+        `cierre-turno-${selectedDrawer.id}-previo.xlsx`,
+      );
+      const pdf = await api.get(
+        `/cajas/${selectedDrawer.id}/cierre-turno/pdf`,
+        {
+          responseType: "blob",
+        },
+      );
+      downloadBlob(
+        pdf.data as Blob,
+        `cierre-turno-${selectedDrawer.id}-previo.pdf`,
+      );
+      const { data: closeState } = await api.get(
+        `/cajas/${selectedDrawer.id}/cierre-turno/estado`,
+      );
+      if (mounted.current) setTurnClose(closeState);
+      toast.success("Excel obligatorio y PDF previo descargados");
+    });
   }
   function chooseSale(sale: Sale) {
     if (uncertain)
@@ -201,7 +255,9 @@ export function RealCashPage() {
       sessionStorage.removeItem(attemptKey);
       paymentAttempt.current = null;
       setUncertain(false);
-      const { data: updatedSale } = await api.get<Sale>(`/ventas/${attempt.saleId}`);
+      const { data: updatedSale } = await api.get<Sale>(
+        `/ventas/${attempt.saleId}`,
+      );
       setSelectedSale(updatedSale);
       const nextDivision = updatedSale.divisionesCuenta?.find(
         (item) => item.id === Number(payment.divisionCuentaId),
@@ -240,14 +296,17 @@ export function RealCashPage() {
   const normalizedSaleSearch = saleSearch.trim().toLocaleLowerCase("es-CO");
   const visiblePendingSales = normalizedSaleSearch
     ? pendingSales.filter((sale) => {
-        const customer = sale.cliente?.razonSocial || sale.cliente?.nombres || "";
+        const customer =
+          sale.cliente?.razonSocial || sale.cliente?.nombres || "";
         return [
           String(sale.id),
           sale.pedido?.mesa?.numero ?? "",
           sale.pedido?.id ? String(sale.pedido.id) : "",
           customer,
         ].some((value) =>
-          String(value).toLocaleLowerCase("es-CO").includes(normalizedSaleSearch),
+          String(value)
+            .toLocaleLowerCase("es-CO")
+            .includes(normalizedSaleSearch),
         );
       })
     : pendingSales;
@@ -429,8 +488,13 @@ export function RealCashPage() {
         <section>
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h2 className="text-xl font-bold">Por cobrar · {pendingSales.length}</h2>
-              <p className="text-sm text-denim/55">Busca por venta, pedido, mesa o cliente y entra directo al cobro.</p>
+              <h2 className="text-xl font-bold">
+                Por cobrar · {pendingSales.length}
+              </h2>
+              <p className="text-sm text-denim/55">
+                Busca por venta, pedido, mesa o cliente y entra directo al
+                cobro.
+              </p>
             </div>
             <label className="w-full sm:w-80">
               Buscar venta pendiente
@@ -476,11 +540,17 @@ export function RealCashPage() {
             ))}
           </div>
           {!loading && !pendingSales.length && (
-            <p className="mt-3">Sin saldos pendientes en las últimas 200 ventas consultadas.</p>
+            <p className="mt-3">
+              Sin saldos pendientes en las últimas 200 ventas consultadas.
+            </p>
           )}
-          {!loading && pendingSales.length > 0 && visiblePendingSales.length === 0 && (
-            <p className="mt-3">No hay ventas pendientes que coincidan con la búsqueda.</p>
-          )}
+          {!loading &&
+            pendingSales.length > 0 &&
+            visiblePendingSales.length === 0 && (
+              <p className="mt-3">
+                No hay ventas pendientes que coincidan con la búsqueda.
+              </p>
+            )}
         </section>
         <section className="card">
           <h2 className="text-xl font-bold">Ventas recientes</h2>
@@ -649,6 +719,34 @@ export function RealCashPage() {
                     }}
                   >
                     <h3 className="font-bold">Arqueo y cierre</h3>
+                    {turnClose?.modoFlexible && (
+                      <div className="rounded-2xl border border-denim/15 bg-white/60 p-4 text-sm">
+                        <p className="font-bold">Cierre previo del turno</p>
+                        <p className="mt-1 text-denim/60">
+                          El Excel previo es obligatorio. El PDF se genera y
+                          descarga junto con él.
+                        </p>
+                        <p className="mt-2">
+                          Operaciones congeladas: <b>{turnClose.operaciones}</b>
+                        </p>
+                        <p>
+                          Excel:{" "}
+                          {turnClose.excelDescargadoEn
+                            ? "descargado"
+                            : "pendiente"}
+                        </p>
+                        <button
+                          className="secondary mt-3 w-auto px-4"
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void prepareTurnClose()}
+                        >
+                          {turnClose.excelDescargadoEn
+                            ? "Volver a descargar Excel + PDF"
+                            : "Generar y descargar Excel + PDF"}
+                        </button>
+                      </div>
+                    )}
                     <label>
                       Efectivo contado
                       <input
@@ -670,7 +768,16 @@ export function RealCashPage() {
                         onChange={(event) => setObservation(event.target.value)}
                       />
                     </label>
-                    <button className="primary">Cerrar caja</button>
+                    <button
+                      className="primary"
+                      disabled={
+                        busy ||
+                        (turnClose?.modoFlexible === true &&
+                          !turnClose.listoParaCerrar)
+                      }
+                    >
+                      Cerrar caja
+                    </button>
                   </form>
                 )}
               </fieldset>

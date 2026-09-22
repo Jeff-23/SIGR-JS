@@ -1751,6 +1751,14 @@ model Caja {
   fechaApertura DateTime  @default(now())
   fechaCierre   DateTime?
 
+  // Bloque 5D: fotografía inmutable previa al cierre del turno.
+  // Cada apertura/cierre de Caja representa un turno independiente.
+  preCierreGeneradoEn        DateTime?
+  preCierreExcelDescargadoEn DateTime?
+  preCierreSnapshot          Json?
+  preCierreHash              String?   @db.VarChar(64)
+  preCierreGeneradoPorId     Int?
+
   observacionApertura String? @db.VarChar(250)
   observacionCierre   String? @db.VarChar(250)
   aperturaClave       String? @db.VarChar(100)

@@ -231,6 +231,7 @@ export function AdminPage() {
 type Coded = Row & { codigo: string; nombre: string };
 type Role = Row & {
   id: number;
+  clave: string;
   nombre: string;
   permisos: { permiso: Coded }[];
 };
@@ -295,7 +296,7 @@ function AccessPanel() {
       {(global ? catalog.data.planes : roles.data).map((row) => (
         <article className="card flex justify-between" key={row.id}>
           <strong>{row.nombre}</strong>
-          {canManageAccess && (
+          {canManageAccess && (global || !((row as Role).clave === "ADMIN" || (row as Role).clave.endsWith(":ADMIN"))) ? (
             <button
               disabled={session?.demo}
               onClick={() => {
@@ -312,7 +313,11 @@ function AccessPanel() {
             >
               Administrar {global ? "capacidades" : "permisos"}
             </button>
-          )}
+          ) : !global && ((row as Role).clave === "ADMIN" || (row as Role).clave.endsWith(":ADMIN")) ? (
+            <span className="text-sm opacity-60">
+              Rol protegido por plataforma
+            </span>
+          ) : null}
         </article>
       ))}
       {global && canManageAccess && (

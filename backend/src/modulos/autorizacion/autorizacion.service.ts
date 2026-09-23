@@ -298,6 +298,7 @@ export class AutorizacionService {
         where: { id: rolId, restauranteId, ambito: AmbitoRol.RESTAURANTE },
         select: {
           id: true,
+          clave: true,
           permisos: { select: { permiso: { select: { codigo: true } } } },
         },
       }),
@@ -307,6 +308,11 @@ export class AutorizacionService {
       }),
     ]);
     if (!rol) throw new NotFoundException('Rol no encontrado');
+    if (rol.clave === 'ADMIN' || rol.clave.endsWith(':ADMIN')) {
+      throw new ForbiddenException(
+        'El rol ADMIN está protegido y no puede modificarse desde el propio restaurante',
+      );
+    }
     this.validarCodigosCompletos(
       codigos,
       permisos.map((item) => item.codigo),

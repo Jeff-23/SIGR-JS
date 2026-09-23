@@ -318,6 +318,61 @@ function pdfEscape(value: string) {
     .replaceAll(')', '\\)');
 }
 
+function generarPdfDesdeLineas(lines: string[], tituloVacio: string) {
+  const pages: string[][] = [];
+  for (let i = 0; i < lines.length; i += 45) pages.push(lines.slice(i, i + 45));
+  if (pages.length === 0) pages.push([tituloVacio]);
+
+  const objects: string[] = [];
+  objects.push('<< /Type /Catalog /Pages 2 0 R >>');
+  const pageIds = pages.map((_, i) => 3 + i * 2);
+  objects.push(
+    `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`,
+  );
+
+  for (let i = 0; i < pages.length; i += 1) {
+    const pageId = 3 + i * 2;
+    const contentId = pageId + 1;
+    const pageContent = [
+      'BT',
+      '/F1 9 Tf',
+      '40 790 Td',
+      ...pages[i].flatMap((line, index) => [
+        index === 0 ? '' : '0 -16 Td',
+        `(${pdfEscape(line.slice(0, 115))}) Tj`,
+      ]),
+      'ET',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    objects.push(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> /Contents ${contentId} 0 R >>`,
+    );
+    objects.push(
+      `<< /Length ${Buffer.byteLength(pageContent, 'utf8')} >>\nstream\n${pageContent}\nendstream`,
+    );
+  }
+
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  for (let i = 0; i < objects.length; i += 1) {
+    offsets.push(Buffer.byteLength(pdf, 'utf8'));
+    pdf += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
+  }
+
+  const xrefOffset = Buffer.byteLength(pdf, 'utf8');
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+
+  for (let i = 1; i < offsets.length; i += 1) {
+    pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+  }
+
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+
+  return Buffer.from(pdf, 'utf8');
+}
+
 export function generarPdfSimple(snapshot: CierreTurnoSnapshot) {
   const lines = [
     `SIGR - Reporte previo al cierre de turno`,
@@ -339,54 +394,70 @@ export function generarPdfSimple(snapshot: CierreTurnoSnapshot) {
           `  ${detalle.cantidad} x ${detalle.producto} @ ${detalle.precioUnitario.toFixed(2)} = ${detalle.subtotal.toFixed(2)}`,
       ),
     ]),
+    '',
+    'RESUMEN FINAL',
+    `Operaciones: ${snapshot.resumen.operaciones}`,
+    `Total ventas: ${snapshot.resumen.totalVentas.toFixed(2)}`,
+    `Pagos brutos: ${snapshot.resumen.totalPagos.toFixed(2)}`,
+    `Devoluciones: ${snapshot.resumen.totalDevoluciones.toFixed(2)}`,
+    `Cobrado neto: ${snapshot.resumen.totalNetoCobrado.toFixed(2)}`,
+    `Efectivo: ${snapshot.resumen.efectivo.toFixed(2)}`,
+    `Otros pagos: ${snapshot.resumen.otrosPagos.toFixed(2)}`,
   ];
 
-  const pages: string[][] = [];
-  for (let i = 0; i < lines.length; i += 45) pages.push(lines.slice(i, i + 45));
-  if (pages.length === 0)
-    pages.push(['SIGR - Reporte previo al cierre de turno']);
-
-  const objects: string[] = [];
-  objects.push('<< /Type /Catalog /Pages 2 0 R >>');
-  const pageIds = pages.map((_, i) => 3 + i * 2);
-  objects.push(
-    `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`,
+  return generarPdfDesdeLineas(
+    lines,
+    'SIGR - Reporte previo al cierre de turno',
   );
+}
 
-  for (let i = 0; i < pages.length; i += 1) {
-    const pageId = 3 + i * 2;
-    const contentId = pageId + 1;
-    const content = [
-      'BT',
-      '/F1 9 Tf',
-      '40 790 Td',
-      ...pages[i].flatMap((line, index) => [
-        index === 0 ? '' : '0 -16 Td',
-        `(${pdfEscape(line.slice(0, 115))}) Tj`,
-      ]),
-      'ET',
-    ]
-      .filter(Boolean)
-      .join('\n');
-    objects.push(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> /Contents ${contentId} 0 R >>`,
-    );
-    objects.push(
-      `<< /Length ${Buffer.byteLength(content, 'utf8')} >>\nstream\n${content}\nendstream`,
-    );
-  }
+export function generarPdfCierreFinal(data: {
+  cajaId: number;
+  cajaNombre: string;
+  sucursal: string;
+  fechaApertura: Date;
+  fechaCierre: Date;
+  saldoInicial: number;
+  saldoEsperado: number;
+  saldoContado: number;
+  diferencia: number;
+  totalEfectivoSistema: number;
+  totalOtrosPagos: number;
+  totalIngresos: number;
+  totalEgresos: number;
+  observacionCierre: string | null;
+  cerradoPor: string;
+  snapshot: CierreTurnoSnapshot | null;
+}) {
+  const lines = [
+    'SIGR - TIRILLA FINAL DE CIERRE',
+    `Caja: ${data.cajaNombre} (#${data.cajaId})`,
+    `Sucursal: ${data.sucursal}`,
+    `Apertura: ${data.fechaApertura.toISOString()}`,
+    `Cierre: ${data.fechaCierre.toISOString()}`,
+    `Cerrada por: ${data.cerradoPor}`,
+    '',
+    `Base inicial: ${data.saldoInicial.toFixed(2)}`,
+    `Efectivo sistema: ${data.totalEfectivoSistema.toFixed(2)}`,
+    `Otros medios: ${data.totalOtrosPagos.toFixed(2)}`,
+    `Ingresos manuales: ${data.totalIngresos.toFixed(2)}`,
+    `Egresos manuales: ${data.totalEgresos.toFixed(2)}`,
+    `Efectivo esperado: ${data.saldoEsperado.toFixed(2)}`,
+    `Efectivo contado: ${data.saldoContado.toFixed(2)}`,
+    `Diferencia: ${data.diferencia.toFixed(2)}`,
+    `Observacion: ${data.observacionCierre ?? '-'}`,
+    '',
+    'RESUMEN DEL TURNO',
+    ...(data.snapshot
+      ? [
+          `Operaciones: ${data.snapshot.resumen.operaciones}`,
+          `Total ventas: ${data.snapshot.resumen.totalVentas.toFixed(2)}`,
+          `Pagos brutos: ${data.snapshot.resumen.totalPagos.toFixed(2)}`,
+          `Devoluciones: ${data.snapshot.resumen.totalDevoluciones.toFixed(2)}`,
+          `Cobrado neto: ${data.snapshot.resumen.totalNetoCobrado.toFixed(2)}`,
+        ]
+      : ['Snapshot previo no disponible']),
+  ];
 
-  let pdf = '%PDF-1.4\n';
-  const offsets = [0];
-  for (let i = 0; i < objects.length; i += 1) {
-    offsets.push(Buffer.byteLength(pdf, 'utf8'));
-    pdf += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
-  }
-  const xrefOffset = Buffer.byteLength(pdf, 'utf8');
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  for (let i = 1; i < offsets.length; i += 1) {
-    pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
-  }
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-  return Buffer.from(pdf, 'utf8');
+  return generarPdfDesdeLineas(lines, 'SIGR - TIRILLA FINAL DE CIERRE');
 }

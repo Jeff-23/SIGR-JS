@@ -16,6 +16,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { SyncBusinessService } from '../sync/sync-business.service';
+import { FacturasService } from '../facturas/facturas.service';
 
 import { AbrirCajaDto } from './dto/abrir-caja.dto';
 import { CerrarCajaDto } from './dto/cerrar-caja.dto';
@@ -27,6 +28,7 @@ import {
   CierreTurnoSnapshot,
   generarXlsx,
   generarPdfSimple,
+  generarPdfCierreFinal,
 } from './cierre-turno-reportes';
 import {
   hashSolicitud,
@@ -39,6 +41,7 @@ export class CajasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly syncBusiness: SyncBusinessService,
+    private readonly facturasService: FacturasService,
   ) {}
 
   private esSuperadmin(usuario: UsuarioAutenticado) {
@@ -695,6 +698,50 @@ export class CajasService {
   }
 
   async prepararCierreTurno(cajaId: number, usuario: UsuarioAutenticado) {
+    const cajaActual = await this.prisma.caja.findFirst({
+      where: {
+        id: cajaId,
+        sucursal: this.filtroSucursal(usuario),
+      },
+      select: {
+        id: true,
+        estado: true,
+        preCierreSnapshot: true,
+      },
+    });
+
+    if (!cajaActual) {
+      throw new NotFoundException('Caja no encontrada');
+    }
+
+    if (
+      cajaActual.estado === EstadoCaja.ABIERTA &&
+      !cajaActual.preCierreSnapshot
+    ) {
+      const ventasSinComprobante = await this.prisma.venta.findMany({
+        where: {
+          estado: 'PAGADA',
+          factura: null,
+          sucursal: this.filtroSucursal(usuario),
+          pagos: {
+            some: {
+              cajaId,
+            },
+          },
+        },
+        select: {
+          id: true,
+        },
+        orderBy: {
+          id: 'asc',
+        },
+      });
+
+      for (const venta of ventasSinComprobante) {
+        await this.facturasService.crearDesdeVenta(venta.id, usuario);
+      }
+    }
+
     return this.prisma.transaccionSerializable(async (tx) => {
       await this.bloquearCaja(tx, cajaId);
       const caja = await this.obtenerCajaTurno(tx, cajaId, usuario);
@@ -1196,6 +1243,59 @@ export class CajasService {
     });
   }
 
+  async descargarTirillaCierre(cajaId: number, usuario: UsuarioAutenticado) {
+    const caja = await this.prisma.caja.findFirst({
+      where: {
+        id: cajaId,
+        sucursal: this.filtroSucursal(usuario),
+      },
+      include: {
+        sucursal: true,
+        cerradaPor: {
+          select: {
+            nombres: true,
+            apellidos: true,
+          },
+        },
+      },
+    });
+
+    if (!caja) {
+      throw new NotFoundException('Caja no encontrada');
+    }
+
+    if (caja.estado !== EstadoCaja.CERRADA || !caja.fechaCierre) {
+      throw new BadRequestException('La caja todavía no está cerrada');
+    }
+
+    const snapshot = caja.preCierreSnapshot as CierreTurnoSnapshot | null;
+
+    const contenido = generarPdfCierreFinal({
+      cajaId: caja.id,
+      cajaNombre: caja.nombre,
+      sucursal: caja.sucursal.nombre,
+      fechaApertura: caja.fechaApertura,
+      fechaCierre: caja.fechaCierre,
+      saldoInicial: Number(caja.saldoInicial),
+      saldoEsperado: Number(caja.saldoEsperado ?? 0),
+      saldoContado: Number(caja.saldoContado ?? 0),
+      diferencia: Number(caja.diferencia ?? 0),
+      totalEfectivoSistema: Number(caja.totalEfectivoSistema ?? 0),
+      totalOtrosPagos: Number(caja.totalOtrosPagos ?? 0),
+      totalIngresos: Number(caja.totalIngresos ?? 0),
+      totalEgresos: Number(caja.totalEgresos ?? 0),
+      observacionCierre: caja.observacionCierre,
+      cerradoPor: caja.cerradaPor
+        ? `${caja.cerradaPor.nombres} ${caja.cerradaPor.apellidos}`.trim()
+        : 'Usuario no disponible',
+      snapshot,
+    });
+
+    return {
+      contenido,
+      nombre: `cierre-turno-${caja.id}-final.pdf`,
+    };
+  }
   async cerrar(
     cajaId: number,
     data: CerrarCajaDto,

@@ -185,6 +185,25 @@ export class CajasController {
     return this.cajasService.registrarMovimiento(id, data, request.user, clave);
   }
 
+  @Get(':id/cierre-turno/tirilla')
+  @Permisos('CAJA_CERRAR')
+  async descargarTirillaCierre(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+    @Res() response: Response,
+  ) {
+    const archivo = await this.cajasService.descargarTirillaCierre(
+      id,
+      request.user,
+    );
+
+    response.setHeader('Content-Type', 'application/pdf');
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${archivo.nombre}"`,
+    );
+    response.send(archivo.contenido);
+  }
   @Post(':id/cerrar')
   @Permisos('CAJA_CERRAR')
   cerrar(

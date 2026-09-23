@@ -26,6 +26,8 @@ export function RealCashPage() {
   const attemptKey = `sigr-payment:${api.defaults.baseURL}:${session?.user.restauranteId}:${session?.user.id}:${branchId}`;
   const [drawers, setDrawers] = useState<CashDrawer[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
+  const [salesPage, setSalesPage] = useState(1);
+  const [hasMoreSales, setHasMoreSales] = useState(false);
   const [orders, setOrders] = useState<ApiOrder[]>([]);
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
   const [history, setHistory] = useState<CashDrawer[]>([]);
@@ -46,7 +48,9 @@ export function RealCashPage() {
       fechaOperacion: string;
     }>
   >([]);
-  const [selectedExclusionIds, setSelectedExclusionIds] = useState<number[]>([]);
+  const [selectedExclusionIds, setSelectedExclusionIds] = useState<number[]>(
+    [],
+  );
   const [exclusionReason, setExclusionReason] = useState("");
   const [exclusionPassword, setExclusionPassword] = useState("");
   const [fiscalUniverse, setFiscalUniverse] = useState<{
@@ -118,11 +122,16 @@ export function RealCashPage() {
     if (!branchId) return;
     try {
       const params = { sucursalId: branchId };
+      const salesParams = {
+        sucursalId: branchId,
+        pagina: 1,
+        limite: 200,
+      };
       const [cash, salesResponse, ordersResponse, methodResponse, historic] =
         await Promise.all([
           api.get<CashDrawer[]>("/cajas/abiertas", { params }),
           hasPermission("VENTAS_VER")
-            ? api.get<Sale[]>("/ventas", { params })
+            ? api.get<Sale[]>("/ventas", { params: salesParams })
             : Promise.resolve({ data: [] as Sale[] }),
           hasPermission("PEDIDOS_VER")
             ? api.get<ApiOrder[]>("/pedidos", { params })
@@ -134,7 +143,22 @@ export function RealCashPage() {
         ]);
       if (!mounted.current) return;
       setDrawers(cash.data);
-      setSales(salesResponse.data);
+      setSales((current) =>
+        salesPage === 1
+          ? salesResponse.data
+          : [
+              ...salesResponse.data,
+              ...current.filter(
+                (existing) =>
+                  !salesResponse.data.some(
+                    (incoming) => incoming.id === existing.id,
+                  ),
+              ),
+            ],
+      );
+      if (salesPage === 1) {
+        setHasMoreSales(salesResponse.data.length === 200);
+      }
       setOrders(ordersResponse.data);
       setMethods(methodResponse.data.filter((method) => method.activo));
       setHistory(historic.data);
@@ -161,17 +185,49 @@ export function RealCashPage() {
     } finally {
       if (mounted.current) setLoading(false);
     }
-  }, [branchId, hasPermission, attemptKey]);
+  }, [branchId, hasPermission, attemptKey, salesPage]);
   useEffect(() => {
     mounted.current = true;
     const start = window.setTimeout(() => void load(), 0);
     const timer = window.setInterval(() => void load(), 10000);
+
     return () => {
       mounted.current = false;
       clearTimeout(start);
       clearInterval(timer);
     };
   }, [load]);
+
+  async function loadOlderSales() {
+    if (!branchId || !hasPermission("VENTAS_VER")) return;
+
+    const nextPage = salesPage + 1;
+
+    try {
+      const response = await api.get<Sale[]>("/ventas", {
+        params: {
+          sucursalId: branchId,
+          pagina: nextPage,
+          limite: 200,
+        },
+      });
+
+      if (!mounted.current) return;
+
+      setSales((current) => [
+        ...current,
+        ...response.data.filter(
+          (incoming) =>
+            !current.some((existing) => existing.id === incoming.id),
+        ),
+      ]);
+
+      setSalesPage(nextPage);
+      setHasMoreSales(response.data.length === 200);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  }
 
   async function run(action: () => Promise<unknown>) {
     if (lock.current) return;
@@ -266,6 +322,17 @@ export function RealCashPage() {
     URL.revokeObjectURL(url);
   }
 
+  async function reprintCloseReceipt(drawerId: number) {
+    await run(async () => {
+      const tirilla = await api.get(`/cajas/${drawerId}/cierre-turno/tirilla`, {
+        responseType: "blob",
+      });
+
+      downloadBlob(tirilla.data as Blob, `cierre-turno-${drawerId}-final.pdf`);
+
+      toast.success("Tirilla de cierre descargada");
+    });
+  }
   async function prepareTurnClose() {
     if (!selectedDrawer) return;
     await run(async () => {
@@ -464,6 +531,28 @@ export function RealCashPage() {
         );
       })
     : pendingSales;
+  const hoy = new Date();
+  const ayer = new Date(hoy);
+  ayer.setDate(ayer.getDate() - 1);
+
+  const claveFecha = (value: string) =>
+    new Date(value).toLocaleDateString("es-CO");
+
+  const hoyClave = claveFecha(hoy.toISOString());
+  const ayerClave = claveFecha(ayer.toISOString());
+
+  const salesByDay = sales.reduce<Record<string, Sale[]>>((groups, sale) => {
+    const key = claveFecha(sale.fechaOperacion);
+    (groups[key] ??= []).push(sale);
+    return groups;
+  }, {});
+
+  const dayLabel = (key: string) => {
+    if (key === hoyClave) return "Hoy";
+    if (key === ayerClave) return "Ayer";
+    return key;
+  };
+
   return (
     <div className="space-y-6">
       <header className="section-title">
@@ -707,34 +796,133 @@ export function RealCashPage() {
             )}
         </section>
         <section className="card">
-          <h2 className="text-xl font-bold">Ventas recientes</h2>
-          <div className="mt-3 divide-y">
-            {sales.slice(0, 30).map((sale) => (
-              <button
-                key={sale.id}
-                className="flex w-full justify-between py-3 text-left"
-                onClick={() => chooseSale(sale)}
-              >
-                <span>
-                  #{sale.id} · {sale.estado}
-                </span>
-                <strong>{money.format(Number(sale.total))}</strong>
-              </button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-xl font-bold">Ventas recientes</h2>
+            <span className="text-sm text-denim/55">
+              {sales.length} ventas cargadas
+            </span>
+          </div>
+
+          <div className="mt-3 space-y-5">
+            {Object.entries(salesByDay).map(([day, daySales]) => (
+              <div key={day}>
+                <div className="mb-1 flex items-center justify-between border-b border-denim/10 pb-2">
+                  <h3 className="font-black">{dayLabel(day)}</h3>
+                  <span className="text-xs text-denim/50">
+                    {daySales.length} ventas
+                  </span>
+                </div>
+
+                <div className="divide-y divide-denim/10">
+                  {daySales.map((sale) => (
+                    <button
+                      key={sale.id}
+                      className="flex w-full flex-wrap items-center justify-between gap-3 py-3 text-left"
+                      onClick={() => chooseSale(sale)}
+                    >
+                      <span>
+                        <b>#{sale.id}</b>
+                        {" · "}
+                        {sale.estado}
+                        {sale.pedido?.mesa
+                          ? ` · Mesa ${sale.pedido.mesa.numero}`
+                          : ""}
+                        <small className="ml-2 text-denim/45">
+                          {new Date(sale.fechaOperacion).toLocaleTimeString(
+                            "es-CO",
+                            {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            },
+                          )}
+                        </small>
+                      </span>
+                      <strong>{money.format(Number(sale.total))}</strong>
+                    </button>
+                  ))}
+                </div>
+              </div>
             ))}
+
+            {sales.length === 0 && !loading && (
+              <p className="text-sm text-denim/55">
+                No hay ventas para mostrar.
+              </p>
+            )}
+
+            {hasMoreSales && (
+              <button
+                className="secondary w-full"
+                disabled={busy}
+                onClick={() => void loadOlderSales()}
+              >
+                Ver 200 ventas anteriores
+              </button>
+            )}
           </div>
         </section>
         <section className="card">
-          <h2 className="text-xl font-bold">Historial de cajas</h2>
-          {history.map((drawer) => (
-            <button
-              className="mt-3 block text-left underline"
-              key={drawer.id}
-              onClick={() => void run(() => drawerDetail(drawer.id))}
-            >
-              {drawer.nombre} · {drawer.estado} ·{" "}
-              {new Date(drawer.fechaApertura).toLocaleString("es-CO")}
-            </button>
-          ))}
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-bold">Cajas cerradas</h2>
+              <p className="text-sm text-denim/60">
+                Historial operativo del turno. No muestra comprobantes
+                excluidos.
+              </p>
+            </div>
+            <span className="text-sm text-denim/50">
+              {history.filter((drawer) => drawer.estado === "CERRADA").length}{" "}
+              cierres
+            </span>
+          </div>
+
+          <div className="mt-4 divide-y">
+            {history
+              .filter((drawer) => drawer.estado === "CERRADA")
+              .slice(0, 30)
+              .map((drawer) => (
+                <div
+                  key={drawer.id}
+                  className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div>
+                    <p className="font-semibold">
+                      {drawer.nombre} · Caja #{drawer.id}
+                    </p>
+                    <p className="text-sm text-denim/60">
+                      Cerrada{" "}
+                      {drawer.fechaCierre
+                        ? new Date(drawer.fechaCierre).toLocaleString("es-CO")
+                        : "sin fecha registrada"}
+                    </p>
+                    {drawer.diferencia !== undefined && (
+                      <p className="text-sm text-denim/60">
+                        Diferencia: {money.format(Number(drawer.diferencia))}
+                      </p>
+                    )}
+                  </div>
+
+                  {hasPermission("CAJA_CERRAR") && (
+                    <button
+                      type="button"
+                      className="secondary w-auto"
+                      disabled={busy}
+                      onClick={() => void reprintCloseReceipt(drawer.id)}
+                    >
+                      Reimprimir tirilla
+                    </button>
+                  )}
+                </div>
+              ))}
+
+            {!loading &&
+              history.filter((drawer) => drawer.estado === "CERRADA").length ===
+                0 && (
+                <p className="py-4 text-sm text-denim/60">
+                  No hay cajas cerradas en esta sucursal.
+                </p>
+              )}
+          </div>
         </section>
       </fieldset>
       {selectedDrawer && (
@@ -905,15 +1093,18 @@ export function RealCashPage() {
                       turnClose.excelDescargadoEn &&
                       hasPermission("DOCUMENTOS_INTERNOS_EXCLUIR_CIERRE") && (
                         <div className="rounded-2xl border border-denim/15 bg-white/60 p-4 text-sm">
-                          <p className="font-bold">Exclusión de comprobantes internos</p>
+                          <p className="font-bold">
+                            Exclusión de comprobantes internos
+                          </p>
                           <p className="mt-1 text-denim/60">
-                            Solo aparecen comprobantes del Excel previo que aún no
-                            iniciaron facturación electrónica. La venta, el pago y
-                            la caja no se eliminan.
+                            Solo aparecen comprobantes del Excel previo que aún
+                            no iniciaron facturación electrónica. La venta, el
+                            pago y la caja no se eliminan.
                           </p>
                           {turnExclusions.length === 0 ? (
                             <p className="mt-3 text-denim/60">
-                              No hay comprobantes internos disponibles para excluir.
+                              No hay comprobantes internos disponibles para
+                              excluir.
                             </p>
                           ) : (
                             <>
@@ -994,11 +1185,14 @@ export function RealCashPage() {
                         <div className="rounded-2xl border border-denim/15 bg-white/60 p-4 text-sm">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div>
-                              <p className="font-bold">Preparación fiscal del turno</p>
+                              <p className="font-bold">
+                                Preparación fiscal del turno
+                              </p>
                               <p className="mt-1 text-denim/60">
-                                Separa automáticamente lo ya fiscalizado, lo que está en
-                                proceso y lo que todavía puede prepararse. Preparar no
-                                asigna consecutivo ni transmite a DIAN.
+                                Separa automáticamente lo ya fiscalizado, lo que
+                                está en proceso y lo que todavía puede
+                                prepararse. Preparar no asigna consecutivo ni
+                                transmite a DIAN.
                               </p>
                             </div>
                             {fiscalUniverse.elegibles.length > 0 && (
@@ -1019,32 +1213,43 @@ export function RealCashPage() {
                           </div>
                           <div className="mt-3 grid gap-2 sm:grid-cols-4">
                             <div className="rounded-xl border border-denim/10 bg-white p-3">
-                              <span className="block text-denim/50">Excluidos</span>
+                              <span className="block text-denim/50">
+                                Excluidos
+                              </span>
                               <b>{fiscalUniverse.resumen.excluidas}</b>
                             </div>
                             <div className="rounded-xl border border-denim/10 bg-white p-3">
-                              <span className="block text-denim/50">Ya fiscalizados</span>
+                              <span className="block text-denim/50">
+                                Ya fiscalizados
+                              </span>
                               <b>{fiscalUniverse.resumen.yaFiscalizadas}</b>
                             </div>
                             <div className="rounded-xl border border-denim/10 bg-white p-3">
-                              <span className="block text-denim/50">En proceso</span>
+                              <span className="block text-denim/50">
+                                En proceso
+                              </span>
                               <b>{fiscalUniverse.resumen.enProceso}</b>
                             </div>
                             <div className="rounded-xl border border-denim/10 bg-white p-3">
-                              <span className="block text-denim/50">Elegibles</span>
+                              <span className="block text-denim/50">
+                                Elegibles
+                              </span>
                               <b>{fiscalUniverse.resumen.elegibles}</b>
                             </div>
                           </div>
                           {fiscalUniverse.resumen.sinComprobante > 0 && (
                             <p className="mt-3 rounded-xl border border-amber-300/50 bg-amber-50 p-3 text-amber-900">
-                              Hay {fiscalUniverse.resumen.sinComprobante} operación(es)
-                              del Excel previo sin comprobante interno y no se incluirán
-                              en la preparación fiscal.
+                              Hay {fiscalUniverse.resumen.sinComprobante}{" "}
+                              operación(es) del Excel previo sin comprobante
+                              interno y no se incluirán en la preparación
+                              fiscal.
                             </p>
                           )}
                           {fiscalUniverse.yaFiscalizadas.length > 0 && (
                             <div className="mt-3">
-                              <p className="font-semibold">Ya fiscalizados durante la atención</p>
+                              <p className="font-semibold">
+                                Ya fiscalizados durante la atención
+                              </p>
                               <div className="mt-2 space-y-2">
                                 {fiscalUniverse.yaFiscalizadas.map((item) => (
                                   <div
@@ -1065,7 +1270,9 @@ export function RealCashPage() {
                           )}
                           {fiscalUniverse.enProceso.length > 0 && (
                             <div className="mt-3">
-                              <p className="font-semibold">Flujo electrónico ya iniciado</p>
+                              <p className="font-semibold">
+                                Flujo electrónico ya iniciado
+                              </p>
                               <div className="mt-2 space-y-2">
                                 {fiscalUniverse.enProceso.map((item) => (
                                   <div
@@ -1081,7 +1288,8 @@ export function RealCashPage() {
                           )}
                           {fiscalUniverse.elegibles.length === 0 ? (
                             <p className="mt-3 text-denim/60">
-                              No quedan comprobantes internos elegibles para preparar.
+                              No quedan comprobantes internos elegibles para
+                              preparar.
                             </p>
                           ) : (
                             <>
@@ -1116,10 +1324,13 @@ export function RealCashPage() {
                               <button
                                 className="primary mt-3 w-auto px-4"
                                 type="button"
-                                disabled={busy || selectedFiscalIds.length === 0}
+                                disabled={
+                                  busy || selectedFiscalIds.length === 0
+                                }
                                 onClick={() => void prepareFiscalSelection()}
                               >
-                                Preparar seleccionados para facturación electrónica
+                                Preparar seleccionados para facturación
+                                electrónica
                               </button>
                             </>
                           )}

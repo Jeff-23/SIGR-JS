@@ -653,6 +653,17 @@ export function RealSalonPage() {
     );
   };
 
+  const deliverDirect = async (commandIds: number[]) => {
+    await run(
+      async () => {
+        for (const commandId of [...new Set(commandIds)]) {
+          await api.patch(`/comandas/${commandId}/entrega-directa`);
+        }
+      },
+      "Entrega directa confirmada",
+    );
+  };
+
   const previewPreaccount = async (order: ApiOrder) => {
     try {
       const { data } = await api.get<{
@@ -1598,6 +1609,22 @@ export function RealSalonPage() {
                       const ready = (detail.comandas ?? [])
                         .filter((item) => item.comanda?.estado !== "CANCELADA" && item.estado === "LISTA")
                         .reduce((sum, item) => sum + item.cantidad, 0);
+                      const directCommandIds =
+                        detail.producto.requierePreparacion === false
+                          ? [
+                              ...new Set(
+                                (detail.comandas ?? [])
+                                  .filter(
+                                    (item) =>
+                                      item.comanda &&
+                                      !["ENTREGADA", "CANCELADA"].includes(
+                                        item.comanda.estado,
+                                      ),
+                                  )
+                                  .map((item) => item.comanda!.id),
+                              ),
+                            ]
+                          : [];
                       return (
                         <div className="py-3" key={detail.id}>
                           <div className="flex flex-wrap items-center gap-3">
@@ -1656,6 +1683,19 @@ export function RealSalonPage() {
                             <b className="w-28 text-right">
                               {money.format(Number(detail.subtotal))}
                             </b>
+                            {directCommandIds.length > 0 &&
+                              hasPermission("PEDIDOS_EDITAR") && (
+                                <button
+                                  className="secondary h-9 w-auto px-3 text-xs text-emerald-700"
+                                  disabled={saving}
+                                  onClick={() =>
+                                    void deliverDirect(directCommandIds)
+                                  }
+                                >
+                                  <CheckCircle2 size={14} />
+                                  Entregar directo
+                                </button>
+                              )}
                           </div>
                           <input
                             className="mt-2 w-full rounded-xl border border-denim/10 bg-white/70 px-3 py-2 text-sm"

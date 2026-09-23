@@ -702,6 +702,62 @@ export class ComandasService {
     });
   }
 
+  async entregarDirecta(id: number, usuario: UsuarioAutenticado) {
+    const comanda = await this.prisma.comanda.findFirst({
+      where: {
+        id,
+        pedido: this.filtroPedido(usuario),
+      },
+      include: {
+        detalles: {
+          include: {
+            detallePedido: {
+              select: {
+                producto: {
+                  select: { requierePreparacion: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!comanda) {
+      throw new NotFoundException('Comanda no encontrada');
+    }
+
+    if (
+      comanda.detalles.length === 0 ||
+      comanda.detalles.some(
+        (detalle) => detalle.detallePedido.producto.requierePreparacion,
+      )
+    ) {
+      throw new ForbiddenException(
+        'Esta acción solo está permitida para comandas de entrega directa',
+      );
+    }
+
+    if (comanda.estado === EstadoComanda.CANCELADA) {
+      throw new BadRequestException('La comanda está cancelada');
+    }
+
+    if (comanda.estado === EstadoComanda.ENTREGADA) {
+      return comanda;
+    }
+
+    if (comanda.estado === EstadoComanda.EN_PREPARACION) {
+      throw new BadRequestException(
+        'Una comanda de entrega directa no puede estar en preparación',
+      );
+    }
+
+    if (comanda.estado === EstadoComanda.PENDIENTE) {
+      await this.actualizarEstado(id, EstadoComanda.LISTA, usuario);
+    }
+
+    return this.actualizarEstado(id, EstadoComanda.ENTREGADA, usuario);
+  }
   async actualizarPrioridad(
     id: number,
     prioridad: PrioridadComanda,

@@ -142,6 +142,15 @@ export class ComandasController {
     return this.comandasService.actualizarEstacion(id, data, request.user);
   }
 
+  @Patch('comandas/:id/entrega-directa')
+  @Permisos('PEDIDOS_EDITAR')
+  entregarDirecta(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.comandasService.entregarDirecta(id, request.user);
+  }
+
   @Patch('comandas/:id/estado')
   @Permisos('COMANDAS_ACTUALIZAR_ESTADO')
   actualizarEstado(

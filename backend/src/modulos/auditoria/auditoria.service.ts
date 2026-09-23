@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { EstadoVenta, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
@@ -67,6 +67,27 @@ export class AuditoriaService {
       );
     }
 
+    const ventasAnuladasOcultas = global
+      ? []
+      : await this.prisma.venta.findMany({
+          where: {
+            estado: EstadoVenta.ANULADA,
+            sucursal: {
+              restauranteId: usuario.restauranteId,
+            },
+            ...(usuario.sucursalId !== null
+              ? { sucursalId: usuario.sucursalId }
+              : filtros.sucursalId
+                ? { sucursalId: filtros.sucursalId }
+                : {}),
+          },
+          select: { id: true },
+        });
+
+    const idsVentasAnuladas = ventasAnuladasOcultas.map((venta) =>
+      String(venta.id),
+    );
+
     const where: Prisma.EventoAuditoriaWhereInput = {
       ...(global ? {} : { restauranteId: usuario.restauranteId }),
       ...(usuario.sucursalId !== null
@@ -77,6 +98,14 @@ export class AuditoriaService {
       ...(filtros.accion ? { accion: filtros.accion } : {}),
       ...(filtros.recurso ? { recurso: filtros.recurso } : {}),
       ...(filtros.actorId ? { actorId: filtros.actorId } : {}),
+      ...(idsVentasAnuladas.length > 0
+        ? {
+            NOT: {
+              recurso: 'VENTA',
+              recursoId: { in: idsVentasAnuladas },
+            },
+          }
+        : {}),
       ...(filtros.desde || filtros.hasta
         ? {
             creadoEn: {

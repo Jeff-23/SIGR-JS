@@ -1164,11 +1164,16 @@ export class VentasService {
         'La fecha desde no puede ser posterior a la fecha hasta',
       );
     }
+    const global =
+      usuarioActual.rol === 'SUPERADMIN' &&
+      usuarioActual.restauranteId === null;
+
     return this.prisma.venta.findMany({
       where: {
         sucursal: this.filtroSucursal(usuarioActual),
         ...(filtros.sucursalId ? { sucursalId: filtros.sucursalId } : {}),
         ...(filtros.estado ? { estado: filtros.estado } : {}),
+        ...(!global ? { NOT: { estado: EstadoVenta.ANULADA } } : {}),
         ...(filtros.origen ? { origen: filtros.origen } : {}),
         ...(filtros.desde || filtros.hasta
           ? {
@@ -1218,6 +1223,10 @@ export class VentasService {
         id,
 
         sucursal: this.filtroSucursal(usuarioActual),
+        ...(usuarioActual.rol === 'SUPERADMIN' &&
+        usuarioActual.restauranteId === null
+          ? {}
+          : { NOT: { estado: EstadoVenta.ANULADA } }),
       },
 
       include: {

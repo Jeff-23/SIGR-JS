@@ -20,6 +20,7 @@ import {
 } from '../auditoria/auditoria-contexto';
 import { AuditoriaDetallada } from '../auditoria/auditoria-detallada.decorator';
 import { CreateRestauranteDto } from './dto/create-restaurante.dto';
+import { DesactivarRestauranteDto } from './dto/desactivar-restaurante.dto';
 import { UpdateRestauranteDto } from './dto/update-restaurante.dto';
 import { RestaurantesService } from './restaurantes.service';
 
@@ -72,10 +73,12 @@ export class RestaurantesController {
   @Delete(':id')
   remove(
     @Param('id', ParseIntPipe) id: number,
+    @Body() data: DesactivarRestauranteDto,
     @Req() request: RequestAuditable,
   ) {
     return this.restaurantesService.remove(
       id,
+      data.password,
       request.user,
       construirContextoAuditoria(request),
     );

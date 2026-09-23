@@ -319,6 +319,8 @@ export function AppShell() {
     : branchId && hasPermission("COMANDAS_VER") && hasCapability("KDS")
       ? pendingKitchenCommands
       : 0;
+  const globalSuperadmin =
+    session?.user.rol === "SUPERADMIN" && session.user.restauranteId === null;
   return (
     <div className="min-h-screen bg-[rgb(var(--sigr-background))] text-denim">
       <a href="#contenido-principal" className="skip-link">
@@ -341,9 +343,11 @@ export function AppShell() {
           {nav
             .filter(
               (item) =>
-                hasPermission(item.permission) &&
-                hasAnyPermission(session?.user, item.anyPermissions) &&
-                hasCapability(item.capability),
+                (globalSuperadmin &&
+                  (item.to === "/" || item.to === "/administracion")) ||
+                (hasPermission(item.permission) &&
+                  hasAnyPermission(session?.user, item.anyPermissions) &&
+                  hasCapability(item.capability)),
             )
             .sort(
               (a, b) =>

@@ -82,6 +82,25 @@ function RoleWorkspace() {
   };
 
   const workspaces: Record<string, Workspace> = {
+    SUPERADMIN: {
+      title: "Administración global de SIGR",
+      description: "Gestiona restaurantes, planes y políticas privadas de plataforma sin asumir funciones operativas de una sede.",
+      functions: [
+        "Consultar y administrar restaurantes registrados en SIGR.",
+        "Gestionar capacidades de planes y asignar planes a restaurantes.",
+        "Configurar la política CONTROLADA/FLEXIBLE de documentos internos.",
+        "Mantener separado el alcance global de la operación cotidiana de cada sede.",
+      ],
+      actions: [
+        {
+          to: "/administracion",
+          label: "Administración global",
+          detail: "Restaurantes, planes y política interna",
+          icon: Store,
+          visible: true,
+        },
+      ],
+    },
     MESERO: {
       title: "Tu turno en salón",
       description: "Toma pedidos, sigue la preparación y atiende las mesas que necesitan acción.",

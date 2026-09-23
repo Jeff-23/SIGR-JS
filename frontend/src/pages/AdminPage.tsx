@@ -169,6 +169,7 @@ export function AdminPage() {
       ...restaurants,
       create: "AUTORIZACION_GESTIONAR",
       edit: "AUTORIZACION_GESTIONAR",
+      remove: "AUTORIZACION_GESTIONAR",
     });
   const [tab, setTab] = useState("");
   const selected = available.find((r) => r.key === tab) ?? available[0];
@@ -185,7 +186,7 @@ export function AdminPage() {
             {r.title}
           </button>
         ))}
-        {hasPermission("AUTORIZACION_VER") && (
+        {(global || hasPermission("AUTORIZACION_VER")) && (
           <button
             className="secondary w-auto px-4"
             onClick={() => setTab("accesos")}
@@ -210,7 +211,7 @@ export function AdminPage() {
           </button>
         )}
       </nav>
-      {tab === "accesos" && hasPermission("AUTORIZACION_VER") ? (
+      {tab === "accesos" && (global || hasPermission("AUTORIZACION_VER")) ? (
         <AccessPanel key={session?.user.id} />
       ) : tab === "politica-documentos" && global ? (
         <InternalDocumentPolicyPanel key={session?.user.id} />
@@ -242,6 +243,8 @@ function AccessPanel() {
   const { session, hasPermission } = useApp();
   const global =
     session?.user.rol === "SUPERADMIN" && session.user.restauranteId === null;
+  const canManageAccess =
+    global || hasPermission("AUTORIZACION_GESTIONAR");
   const catalog = useResource<{
     planes: Plan[];
     capacidades: Coded[];
@@ -292,7 +295,7 @@ function AccessPanel() {
       {(global ? catalog.data.planes : roles.data).map((row) => (
         <article className="card flex justify-between" key={row.id}>
           <strong>{row.nombre}</strong>
-          {hasPermission("AUTORIZACION_GESTIONAR") && (
+          {canManageAccess && (
             <button
               disabled={session?.demo}
               onClick={() => {
@@ -312,7 +315,7 @@ function AccessPanel() {
           )}
         </article>
       ))}
-      {global && hasPermission("AUTORIZACION_GESTIONAR") && (
+      {global && canManageAccess && (
         <form
           className="card space-y-3"
           onSubmit={async (e) => {
@@ -564,7 +567,7 @@ function InternalDocumentPolicyPanel() {
             </div>
             <button
               className="primary mt-4"
-              disabled={busy || session?.demo || password.length < 10 || pin.length < 6}
+              disabled={busy || session?.demo || password.length < 1 || pin.length < 6}
               onClick={() => void savePolicy()}
             >
               Confirmar cambio privado

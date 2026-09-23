@@ -14,6 +14,10 @@ import {
 
 export function ResourcePanel({ resource }: { resource: Resource }) {
   const { branchId, session, hasPermission, online } = useApp();
+  const globalSuperadmin =
+    session?.user.rol === "SUPERADMIN" && session.user.restauranteId === null;
+  const canManage = (permission?: string | null) =>
+    Boolean(permission) && (globalSuperadmin || hasPermission(permission));
   const [rows, setRows] = useState<Row[]>([]),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true),
@@ -21,6 +25,7 @@ export function ResourcePanel({ resource }: { resource: Resource }) {
     [search, setSearch] = useState(""),
     [page, setPage] = useState(1),
     [editor, setEditor] = useState<Row | null | undefined>(undefined),
+    [removing, setRemoving] = useState<Row | null>(null),
     [photoProduct, setPhotoProduct] = useState<Row | null>(null);
   const url = (resource.listPath ?? resource.path).replaceAll(
     ":sede",
@@ -86,7 +91,7 @@ export function ResourcePanel({ resource }: { resource: Resource }) {
           <h2 className="text-2xl font-bold">{resource.title}</h2>
           {resource.notice && <p className="mt-2 text-sm">{resource.notice}</p>}
         </div>
-        {resource.create && hasPermission(resource.create) && (
+        {resource.create && canManage(resource.create) && (
           <button
             className="primary w-auto px-5"
             disabled={!online || session?.demo}
@@ -150,7 +155,7 @@ export function ResourcePanel({ resource }: { resource: Resource }) {
                   ))}
                   <td className="p-4">
                     <div className="flex flex-wrap gap-2">
-                      {resource.key === "productos" && resource.edit && hasPermission(resource.edit) && (
+                      {resource.key === "productos" && resource.edit && canManage(resource.edit) && (
                         <button
                           className="secondary h-10 w-auto px-3"
                           disabled={!online}
@@ -159,13 +164,22 @@ export function ResourcePanel({ resource }: { resource: Resource }) {
                           Foto
                         </button>
                       )}
-                      {resource.edit && hasPermission(resource.edit) && (
+                      {resource.edit && canManage(resource.edit) && (
                         <button
                           className="secondary h-10 w-auto px-3"
                           disabled={!online}
                           onClick={() => setEditor(row)}
                         >
                           Editar #{row.id}
+                        </button>
+                      )}
+                      {resource.remove && canManage(resource.remove) && (
+                        <button
+                          className="secondary h-10 w-auto px-3 text-red-800"
+                          disabled={!online}
+                          onClick={() => setRemoving(row)}
+                        >
+                          Eliminar
                         </button>
                       )}
                     </div>
@@ -206,6 +220,17 @@ export function ResourcePanel({ resource }: { resource: Resource }) {
           }}
         />
       )}
+      {removing && (
+        <ResourceRemoveDialog
+          resource={resource}
+          row={removing}
+          onClose={() => setRemoving(null)}
+          onRemoved={() => {
+            setRemoving(null);
+            setRevision((n) => n + 1);
+          }}
+        />
+      )}
       {editor !== undefined && (
         <ResourceEditor
           resource={resource}
@@ -218,6 +243,88 @@ export function ResourcePanel({ resource }: { resource: Resource }) {
         />
       )}
     </section>
+  );
+}
+
+
+function ResourceRemoveDialog({
+  resource,
+  row,
+  onClose,
+  onRemoved,
+}: {
+  resource: Resource;
+  row: Row;
+  onClose: () => void;
+  onRemoved: () => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const label = display(row.nombre ?? row.razonSocial ?? `#${row.id}`);
+
+  async function remove(e: FormEvent) {
+    e.preventDefault();
+    if (busy || !confirmed || !password || !row.id) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.delete(`${resource.path}/${row.id}`, {
+        data: { password },
+      });
+      onRemoved();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={`Eliminar · ${resource.title}`}
+      busy={busy}
+      onClose={onClose}
+    >
+      <form onSubmit={(e) => void remove(e)} className="space-y-5">
+        <p className="text-sm text-denim/70">
+          Vas a retirar <strong>{label}</strong> del listado activo. SIGR conserva
+          su historial técnico y de auditoría para no romper la trazabilidad.
+        </p>
+        <label className="block text-sm font-semibold">
+          Contraseña del SUPERADMIN
+          <input
+            className="input mt-1"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+        </label>
+        <label className="flex items-start gap-3 text-sm font-semibold">
+          <input
+            className="mt-1"
+            type="checkbox"
+            checked={confirmed}
+            onChange={(e) => setConfirmed(e.target.checked)}
+          />
+          Confirmo que deseo eliminar este restaurante del listado activo.
+        </label>
+        {error && (
+          <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm font-bold text-red-800">
+            {error}
+          </p>
+        )}
+        <button
+          className="primary"
+          disabled={busy || !confirmed || password.length === 0}
+        >
+          {busy ? "Eliminando…" : "Confirmar eliminación"}
+        </button>
+      </form>
+    </Modal>
   );
 }
 

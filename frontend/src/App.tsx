@@ -330,6 +330,7 @@ function ApplicationRoutes() {
           path="administracion"
           element={
             <RouteGuard
+              globalSuperadminAllowed
               anyPermissions={[
                 "USUARIOS_CREAR",
                 "USUARIOS_EDITAR",

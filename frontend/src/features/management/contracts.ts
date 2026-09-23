@@ -23,6 +23,7 @@ export type Resource = {
   capability?: string;
   create?: string;
   edit?: string;
+  remove?: string;
   branchBody?: boolean;
   branchFilter?: boolean;
   paginated?: boolean;

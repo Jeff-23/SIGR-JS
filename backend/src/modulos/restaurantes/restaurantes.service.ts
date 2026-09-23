@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -174,6 +175,7 @@ export class RestaurantesService {
 
   async remove(
     id: number,
+    password: string,
     usuarioActual: UsuarioAutenticado,
     contexto: ContextoAuditoria,
   ) {
@@ -184,6 +186,16 @@ export class RestaurantesService {
     }
 
     const anterior = await this.buscarDentroDelAlcance(id, usuarioActual);
+    const usuarioDb = await this.prisma.usuario.findUnique({
+      where: { id: usuarioActual.id },
+      select: { password: true, activo: true },
+    });
+    if (
+      !usuarioDb?.activo ||
+      !(await bcrypt.compare(password, usuarioDb.password))
+    ) {
+      throw new ForbiddenException('Reautenticación inválida');
+    }
 
     return this.prisma.$transaction(async (tx) => {
       const restaurante = await tx.restaurante.update({

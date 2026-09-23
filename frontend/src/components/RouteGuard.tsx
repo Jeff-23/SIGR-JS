@@ -10,19 +10,24 @@ export function RouteGuard({
   anyPermissions,
   capability,
   branchRequired = false,
+  globalSuperadminAllowed = false,
 }: {
   children: ReactNode;
   permission?: string;
   anyPermissions?: readonly string[];
   capability?: string;
   branchRequired?: boolean;
+  globalSuperadminAllowed?: boolean;
 }) {
   const location = useLocation();
   const { session, hasPermission, hasCapability, branchId, branchesLoading } = useApp();
+  const globalSuperadmin =
+    session?.user.rol === "SUPERADMIN" && session.user.restauranteId === null;
   if (
-    !hasPermission(permission) ||
+    !(globalSuperadminAllowed && globalSuperadmin) &&
+    (!hasPermission(permission) ||
     !hasAnyPermission(session?.user, anyPermissions) ||
-    !hasCapability(capability)
+    !hasCapability(capability))
   ) {
     return <Navigate to="/acceso-denegado" replace state={{ from: location.pathname }} />;
   }

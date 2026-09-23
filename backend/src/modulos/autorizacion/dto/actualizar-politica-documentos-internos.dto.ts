@@ -1,11 +1,10 @@
-import { IsIn, IsString, Matches, MinLength } from 'class-validator';
+import { IsIn, IsString, Matches } from 'class-validator';
 
 export class ActualizarPoliticaDocumentosInternosDto {
   @IsIn(['CONTROLADA', 'FLEXIBLE'])
   modo!: 'CONTROLADA' | 'FLEXIBLE';
 
   @IsString()
-  @MinLength(10)
   password!: string;
 
   @IsString()

@@ -27,6 +27,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import toast from "react-hot-toast";
 import { ErrorState, LoadingState } from "../components/AsyncState";
 import { PrintableDocumentModal } from "../components/PrintableDocumentModal";
+import { OperationalTurnSelector } from "../components/OperationalTurnSelector";
 import { Modal } from "../components/Modal";
 import { SalonExperiencePanel } from "../features/salon/SalonExperiencePanel";
 import { filterCatalogProducts, paginateCatalogProducts } from "../features/salon/catalog";
@@ -280,6 +281,7 @@ export function RealSalonPage() {
   const [tableManagerOpen, setTableManagerOpen] = useState(false);
   const [managedTables, setManagedTables] = useState<ApiTable[]>([]);
   const [managedZones, setManagedZones] = useState<Array<{ id: number; nombre: string }>>([]);
+  const [newZoneName, setNewZoneName] = useState("");
   const [tableForm, setTableForm] = useState<TableForm>(emptyTableForm);
   const [tableManagerBusy, setTableManagerBusy] = useState(false);
 
@@ -293,7 +295,7 @@ export function RealSalonPage() {
         const [tableResponse, productResponse, orderResponse, userResponse] =
           await Promise.all([
             api.get<ApiTable[]>("/mesas", { params }),
-            api.get<ApiProduct[]>("/productos", { params }),
+            api.get<ApiProduct[]>("/productos", { params: { ...params, operativo: true } }),
             api.get<ApiOrder[]>("/pedidos", { params }),
             hasPermission("USUARIOS_VER")
               ? api.get<User[]>("/usuarios")
@@ -844,6 +846,29 @@ export function RealSalonPage() {
     }
   };
 
+  const createZone = async () => {
+    const nombre = newZoneName.trim();
+    if (!branchId || !nombre || tableManagerBusy) return;
+    setTableManagerBusy(true);
+    try {
+      const response = await api.post<{ id: number; nombre: string }>("/zonas", {
+        nombre,
+        sucursalId: branchId,
+      });
+      toast.success("Zona creada");
+      setNewZoneName("");
+      await loadTableManager();
+      setTableForm((current) => ({
+        ...current,
+        zonaId: String(response.data.id),
+      }));
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setTableManagerBusy(false);
+    }
+  };
+
   const saveTable = async () => {
     if (!tableForm.numero.trim() || !tableForm.zonaId) return;
     setTableManagerBusy(true);
@@ -901,7 +926,7 @@ export function RealSalonPage() {
             La mesa muestra qué necesita atención, no sólo si está ocupada.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {(["MOSTRADOR", "PARA_LLEVAR", "DOMICILIO"] as OrderType[]).map(
             (type) => (
               <button
@@ -1078,6 +1103,34 @@ export function RealSalonPage() {
             <p className="text-sm text-denim/55">
               Las mesas se ordenan de forma natural y ahora pueden representar la distribución real del salón. Configura forma, orientación y tamaño visual; desactivar conserva todo el historial.
             </p>
+            {hasPermission("ZONAS_CREAR") && (
+              <div className="rounded-2xl border border-denim/10 p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <label className="flex-1 text-sm font-bold">
+                    Nueva zona del salón
+                    <input
+                      className="input mt-1"
+                      maxLength={50}
+                      value={newZoneName}
+                      onChange={(event) => setNewZoneName(event.target.value)}
+                      placeholder="Ej. Salón principal, Terraza, VIP"
+                    />
+                  </label>
+                  <button
+                    className="secondary h-11 w-auto px-5"
+                    disabled={tableManagerBusy || !newZoneName.trim()}
+                    onClick={() => void createZone()}
+                  >
+                    Crear zona
+                  </button>
+                </div>
+                {managedZones.length === 0 && (
+                  <p className="mt-2 text-xs text-denim/55">
+                    Crea al menos una zona antes de añadir mesas.
+                  </p>
+                )}
+              </div>
+            )}
             {(hasPermission("MESAS_CREAR") || (tableForm.id && hasPermission("MESAS_EDITAR"))) && (
               <div className="grid gap-3 rounded-2xl border border-denim/10 p-4 sm:grid-cols-3">
                 <label className="text-sm font-bold">
@@ -1901,7 +1954,8 @@ export function RealSalonPage() {
                         {visibleProducts.length} producto{visibleProducts.length === 1 ? "" : "s"}
                       </h3>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <OperationalTurnSelector onChanged={() => load()} />
                       <button
                         className={`secondary h-9 w-auto px-3 text-xs ${showProductImages ? "bg-marigold/20" : ""}`}
                         onClick={() => {

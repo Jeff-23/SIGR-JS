@@ -124,9 +124,9 @@ export function RealKitchenPage() {
   const canEdit = hasPermission("COMANDAS_ACTUALIZAR_ESTADO");
   const canPrint = hasPermission("COMANDAS_IMPRIMIR");
   const stationScope =
-    session?.user.rol === "COCINA"
+    session?.user.roles?.includes("COCINA")
       ? "COCINA"
-      : session?.user.rol === "BAR"
+      : session?.user.roles?.includes("BAR")
         ? "BAR"
         : null;
   const stationOperator = stationScope !== null;
@@ -139,20 +139,38 @@ export function RealKitchenPage() {
         setStationPrinters(readStationPrinterMap(branchId));
       }
     });
-    void Promise.all([
-      printAgentHealth(controller.signal),
-      listLocalPrinters(controller.signal),
-    ])
-      .then(([, printers]) => {
+
+    const probe = async () => {
+      try {
+        const [, printers] = await Promise.all([
+          printAgentHealth(controller.signal),
+          listLocalPrinters(controller.signal),
+        ]);
+        if (controller.signal.aborted) return;
         setPrintAgentOnline(true);
         setLocalPrinters(printers);
-      })
-      .catch(() => {
+      } catch {
+        if (controller.signal.aborted) return;
         setPrintAgentOnline(false);
         setLocalPrinters([]);
-      });
-    return () => controller.abort();
+      }
+    };
+
+    void probe();
+    const timer = window.setInterval(() => void probe(), 5000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
   }, [branchId]);
+
+  const automaticPrinterName = useMemo(() => {
+    const available = localPrinters.filter((printer) => printer.available);
+    return (
+      available.find((printer) => printer.default)?.name ??
+      (available.length === 1 ? available[0].name : "")
+    );
+  }, [localPrinters]);
 
   const setStationPrinter = (stationId: number, printerName: string) => {
     if (!branchId) return;
@@ -363,7 +381,7 @@ export function RealKitchenPage() {
     );
 
   const canManageStationMode =
-    hasPermission("CONFIGURACION_GESTIONAR") || session?.user.rol === "ADMIN_SEDE";
+    hasPermission("CONFIGURACION_GESTIONAR") || session?.user.roles?.includes("ADMIN_SEDE");
 
   const updateStationMode = async (station: Station, modoOperacion: StationMode) => {
     try {
@@ -668,7 +686,9 @@ export function RealKitchenPage() {
                     >
                       <option value="">
                         {printAgentOnline
-                          ? "Usar impresión del navegador"
+                          ? automaticPrinterName
+                            ? `Automática: ${automaticPrinterName}`
+                            : "Usar impresión del navegador"
                           : "Inicia el agente de impresión de SIGR"}
                       </option>
                       {localPrinters.map((printer) => (
@@ -743,7 +763,7 @@ export function RealKitchenPage() {
           html={printDocument.html}
           title={printDocument.title}
           printLabel={
-            stationPrinters[printDocument.stationId] && printAgentOnline
+            (stationPrinters[printDocument.stationId] || automaticPrinterName) && printAgentOnline
               ? printDocument.reprint
                 ? "Reimprimir directo"
                 : "Imprimir directo"
@@ -752,8 +772,19 @@ export function RealKitchenPage() {
                 : "Imprimir"
           }
           onPrint={async () => {
-            const printerName = stationPrinters[printDocument.stationId];
-            if (!printerName || !printAgentOnline) return "browser";
+            const printerName = stationPrinters[printDocument.stationId] || automaticPrinterName;
+            if (!printAgentOnline) {
+              toast.error(
+                "El agente local de impresión no está conectado. SIGR no marcará esta comanda como impresa.",
+              );
+              return "handled";
+            }
+            if (!printerName) {
+              toast.error(
+                "Hay varias impresoras disponibles. Selecciona la impresora de esta estación antes de imprimir.",
+              );
+              return "handled";
+            }
             try {
               const result = await printWithLocalAgent({
                 printerName,
@@ -761,18 +792,23 @@ export function RealKitchenPage() {
                 content: printDocument.text,
                 widthMm: printDocument.widthMm,
               });
-              if (!result.ok || result.status !== "completed") {
-                throw new Error(result.error || "No se confirmó la impresión física");
+              if (!result.ok || !["submitted", "completed"].includes(result.status)) {
+                throw new Error(result.error || "Windows no confirmó el envío del trabajo de impresión");
               }
               await api.post(`/comandas/${printDocument.commandId}/impresiones`, {
                 reimpresion: printDocument.reprint,
               });
               toast.success(
                 printDocument.reprint
-                  ? "Reimpresión física confirmada y auditada"
-                  : "Impresión física confirmada y auditada",
+                  ? "Reimpresión enviada a la impresora y auditada"
+                  : "Comanda enviada a la impresora y auditada",
+                { duration: 5000 },
               );
-              await load(true);
+              // La impresión ya fue aceptada por Windows y la auditoría quedó
+              // registrada. Cerramos el modal de inmediato y refrescamos el KDS
+              // en segundo plano para no mantener el botón en "Imprimiendo…".
+              setPrintDocument(null);
+              void load(true);
               return "handled";
             } catch (error) {
               toast.error(
@@ -793,6 +829,7 @@ export function RealKitchenPage() {
                 : "Impresión manual confirmada y auditada",
             );
             await load(true);
+            setPrintDocument(null);
           }}
           onClose={() => setPrintDocument(null)}
         />

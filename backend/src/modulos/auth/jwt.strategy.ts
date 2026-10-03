@@ -1,4 +1,4 @@
-﻿import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 
@@ -17,10 +17,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   async validate(payload: { sub: number }) {
     const usuario = await this.prisma.usuario.findUnique({
-      where: {
-        id: payload.sub,
-      },
-
+      where: { id: payload.sub },
       select: {
         id: true,
         email: true,
@@ -28,64 +25,38 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         rolId: true,
         restauranteId: true,
         sucursalId: true,
-
-        rol: {
+        rol: { select: { nombre: true } },
+        rolesAsignados: {
           select: {
-            nombre: true,
-
-            permisos: {
-              where: {
-                permiso: {
-                  activo: true,
-                },
-              },
-
+            rol: {
               select: {
-                permiso: {
-                  select: {
-                    codigo: true,
-                  },
+                id: true,
+                nombre: true,
+                permisos: {
+                  where: { permiso: { activo: true } },
+                  select: { permiso: { select: { codigo: true } } },
                 },
               },
             },
           },
         },
-
         restaurante: {
           select: {
             estado: true,
             nombre: true,
-
             plan: {
               select: {
                 activo: true,
-
                 capacidades: {
-                  where: {
-                    capacidad: {
-                      activo: true,
-                    },
-                  },
-
-                  select: {
-                    capacidad: {
-                      select: {
-                        codigo: true,
-                      },
-                    },
-                  },
+                  where: { capacidad: { activo: true } },
+                  select: { capacidad: { select: { codigo: true } } },
                 },
               },
             },
           },
         },
-
         sucursal: {
-          select: {
-            estado: true,
-            nombre: true,
-            restauranteId: true,
-          },
+          select: { estado: true, nombre: true, restauranteId: true },
         },
       },
     });
@@ -116,20 +87,27 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       );
     }
 
+    const roles = usuario.rolesAsignados.length
+      ? usuario.rolesAsignados.map((item) => item.rol)
+      : [{ id: usuario.rolId, nombre: usuario.rol.nombre, permisos: [] }];
+    const nombresRoles = [...new Set(roles.map((rol) => rol.nombre))];
+    const permisos = [
+      ...new Set(
+        roles.flatMap((rol) =>
+          rol.permisos.map((rolPermiso) => rolPermiso.permiso.codigo),
+        ),
+      ),
+    ];
+
     return {
       id: usuario.id,
       email: usuario.email,
-
       rolId: usuario.rolId,
       rol: usuario.rol.nombre,
-
+      roles: nombresRoles,
       restauranteId: usuario.restauranteId,
-
       sucursalId: usuario.sucursalId,
-
-      permisos: usuario.rol.permisos.map(
-        (rolPermiso) => rolPermiso.permiso.codigo,
-      ),
+      permisos,
       capacidades: usuario.restaurante?.plan?.activo
         ? usuario.restaurante.plan.capacidades.map(
             (planCapacidad) => planCapacidad.capacidad.codigo,

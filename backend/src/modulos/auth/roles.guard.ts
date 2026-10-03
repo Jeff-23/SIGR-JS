@@ -45,7 +45,9 @@ export class RolesGuard implements CanActivate {
       return true;
     }
 
-    if (!rolesPermitidos.includes(usuario.rol)) {
+    const rolesUsuario = usuario.roles?.length ? usuario.roles : [usuario.rol];
+
+    if (!rolesPermitidos.some((rol) => rolesUsuario.includes(rol))) {
       throw new ForbiddenException(
         'No tienes los permisos necesarios para realizar esta acción',
       );

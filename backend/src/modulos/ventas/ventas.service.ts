@@ -2185,6 +2185,70 @@ export class VentasService {
         ? `<div class="center muted">Documento electrónico aceptado: ${esc(venta.factura.documentoElectronico.numeroCompleto)}</div>`
         : `<div class="center muted">Comprobante interno de pago. No equivale por sí solo a documento electrónico aceptado por DIAN.</div>`;
     const cuerpo = `<div class="center"><div class="title">COMPROBANTE INTERNO POS</div><p>${esc(venta.sucursal.restaurante.nombre)}<br>NIT ${esc(venta.sucursal.restaurante.nit)}<br>${esc(venta.sucursal.nombre)}</p></div><hr class="sep"><div class="row"><span>Venta</span><strong>#${venta.id}</strong></div>${venta.pedido?.mesa ? `<div class="row"><span>Mesa</span><strong>${esc(venta.pedido.mesa.numero)}</strong></div>` : ''}<div class="row"><span>Fecha</span><strong>${esc(fechaLocalTermica(venta.fechaOperacion, cfg.zonaHoraria))}</strong></div><div class="row"><span>Cajero</span><strong>${esc(`${venta.usuario.nombres} ${venta.usuario.apellidos}`.trim())}</strong></div>${factura}<hr class="sep">${filas}<hr class="sep"><div class="row"><span>Subtotal</span><span>${dineroTermico(venta.subtotal, cfg.moneda)}</span></div>${Number(venta.descuentos) ? `<div class="row"><span>Descuentos</span><span>-${dineroTermico(venta.descuentos, cfg.moneda)}</span></div>` : ''}${Number(venta.impuestos) ? `<div class="row"><span>Impuestos</span><span>${dineroTermico(venta.impuestos, cfg.moneda)}</span></div>` : ''}${Number(venta.impoconsumo) ? `<div class="row"><span>Impoconsumo</span><span>${dineroTermico(venta.impoconsumo, cfg.moneda)}</span></div>` : ''}${Number(venta.domicilioCosto) ? `<div class="row"><span>Domicilio</span><span>${dineroTermico(venta.domicilioCosto, cfg.moneda)}</span></div>` : ''}${Number(venta.propina) ? `<div class="row"><span>Propina</span><span>${dineroTermico(venta.propina, cfg.moneda)}</span></div>` : ''}<div class="row total"><span>TOTAL</span><span>${dineroTermico(venta.total, cfg.moneda)}</span></div><hr class="sep"><div class="strong">PAGOS</div>${pagos}<div class="row"><span>Total aplicado</span><strong>${dineroTermico(totalPagado, cfg.moneda)}</strong></div>${pendiente > 0 ? `<div class="row"><span>Saldo pendiente</span><strong>${dineroTermico(pendiente, cfg.moneda)}</strong></div>` : '<div class="center strong">PAGADO</div>'}<hr class="sep">${fiscal}`;
+    const separador =
+      cfg.ancho === 58
+        ? '--------------------------------'
+        : '------------------------------------------';
+    const detalleTexto = venta.detalles.map(
+      (d) =>
+        `${d.cantidad}x ${d.producto.nombre}  ${dineroTermico(d.subtotal, cfg.moneda)}`,
+    );
+    const pagosTexto = venta.pagos.map((p) => {
+      const devuelto = p.devoluciones.reduce(
+        (sum, d) => sum + Number(d.monto),
+        0,
+      );
+      const neto = Number(p.monto) - devuelto;
+      return `${p.metodoPago.nombre}: ${dineroTermico(neto, cfg.moneda)}`;
+    });
+    const contenidoTexto = [
+      'COMPROBANTE INTERNO POS',
+      venta.sucursal.restaurante.nombre,
+      `NIT ${venta.sucursal.restaurante.nit}`,
+      venta.sucursal.nombre,
+      separador,
+      `Venta: #${venta.id}`,
+      ...(venta.pedido?.mesa ? [`Mesa: ${venta.pedido.mesa.numero}`] : []),
+      `Fecha: ${fechaLocalTermica(venta.fechaOperacion, cfg.zonaHoraria)}`,
+      `Cajero: ${`${venta.usuario.nombres} ${venta.usuario.apellidos}`.trim()}`,
+      ...(venta.factura ? [`Factura interna: ${venta.factura.numero}`] : []),
+      separador,
+      ...detalleTexto,
+      separador,
+      `Subtotal: ${dineroTermico(venta.subtotal, cfg.moneda)}`,
+      ...(Number(venta.descuentos)
+        ? [`Descuentos: -${dineroTermico(venta.descuentos, cfg.moneda)}`]
+        : []),
+      ...(Number(venta.impuestos)
+        ? [`Impuestos: ${dineroTermico(venta.impuestos, cfg.moneda)}`]
+        : []),
+      ...(Number(venta.impoconsumo)
+        ? [`Impoconsumo: ${dineroTermico(venta.impoconsumo, cfg.moneda)}`]
+        : []),
+      ...(Number(venta.domicilioCosto)
+        ? [`Domicilio: ${dineroTermico(venta.domicilioCosto, cfg.moneda)}`]
+        : []),
+      ...(Number(venta.propina)
+        ? [`Propina: ${dineroTermico(venta.propina, cfg.moneda)}`]
+        : []),
+      `TOTAL: ${dineroTermico(venta.total, cfg.moneda)}`,
+      separador,
+      'PAGOS',
+      ...pagosTexto,
+      `Total aplicado: ${dineroTermico(totalPagado, cfg.moneda)}`,
+      ...(pendiente > 0
+        ? [`Saldo pendiente: ${dineroTermico(pendiente, cfg.moneda)}`]
+        : ['PAGADO']),
+      separador,
+      ...(venta.factura?.documentoElectronico?.estado === 'ACEPTADO'
+        ? [`Documento electrónico aceptado: ${venta.factura.documentoElectronico.numeroCompleto}`]
+        : [
+            'Comprobante interno de pago. No equivale',
+            'por sí solo a documento electrónico',
+            'aceptado por DIAN.',
+          ]),
+      '',
+    ].join('\n');
     return {
       tipo: 'COMPROBANTE_POS',
       ventaId: venta.id,
@@ -2195,6 +2259,7 @@ export class VentasService {
         ancho: cfg.ancho,
         cuerpo,
       }),
+      contenidoTexto,
     };
   }
 }

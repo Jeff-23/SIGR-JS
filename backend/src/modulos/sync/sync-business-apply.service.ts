@@ -813,6 +813,7 @@ export class SyncBusinessApplyService {
     }
     const data = {
       nombre: texto(p.nombre, 'categoria.nombre'),
+      descripcion: textoNullable(p.descripcion, 'categoria.descripcion'),
       estado: booleano(p.estado, 'categoria.estado'),
       creadoEn: fecha(p.creadoEn, 'categoria.creadoEn'),
       sucursalId: sucursal.id,
@@ -1081,13 +1082,34 @@ export class SyncBusinessApplyService {
     }
 
     const rolClave = texto(p.rolClave, 'usuario.rolClave');
-    const rol = await tx.rol.findUnique({ where: { clave: rolClave } });
+    const rolClaves = p.rolClaves === undefined
+      ? [rolClave]
+      : arreglo(p.rolClaves, 'usuario.rolClaves').map((clave, i) =>
+          texto(clave, `usuario.rolClaves[${i}]`),
+        );
+    const clavesUnicas = [...new Set(rolClaves)];
+    if (!clavesUnicas.includes(rolClave)) clavesUnicas.unshift(rolClave);
+    const roles = await tx.rol.findMany({
+      where: { clave: { in: clavesUnicas } },
+    });
     if (
-      !rol ||
-      rol.ambito !== AmbitoRol.RESTAURANTE ||
-      rol.restauranteId !== restaurante.id
+      roles.length !== clavesUnicas.length ||
+      roles.some(
+        (rol) =>
+          rol.ambito !== AmbitoRol.RESTAURANTE ||
+          rol.restauranteId !== restaurante.id,
+      )
     ) {
-      throw new Error('Rol del usuario no existe en el restaurante destino');
+      throw new Error('Uno o más roles del usuario no existen en el restaurante destino');
+    }
+    const rol = roles.find((item) => item.clave === rolClave);
+    if (!rol) throw new Error('Rol principal del usuario no existe en el restaurante destino');
+    if (roles.length > 1) {
+      const exclusivos = new Set(['ADMIN', 'ADMIN_SEDE', 'CONTADOR']);
+      const exclusivo = roles.find((item) => exclusivos.has(item.nombre));
+      if (exclusivo) {
+        throw new Error(`Rol exclusivo ${exclusivo.nombre} no puede combinarse`);
+      }
     }
 
     const email = texto(p.email, 'usuario.email').trim().toLowerCase();
@@ -1111,17 +1133,22 @@ export class SyncBusinessApplyService {
       restauranteId: restaurante.id,
       sucursalId,
     };
-    if (existente) {
-      await tx.usuario.update({ where: { id: existente.id }, data });
-    } else {
-      await tx.usuario.create({
-        data: {
-          globalId,
-          ...data,
-          creadoEn: fecha(p.creadoEn, 'usuario.creadoEn'),
-        },
-      });
-    }
+    const usuario = existente
+      ? await tx.usuario.update({ where: { id: existente.id }, data })
+      : await tx.usuario.create({
+          data: {
+            globalId,
+            ...data,
+            creadoEn: fecha(p.creadoEn, 'usuario.creadoEn'),
+          },
+        });
+    await tx.usuarioRol.deleteMany({ where: { usuarioId: usuario.id } });
+    await tx.usuarioRol.createMany({
+      data: roles.map((rolAsignado) => ({
+        usuarioId: usuario.id,
+        rolId: rolAsignado.id,
+      })),
+    });
     return true;
   }
 

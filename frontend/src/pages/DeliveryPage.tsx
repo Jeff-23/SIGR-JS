@@ -1,7 +1,7 @@
 import { Bike, CheckCircle2, Clock3, MapPin, Phone, RefreshCw, Route, UserRound, XCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { api, errorMessage } from "../lib/api";
+import { api, apiFailure, errorMessage } from "../lib/api";
 import { useApp } from "../store/app";
 
 type DeliveryState =
@@ -76,7 +76,9 @@ export function DeliveryPage() {
       }
       setError("");
     } catch (failure) {
-      setError(errorMessage(failure));
+      // Un límite temporal de consultas no debe vaciar la pantalla ni impedir
+      // que el domiciliario continúe con el último estado confirmado.
+      if (apiFailure(failure).status !== 429) setError(errorMessage(failure));
     } finally {
       setLoading(false);
     }
@@ -148,7 +150,7 @@ export function DeliveryPage() {
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: isCourier ? "Por recoger" : "Sin asignar", value: isCourier ? counters.assigned : counters.waiting, icon: Clock3 },
+          { label: isCourier ? "Por recoger" : "Sin asignar", value: isCourier ? counters.assigned + counters.waiting : counters.waiting, icon: Clock3 },
           { label: "Asignados", value: counters.assigned, icon: UserRound },
           { label: "En ruta", value: counters.route, icon: Route },
           { label: "Con novedad", value: counters.issue, icon: XCircle },
@@ -213,6 +215,11 @@ export function DeliveryPage() {
 
                   {isCourier ? (
                     <div className="flex flex-wrap gap-2">
+                      {delivery.estado === "PENDIENTE_ASIGNACION" && delivery.pedido.estado === "LISTO" && (
+                        <button className="primary w-auto px-4" disabled={busy} onClick={() => void transition(delivery, "ASIGNADO")}>
+                          <Bike size={17} /> Tomar entrega
+                        </button>
+                      )}
                       {delivery.estado === "ASIGNADO" && (
                         <button className="primary w-auto px-4" disabled={busy} onClick={() => void transition(delivery, "EN_RUTA")}> 
                           <Route size={17} /> Iniciar ruta

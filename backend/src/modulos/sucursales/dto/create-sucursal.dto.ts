@@ -44,6 +44,6 @@ export class CreateSucursalDto {
   correo?: string;
 
   @IsInt()
-  @IsNotEmpty()
-  restauranteId: number;
+  @IsOptional()
+  restauranteId?: number;
 }

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -38,6 +39,12 @@ import {
   escaparHtml,
   fechaLocalTermica,
 } from '../../plataforma/impresion-termica';
+import {
+  preciosPerfil,
+  resolverContextoCartaOperativa,
+  resolverContextoCartaPorSnapshot,
+  type ContextoCartaOperativa,
+} from '../../plataforma/turno-operativo';
 
 type DetalleEntrada = {
   productoId: number;
@@ -139,6 +146,9 @@ export class PedidosService {
     sucursalId: number,
 
     detalles: DetalleEntrada[],
+
+    usuarioActual: UsuarioAutenticado,
+    contextoForzado?: ContextoCartaOperativa | null,
   ): Promise<{
     total: Prisma.Decimal;
 
@@ -179,6 +189,36 @@ export class PedidosService {
       );
     }
 
+    const contextoCarta =
+      contextoForzado === undefined
+        ? await resolverContextoCartaOperativa(tx, sucursalId, usuarioActual.id)
+        : contextoForzado;
+    if (contextoCarta?.productoIds) {
+      const permitidos = new Set(contextoCarta.productoIds);
+      const fueraDeTurno = productos.find(
+        (producto) => !permitidos.has(producto.id),
+      );
+      if (fueraDeTurno) {
+        throw new BadRequestException(
+          `El producto ${fueraDeTurno.nombre} no está habilitado para el turno ${contextoCarta.turnoNombre}`,
+        );
+      }
+    }
+    if (contextoCarta?.categoriaIds) {
+      const categoriasPermitidas = new Set(contextoCarta.categoriaIds);
+      const fueraDeCategoria = productos.find(
+        (producto) => !categoriasPermitidas.has(producto.categoriaId),
+      );
+      if (fueraDeCategoria) {
+        throw new BadRequestException(
+          `La categoría de ${fueraDeCategoria.nombre} no está habilitada para el turno ${contextoCarta.turnoNombre}`,
+        );
+      }
+    }
+    const preciosTurno = contextoCarta?.perfilId
+      ? await preciosPerfil(tx, contextoCarta.perfilId!, productosIds)
+      : new Map<number, Prisma.Decimal>();
+
     const productosPorId = new Map(
       productos.map((producto) => [producto.id, producto]),
     );
@@ -215,7 +255,8 @@ export class PedidosService {
         (acc, item) => acc.plus(item.precio),
         new Prisma.Decimal(0),
       );
-      const precioUnitario = producto.precio.plus(adicionalUnitario);
+      const precioBaseTurno = preciosTurno.get(producto.id) ?? producto.precio;
+      const precioUnitario = precioBaseTurno.plus(adicionalUnitario);
       const subtotal = precioUnitario.mul(cantidad);
 
       total = total.plus(subtotal);
@@ -383,10 +424,7 @@ export class PedidosService {
         );
       }
 
-      if (
-        mesa.situacion !== EstadoMesa.LIBRE &&
-        !mesa.ocupacionManual
-      ) {
+      if (mesa.situacion !== EstadoMesa.LIBRE && !mesa.ocupacionManual) {
         throw new BadRequestException(
           'La mesa ya esta ocupada o no esta disponible',
         );
@@ -497,10 +535,17 @@ export class PedidosService {
         usuarioActual,
       );
 
+      const contextoCarta = await resolverContextoCartaOperativa(
+        tx,
+        contexto.sucursalId,
+        usuarioActual.id,
+      );
       const preparado = await this.prepararDetalles(
         tx,
         contexto.sucursalId,
         data.detalles,
+        usuarioActual,
+        contextoCarta,
       );
 
       const creado = await tx.pedido.create({
@@ -511,6 +556,8 @@ export class PedidosService {
 
           usuarioId: usuarioActual.id,
           meseroId: usuarioActual.id,
+          turnoOperativoId: contextoCarta?.turnoId ?? null,
+          perfilCartaOperativaId: contextoCarta?.perfilId ?? null,
 
           tipo: data.tipo,
 
@@ -653,10 +700,18 @@ export class PedidosService {
         );
       }
 
+      const contextoPedido = await resolverContextoCartaPorSnapshot(
+        tx,
+        pedido.sucursalId,
+        pedido.turnoOperativoId,
+        pedido.perfilCartaOperativaId,
+      );
       const preparado = await this.prepararDetalles(
         tx,
         pedido.sucursalId,
         data.detalles,
+        usuarioActual,
+        contextoPedido ?? undefined,
       );
 
       const estadoNuevo =
@@ -1529,7 +1584,18 @@ export class PedidosService {
           ],
         },
         pedido: { sucursal: this.filtroSucursal(usuarioActual) },
-        ...(!puedeSupervisar ? { repartidorId: usuarioActual.id } : {}),
+        ...(!puedeSupervisar
+          ? {
+              OR: [
+                { repartidorId: usuarioActual.id },
+                {
+                  repartidorId: null,
+                  estado: EstadoDomicilio.PENDIENTE_ASIGNACION,
+                  pedido: { estado: EstadoPedido.LISTO },
+                },
+              ],
+            }
+          : {}),
       },
       include: {
         repartidor: { select: { id: true, nombres: true, apellidos: true } },
@@ -1546,10 +1612,36 @@ export class PedidosService {
       where: {
         activo: true,
         restauranteId: usuarioActual.restauranteId,
-        OR: usuarioActual.sucursalId
-          ? [{ sucursalId: null }, { sucursalId: usuarioActual.sucursalId }]
-          : undefined,
-        rol: { nombre: { equals: 'DOMICILIARIO', mode: 'insensitive' } },
+        AND: [
+          ...(usuarioActual.sucursalId
+            ? [
+                {
+                  OR: [
+                    { sucursalId: null },
+                    { sucursalId: usuarioActual.sucursalId },
+                  ],
+                },
+              ]
+            : []),
+          {
+            OR: [
+              {
+                rol: {
+                  nombre: { equals: 'DOMICILIARIO', mode: 'insensitive' },
+                },
+              },
+              {
+                rolesAsignados: {
+                  some: {
+                    rol: {
+                      nombre: { equals: 'DOMICILIARIO', mode: 'insensitive' },
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        ],
       },
       select: { id: true, nombres: true, apellidos: true, sucursalId: true },
       orderBy: [{ nombres: 'asc' }, { apellidos: 'asc' }],
@@ -1570,7 +1662,17 @@ export class PedidosService {
       const puedeSupervisar = usuarioActual.permisos.includes(
         'DOMICILIOS_SUPERVISAR',
       );
-      if (!puedeSupervisar && domicilio.repartidorId !== usuarioActual.id) {
+      const puedeTomarDisponible =
+        !puedeSupervisar &&
+        domicilio.repartidorId === null &&
+        domicilio.estado === EstadoDomicilio.PENDIENTE_ASIGNACION &&
+        data.estado === EstadoDomicilio.ASIGNADO &&
+        domicilio.pedido.estado === EstadoPedido.LISTO;
+      if (
+        !puedeSupervisar &&
+        domicilio.repartidorId !== usuarioActual.id &&
+        !puedeTomarDisponible
+      ) {
         throw new ForbiddenException(
           'El domicilio no está asignado a este repartidor',
         );
@@ -1590,6 +1692,7 @@ export class PedidosService {
         !puedeSupervisar &&
         !(
           [
+            EstadoDomicilio.PENDIENTE_ASIGNACION,
             EstadoDomicilio.ASIGNADO,
             EstadoDomicilio.EN_RUTA,
           ] as EstadoDomicilio[]
@@ -1610,6 +1713,32 @@ export class PedidosService {
         );
       }
       let repartidorId = domicilio.repartidorId;
+      if (puedeTomarDisponible) {
+        const ahora = new Date();
+        const tomado = await tx.domicilio.updateMany({
+          where: {
+            id: domicilio.id,
+            repartidorId: null,
+            estado: EstadoDomicilio.PENDIENTE_ASIGNACION,
+          },
+          data: {
+            estado: EstadoDomicilio.ASIGNADO,
+            repartidorId: usuarioActual.id,
+            asignadoEn: ahora,
+            observacion: data.observacion?.trim() || domicilio.observacion,
+          },
+        });
+        if (tomado.count !== 1) {
+          throw new ConflictException(
+            'Otro repartidor tomó este domicilio antes. Actualiza la lista.',
+          );
+        }
+        const actualizado = await tx.domicilio.findUniqueOrThrow({
+          where: { id: domicilio.id },
+        });
+        await this.syncBusiness.encolarDomicilio(tx, actualizado.id);
+        return actualizado;
+      }
       if (data.estado === EstadoDomicilio.ASIGNADO && puedeSupervisar) {
         if (!data.repartidorId)
           throw new BadRequestException(

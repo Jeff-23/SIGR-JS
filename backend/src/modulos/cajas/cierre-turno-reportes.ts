@@ -1,5 +1,16 @@
 export type CierreTurnoSnapshot = {
-  version: 1;
+  version: 1 | 2;
+  restaurante?: {
+    nombre: string;
+    razonSocial: string | null;
+    nit: string;
+    dv: string | null;
+    direccion: string | null;
+    municipio: string | null;
+    departamento: string | null;
+    telefono: string | null;
+    correo: string | null;
+  };
   caja: {
     id: number;
     nombre: string;
@@ -7,6 +18,8 @@ export type CierreTurnoSnapshot = {
     sucursal: string;
     fechaApertura: string;
     generadoEn: string;
+    saldoInicial?: number;
+    cajero?: string;
   };
   resumen: {
     operaciones: number;
@@ -16,7 +29,37 @@ export type CierreTurnoSnapshot = {
     totalNetoCobrado: number;
     efectivo: number;
     otrosPagos: number;
+    totalIngresos?: number;
+    totalEgresos?: number;
+    efectivoEsperado?: number;
+    subtotalVentas?: number;
+    descuentos?: number;
+    impuestos?: number;
+    impoconsumo?: number;
+    propinas?: number;
+    domicilios?: number;
+    primerComprobanteInterno?: string | null;
+    ultimoComprobanteInterno?: string | null;
   };
+  formasPago?: Array<{
+    metodo: string;
+    tipo: string;
+    bruto: number;
+    devoluciones: number;
+    neto: number;
+  }>;
+  grupos?: Array<{
+    grupo: string;
+    cantidad: number;
+    base: number;
+  }>;
+  productos?: Array<{
+    codigo: string | null;
+    producto: string;
+    grupo: string;
+    cantidad: number;
+    base: number;
+  }>;
   ventas: Array<{
     ventaId: number;
     fechaOperacion: string;
@@ -39,7 +82,9 @@ export type CierreTurnoSnapshot = {
     documentoElectronicoNumero: string | null;
     fiscalizada: boolean;
     detalles: Array<{
+      codigo?: string | null;
       producto: string;
+      grupo?: string;
       cantidad: number;
       precioUnitario: number;
       subtotal: number;
@@ -259,26 +304,105 @@ export function generarXlsx(snapshot: CierreTurnoSnapshot) {
     }
   }
 
+  const r = snapshot.restaurante;
   const summaryRows = [
     ['Campo', 'Valor'],
-    ['Caja', snapshot.caja.nombre],
+    ['Documento', 'Reporte administrativo interno de cierre'],
+    ['Restaurante', r?.nombre ?? ''],
+    ['Razón social', r?.razonSocial ?? ''],
+    ['NIT', r ? `${r.nit}${r.dv ? `-${r.dv}` : ''}` : ''],
+    ['Dirección', r?.direccion ?? ''],
+    [
+      'Municipio / departamento',
+      [r?.municipio, r?.departamento].filter(Boolean).join(' / '),
+    ],
+    ['Teléfono', r?.telefono ?? ''],
+    ['Correo', r?.correo ?? ''],
     ['Sucursal', snapshot.caja.sucursal],
+    ['Caja / turno', snapshot.caja.nombre],
+    ['Cajero', snapshot.caja.cajero ?? ''],
     ['Apertura', snapshot.caja.fechaApertura],
     ['Generado', snapshot.caja.generadoEn],
+    ['Base inicial', money(snapshot.caja.saldoInicial ?? 0).toFixed(2)],
+    [
+      'Primer comprobante interno',
+      snapshot.resumen.primerComprobanteInterno ?? '',
+    ],
+    [
+      'Último comprobante interno',
+      snapshot.resumen.ultimoComprobanteInterno ?? '',
+    ],
     ['Operaciones', String(snapshot.resumen.operaciones)],
-    ['Total ventas', snapshot.resumen.totalVentas.toFixed(2)],
-    ['Pagos brutos', snapshot.resumen.totalPagos.toFixed(2)],
-    ['Devoluciones', snapshot.resumen.totalDevoluciones.toFixed(2)],
-    ['Cobrado neto', snapshot.resumen.totalNetoCobrado.toFixed(2)],
-    ['Efectivo', snapshot.resumen.efectivo.toFixed(2)],
-    ['Otros pagos', snapshot.resumen.otrosPagos.toFixed(2)],
+    [
+      'Subtotal / base ventas',
+      money(snapshot.resumen.subtotalVentas ?? 0).toFixed(2),
+    ],
+    ['Descuentos', money(snapshot.resumen.descuentos ?? 0).toFixed(2)],
+    [
+      'IVA / otros impuestos',
+      money(snapshot.resumen.impuestos ?? 0).toFixed(2),
+    ],
+    ['Impoconsumo', money(snapshot.resumen.impoconsumo ?? 0).toFixed(2)],
+    ['Propinas', money(snapshot.resumen.propinas ?? 0).toFixed(2)],
+    ['Domicilios', money(snapshot.resumen.domicilios ?? 0).toFixed(2)],
+    ['Total ventas', money(snapshot.resumen.totalVentas).toFixed(2)],
+    ['Pagos brutos', money(snapshot.resumen.totalPagos).toFixed(2)],
+    ['Devoluciones', money(snapshot.resumen.totalDevoluciones).toFixed(2)],
+    ['Cobrado neto', money(snapshot.resumen.totalNetoCobrado).toFixed(2)],
+    ['Efectivo neto', money(snapshot.resumen.efectivo).toFixed(2)],
+    ['Otros medios netos', money(snapshot.resumen.otrosPagos).toFixed(2)],
+    [
+      'Ingresos manuales',
+      money(snapshot.resumen.totalIngresos ?? 0).toFixed(2),
+    ],
+    ['Egresos manuales', money(snapshot.resumen.totalEgresos ?? 0).toFixed(2)],
+    [
+      'Efectivo esperado',
+      money(snapshot.resumen.efectivoEsperado ?? 0).toFixed(2),
+    ],
+    ['', ''],
+    [
+      'Nota',
+      'Documento interno administrativo. No acredita validación ni aceptación DIAN.',
+    ],
+  ];
+
+  const paymentRows: string[][] = [
+    ['Método', 'Tipo', 'Pago bruto', 'Devoluciones', 'Neto'],
+    ...(snapshot.formasPago ?? []).map((item) => [
+      item.metodo,
+      item.tipo,
+      money(item.bruto).toFixed(2),
+      money(item.devoluciones).toFixed(2),
+      money(item.neto).toFixed(2),
+    ]),
+  ];
+
+  const productRows: string[][] = [
+    ['Código', 'Producto', 'Grupo / categoría', 'Cantidad', 'Base'],
+    ...(snapshot.productos ?? []).map((item) => [
+      item.codigo ?? '',
+      item.producto,
+      item.grupo,
+      String(item.cantidad),
+      money(item.base).toFixed(2),
+    ]),
+  ];
+
+  const groupRows: string[][] = [
+    ['Grupo / categoría', 'Cantidad', 'Base'],
+    ...(snapshot.grupos ?? []).map((item) => [
+      item.grupo,
+      String(item.cantidad),
+      money(item.base).toFixed(2),
+    ]),
   ];
 
   const files = [
     {
       name: '[Content_Types].xml',
       content: Buffer.from(
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>',
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet3.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet4.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet5.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>',
       ),
     },
     {
@@ -290,13 +414,13 @@ export function generarXlsx(snapshot: CierreTurnoSnapshot) {
     {
       name: 'xl/workbook.xml',
       content: Buffer.from(
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Resumen" sheetId="1" r:id="rId1"/><sheet name="Operaciones" sheetId="2" r:id="rId2"/></sheets></workbook>',
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Resumen" sheetId="1" r:id="rId1"/><sheet name="Formas de pago" sheetId="2" r:id="rId2"/><sheet name="Consumo productos" sheetId="3" r:id="rId3"/><sheet name="Grupos" sheetId="4" r:id="rId4"/><sheet name="Operaciones" sheetId="5" r:id="rId5"/></sheets></workbook>',
       ),
     },
     {
       name: 'xl/_rels/workbook.xml.rels',
       content: Buffer.from(
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/></Relationships>',
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet3.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet4.xml"/><Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet5.xml"/></Relationships>',
       ),
     },
     {
@@ -305,6 +429,18 @@ export function generarXlsx(snapshot: CierreTurnoSnapshot) {
     },
     {
       name: 'xl/worksheets/sheet2.xml',
+      content: Buffer.from(worksheet(paymentRows)),
+    },
+    {
+      name: 'xl/worksheets/sheet3.xml',
+      content: Buffer.from(worksheet(productRows)),
+    },
+    {
+      name: 'xl/worksheets/sheet4.xml',
+      content: Buffer.from(worksheet(groupRows)),
+    },
+    {
+      name: 'xl/worksheets/sheet5.xml',
       content: Buffer.from(worksheet(operationRows)),
     },
   ];
@@ -374,35 +510,85 @@ function generarPdfDesdeLineas(lines: string[], tituloVacio: string) {
 }
 
 export function generarPdfSimple(snapshot: CierreTurnoSnapshot) {
+  const r = snapshot.restaurante;
   const lines = [
-    `SIGR - Reporte previo al cierre de turno`,
-    `Caja: ${snapshot.caja.nombre}`,
+    'SIGR - REPORTE PREVIO DE CIERRE',
+    'DOCUMENTO INTERNO ADMINISTRATIVO',
+    r?.razonSocial || r?.nombre
+      ? `Razón social: ${r?.razonSocial ?? r?.nombre ?? ''}`
+      : '',
+    r?.nombre ? `Nombre comercial: ${r.nombre}` : '',
+    r?.nit ? `NIT: ${r.nit}${r.dv ? `-${r.dv}` : ''}` : '',
+    r?.direccion ? `Dirección: ${r.direccion}` : '',
+    [r?.municipio, r?.departamento].filter(Boolean).length
+      ? `Ubicación: ${[r?.municipio, r?.departamento].filter(Boolean).join(' / ')}`
+      : '',
+    r?.telefono ? `Teléfono: ${r.telefono}` : '',
+    '',
     `Sucursal: ${snapshot.caja.sucursal}`,
+    `Caja / turno: ${snapshot.caja.nombre}`,
+    `Cajero: ${snapshot.caja.cajero ?? '-'}`,
     `Apertura: ${snapshot.caja.fechaApertura}`,
     `Generado: ${snapshot.caja.generadoEn}`,
+    `Base inicial: ${(snapshot.caja.saldoInicial ?? 0).toFixed(2)}`,
+    '',
+    'RESUMEN COMERCIAL',
+    `Primer comprobante interno: ${snapshot.resumen.primerComprobanteInterno ?? '-'}`,
+    `Último comprobante interno: ${snapshot.resumen.ultimoComprobanteInterno ?? '-'}`,
     `Operaciones: ${snapshot.resumen.operaciones}`,
+    `Subtotal / base ventas: ${(snapshot.resumen.subtotalVentas ?? 0).toFixed(2)}`,
+    `Descuentos: ${(snapshot.resumen.descuentos ?? 0).toFixed(2)}`,
+    `IVA / otros impuestos: ${(snapshot.resumen.impuestos ?? 0).toFixed(2)}`,
+    `Impoconsumo: ${(snapshot.resumen.impoconsumo ?? 0).toFixed(2)}`,
+    `Propinas: ${(snapshot.resumen.propinas ?? 0).toFixed(2)}`,
+    `Domicilios: ${(snapshot.resumen.domicilios ?? 0).toFixed(2)}`,
     `Total ventas: ${snapshot.resumen.totalVentas.toFixed(2)}`,
+    '',
+    'FORMAS DE PAGO',
+    ...(snapshot.formasPago?.length
+      ? snapshot.formasPago.map(
+          (item) =>
+            `${item.metodo} (${item.tipo}) bruto ${item.bruto.toFixed(2)} devoluciones ${item.devoluciones.toFixed(2)} neto ${item.neto.toFixed(2)}`,
+        )
+      : [
+          `Efectivo neto: ${snapshot.resumen.efectivo.toFixed(2)}`,
+          `Otros medios netos: ${snapshot.resumen.otrosPagos.toFixed(2)}`,
+        ]),
     `Pagos brutos: ${snapshot.resumen.totalPagos.toFixed(2)}`,
     `Devoluciones: ${snapshot.resumen.totalDevoluciones.toFixed(2)}`,
     `Cobrado neto: ${snapshot.resumen.totalNetoCobrado.toFixed(2)}`,
     '',
-    'Ventas:',
+    'CAJA',
+    `Ingresos manuales: ${(snapshot.resumen.totalIngresos ?? 0).toFixed(2)}`,
+    `Egresos manuales: ${(snapshot.resumen.totalEgresos ?? 0).toFixed(2)}`,
+    `Efectivo esperado: ${(snapshot.resumen.efectivoEsperado ?? 0).toFixed(2)}`,
+    '',
+    'TOTALES POR GRUPO / CATEGORÍA',
+    ...(snapshot.grupos?.length
+      ? snapshot.grupos.map(
+          (item) =>
+            `${item.grupo}: cantidad ${item.cantidad} base ${item.base.toFixed(2)}`,
+        )
+      : ['Sin agrupación disponible']),
+    '',
+    'CONSUMO DE PRODUCTOS',
+    ...(snapshot.productos?.length
+      ? snapshot.productos.map(
+          (item) =>
+            `${item.codigo ? `${item.codigo} ` : ''}${item.producto} | ${item.grupo} | cant ${item.cantidad} | base ${item.base.toFixed(2)}`,
+        )
+      : ['Sin productos en el turno']),
+    '',
+    'DETALLE DE OPERACIONES',
     ...snapshot.ventas.flatMap((venta) => [
-      `#${venta.ventaId} ${venta.fechaOperacion} total ${venta.total.toFixed(2)} ${venta.facturaInterna ?? ''} ${venta.documentoElectronicoNumero ?? ''}`.trim(),
+      `#${venta.ventaId} ${venta.fechaOperacion} total ${venta.total.toFixed(2)} ${venta.facturaInterna ?? ''}`.trim(),
       ...venta.detalles.map(
         (detalle) =>
           `  ${detalle.cantidad} x ${detalle.producto} @ ${detalle.precioUnitario.toFixed(2)} = ${detalle.subtotal.toFixed(2)}`,
       ),
     ]),
     '',
-    'RESUMEN FINAL',
-    `Operaciones: ${snapshot.resumen.operaciones}`,
-    `Total ventas: ${snapshot.resumen.totalVentas.toFixed(2)}`,
-    `Pagos brutos: ${snapshot.resumen.totalPagos.toFixed(2)}`,
-    `Devoluciones: ${snapshot.resumen.totalDevoluciones.toFixed(2)}`,
-    `Cobrado neto: ${snapshot.resumen.totalNetoCobrado.toFixed(2)}`,
-    `Efectivo: ${snapshot.resumen.efectivo.toFixed(2)}`,
-    `Otros pagos: ${snapshot.resumen.otrosPagos.toFixed(2)}`,
+    'Este reporte no es factura ni documento equivalente electrónico y no acredita validación DIAN.',
   ];
 
   return generarPdfDesdeLineas(
@@ -429,14 +615,26 @@ export function generarPdfCierreFinal(data: {
   cerradoPor: string;
   snapshot: CierreTurnoSnapshot | null;
 }) {
+  const snapshot = data.snapshot;
+  const r = snapshot?.restaurante;
   const lines = [
     'SIGR - TIRILLA FINAL DE CIERRE',
-    `Caja: ${data.cajaNombre} (#${data.cajaId})`,
+    'DOCUMENTO INTERNO ADMINISTRATIVO',
+    r?.razonSocial || r?.nombre
+      ? `Razón social: ${r?.razonSocial ?? r?.nombre ?? ''}`
+      : '',
+    r?.nombre ? `Nombre comercial: ${r.nombre}` : '',
+    r?.nit ? `NIT: ${r.nit}${r.dv ? `-${r.dv}` : ''}` : '',
+    r?.direccion ? `Dirección: ${r.direccion}` : '',
+    '',
+    `Caja / turno: ${data.cajaNombre} (#${data.cajaId})`,
     `Sucursal: ${data.sucursal}`,
+    `Cajero de apertura: ${snapshot?.caja.cajero ?? '-'}`,
     `Apertura: ${data.fechaApertura.toISOString()}`,
     `Cierre: ${data.fechaCierre.toISOString()}`,
     `Cerrada por: ${data.cerradoPor}`,
     '',
+    'ARQUEO',
     `Base inicial: ${data.saldoInicial.toFixed(2)}`,
     `Efectivo sistema: ${data.totalEfectivoSistema.toFixed(2)}`,
     `Otros medios: ${data.totalOtrosPagos.toFixed(2)}`,
@@ -445,18 +643,43 @@ export function generarPdfCierreFinal(data: {
     `Efectivo esperado: ${data.saldoEsperado.toFixed(2)}`,
     `Efectivo contado: ${data.saldoContado.toFixed(2)}`,
     `Diferencia: ${data.diferencia.toFixed(2)}`,
-    `Observacion: ${data.observacionCierre ?? '-'}`,
+    `Observación: ${data.observacionCierre ?? '-'}`,
     '',
     'RESUMEN DEL TURNO',
-    ...(data.snapshot
+    ...(snapshot
       ? [
-          `Operaciones: ${data.snapshot.resumen.operaciones}`,
-          `Total ventas: ${data.snapshot.resumen.totalVentas.toFixed(2)}`,
-          `Pagos brutos: ${data.snapshot.resumen.totalPagos.toFixed(2)}`,
-          `Devoluciones: ${data.snapshot.resumen.totalDevoluciones.toFixed(2)}`,
-          `Cobrado neto: ${data.snapshot.resumen.totalNetoCobrado.toFixed(2)}`,
+          `Primer comprobante interno: ${snapshot.resumen.primerComprobanteInterno ?? '-'}`,
+          `Último comprobante interno: ${snapshot.resumen.ultimoComprobanteInterno ?? '-'}`,
+          `Operaciones: ${snapshot.resumen.operaciones}`,
+          `Subtotal / base ventas: ${(snapshot.resumen.subtotalVentas ?? 0).toFixed(2)}`,
+          `Descuentos: ${(snapshot.resumen.descuentos ?? 0).toFixed(2)}`,
+          `IVA / otros impuestos: ${(snapshot.resumen.impuestos ?? 0).toFixed(2)}`,
+          `Impoconsumo: ${(snapshot.resumen.impoconsumo ?? 0).toFixed(2)}`,
+          `Propinas: ${(snapshot.resumen.propinas ?? 0).toFixed(2)}`,
+          `Domicilios: ${(snapshot.resumen.domicilios ?? 0).toFixed(2)}`,
+          `Total ventas: ${snapshot.resumen.totalVentas.toFixed(2)}`,
+          `Devoluciones: ${snapshot.resumen.totalDevoluciones.toFixed(2)}`,
+          `Cobrado neto: ${snapshot.resumen.totalNetoCobrado.toFixed(2)}`,
         ]
       : ['Snapshot previo no disponible']),
+    '',
+    'FORMAS DE PAGO',
+    ...(snapshot?.formasPago?.length
+      ? snapshot.formasPago.map(
+          (item) => `${item.metodo}: neto ${item.neto.toFixed(2)}`,
+        )
+      : ['Desglose no disponible']),
+    '',
+    'TOTALES POR GRUPO / CATEGORÍA',
+    ...(snapshot?.grupos?.length
+      ? snapshot.grupos.map(
+          (item) =>
+            `${item.grupo}: cantidad ${item.cantidad} base ${item.base.toFixed(2)}`,
+        )
+      : ['Desglose no disponible']),
+    '',
+    'Documento interno administrativo. No es factura ni documento equivalente electrónico.',
+    'No acredita validación ni aceptación DIAN.',
   ];
 
   return generarPdfDesdeLineas(lines, 'SIGR - TIRILLA FINAL DE CIERRE');

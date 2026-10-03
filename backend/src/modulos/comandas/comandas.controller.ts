@@ -104,8 +104,13 @@ export class ComandasController {
     @Req() request: RequestAutenticada,
     @Query('sucursalId', new ParseIntPipe({ optional: true }))
     sucursalId?: number,
+    @Query('incluirInactivas') incluirInactivas?: string,
   ) {
-    return this.comandasService.listarEstaciones(request.user, sucursalId);
+    return this.comandasService.listarEstaciones(
+      request.user,
+      sucursalId,
+      incluirInactivas === 'true',
+    );
   }
 
   @Post('estaciones-preparacion')

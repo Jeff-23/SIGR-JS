@@ -15,6 +15,9 @@ function readSession(): Session | null {
       return null;
     }
     const session = { ...value, createdAt: value.createdAt ?? new Date().toISOString() } as Session;
+    session.user.roles = Array.isArray(session.user.roles) && session.user.roles.length
+      ? session.user.roles
+      : [session.user.rol];
     if (session.demo) {
       session.user.permisos = [...new Set([...session.user.permisos, "USUARIOS_VER", "USUARIOS_CREAR", "USUARIOS_EDITAR", "CONFIGURACION_GESTIONAR"])];
       session.user.capacidades = [...new Set([...session.user.capacidades, "ANALYTICS"])];

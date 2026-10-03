@@ -1,6 +1,42 @@
 import { Printer, X } from "lucide-react";
 import { type ReactNode, useRef, useState } from "react";
 
+function printDetached(html: string, title: string) {
+  return new Promise<void>((resolve, reject) => {
+    const popup = window.open("", "_blank", "popup,width=720,height=900");
+    if (!popup) {
+      reject(new Error("El navegador bloqueó la ventana de impresión. Habilita ventanas emergentes para SIGR."));
+      return;
+    }
+
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.setTimeout(() => popup.close(), 50);
+      resolve();
+    };
+
+    popup.addEventListener("afterprint", finish, { once: true });
+    popup.document.open();
+    popup.document.write(html);
+    popup.document.close();
+    popup.document.title = title;
+
+    window.setTimeout(() => {
+      try {
+        popup.focus();
+        popup.print();
+        // Algunos WebViews/Electron no disparan afterprint al cancelar.
+        window.setTimeout(finish, 1000);
+      } catch (error) {
+        popup.close();
+        reject(error instanceof Error ? error : new Error("No fue posible abrir la impresión"));
+      }
+    }, 120);
+  });
+}
+
 export function PrintableDocumentModal({
   html,
   title,
@@ -26,10 +62,10 @@ export function PrintableDocumentModal({
     try {
       const result = onPrint ? await onPrint() : "browser";
       if (result !== "handled") {
-        frame.current?.contentWindow?.print();
+        await printDetached(html, title);
         if (onBrowserPrintConfirmed) {
           const confirmed = window.confirm(
-            "¿El ticket salió físicamente de la impresora? Confirma sólo después de verificar el papel.",
+            "La impresión del navegador no puede confirmar por sí sola que salió papel. ¿Verificaste físicamente que el ticket se imprimió?",
           );
           if (confirmed) await onBrowserPrintConfirmed();
         }
@@ -49,9 +85,9 @@ export function PrintableDocumentModal({
               disabled={printing}
               onClick={() => void print()}
             >
-              <Printer size={18} /> {printing ? "Registrando…" : printLabel}
+              <Printer size={18} /> {printing ? "Imprimiendo…" : printLabel}
             </button>
-            <button className="secondary w-auto" onClick={onClose}>
+            <button className="secondary w-auto" disabled={printing} onClick={onClose}>
               <X size={18} /> Cerrar
             </button>
           </div>

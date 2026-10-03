@@ -136,6 +136,10 @@ export class CartaDiaService {
     await this.asegurarPerfilInicial(sucursalId);
     return this.prisma.perfilCarta.findMany({
       where: { sucursalId },
+      include: {
+        preciosProductos: { orderBy: { productoId: 'asc' } },
+        turnosOperativos: { select: { turnoOperativoId: true } },
+      },
       orderBy: [{ orden: 'asc' }, { id: 'asc' }],
     });
   }
@@ -147,6 +151,7 @@ export class CartaDiaService {
   ) {
     await this.sucursalEnAlcance(sucursalId, usuario);
     await this.validarPlantilla(sucursalId, dto);
+    const turnos = await this.validarTurnosOperativos(sucursalId, dto.turnoOperativoIds);
     return this.prisma.$transaction(async (tx) => {
       if (dto.predeterminada) {
         await tx.perfilCarta.updateMany({
@@ -155,11 +160,38 @@ export class CartaDiaService {
         });
       }
       const existentes = await tx.perfilCarta.count({ where: { sucursalId } });
-      return tx.perfilCarta.create({
+      const perfil = await tx.perfilCarta.create({
         data: {
           sucursalId,
           ...this.datosPerfil(dto),
           predeterminada: dto.predeterminada || existentes === 0,
+        },
+      });
+      await this.guardarPreciosPerfil(tx, perfil.id, dto);
+      if (turnos?.length) {
+        await tx.perfilCartaTurnoOperativo.createMany({
+          data: turnos.map((turnoOperativoId) => ({ perfilCartaId: perfil.id, turnoOperativoId })),
+          skipDuplicates: true,
+        });
+      }
+      const categorias = await tx.categoria.findMany({
+        where: { sucursalId, estado: true },
+        select: { id: true },
+      });
+      if (categorias.length) {
+        await tx.perfilCartaCategoria.createMany({
+          data: categorias.map((categoria) => ({
+            perfilCartaId: perfil.id,
+            categoriaId: categoria.id,
+          })),
+          skipDuplicates: true,
+        });
+      }
+      return tx.perfilCarta.findUniqueOrThrow({
+        where: { id: perfil.id },
+        include: {
+          preciosProductos: { orderBy: { productoId: 'asc' } },
+          turnosOperativos: { select: { turnoOperativoId: true } },
         },
       });
     });
@@ -174,6 +206,7 @@ export class CartaDiaService {
     await this.sucursalEnAlcance(sucursalId, usuario);
     await this.perfilEnSucursal(sucursalId, perfilId);
     await this.validarPlantilla(sucursalId, dto);
+    const turnos = await this.validarTurnosOperativos(sucursalId, dto.turnoOperativoIds);
     return this.prisma.$transaction(async (tx) => {
       if (dto.predeterminada) {
         await tx.perfilCarta.updateMany({
@@ -181,10 +214,70 @@ export class CartaDiaService {
           data: { predeterminada: false },
         });
       }
-      return tx.perfilCarta.update({
+      await tx.perfilCarta.update({
         where: { id: perfilId },
         data: this.datosPerfil(dto),
       });
+      await this.guardarPreciosPerfil(tx, perfilId, dto);
+      if (turnos !== undefined) {
+        await tx.perfilCartaTurnoOperativo.deleteMany({ where: { perfilCartaId: perfilId } });
+        if (turnos.length) {
+          await tx.perfilCartaTurnoOperativo.createMany({
+            data: turnos.map((turnoOperativoId) => ({ perfilCartaId: perfilId, turnoOperativoId })),
+          });
+        }
+      }
+      return tx.perfilCarta.findUniqueOrThrow({
+        where: { id: perfilId },
+        include: {
+          preciosProductos: { orderBy: { productoId: 'asc' } },
+          turnosOperativos: { select: { turnoOperativoId: true } },
+        },
+      });
+    });
+  }
+
+  async eliminarPerfil(
+    sucursalId: number,
+    perfilId: number,
+    usuario: UsuarioAutenticado,
+  ) {
+    await this.sucursalEnAlcance(sucursalId, usuario);
+    const perfil = await this.perfilEnSucursal(sucursalId, perfilId);
+    const [totalPerfiles, usuariosAsignados] = await Promise.all([
+      this.prisma.perfilCarta.count({ where: { sucursalId } }),
+      this.prisma.usuario.count({ where: { perfilCartaId: perfilId } }),
+    ]);
+
+    if (totalPerfiles <= 1) {
+      throw new BadRequestException('Debe existir al menos una carta en la sucursal');
+    }
+    if (usuariosAsignados > 0) {
+      throw new BadRequestException(
+        `Esta carta está asignada a ${usuariosAsignados} usuario(s). Reasígnalos antes de eliminarla`,
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      let reemplazo: { id: number } | null = null;
+      if (perfil.predeterminada) {
+        reemplazo = await tx.perfilCarta.findFirst({
+          where: { sucursalId, id: { not: perfilId } },
+          orderBy: [{ estado: 'desc' }, { orden: 'asc' }, { id: 'asc' }],
+          select: { id: true },
+        });
+      }
+
+      await tx.perfilCarta.delete({ where: { id: perfilId } });
+
+      if (reemplazo) {
+        await tx.perfilCarta.update({
+          where: { id: reemplazo.id },
+          data: { predeterminada: true },
+        });
+      }
+
+      return { eliminado: true, perfilId, predeterminadaNuevaId: reemplazo?.id ?? null };
     });
   }
 
@@ -319,6 +412,43 @@ export class CartaDiaService {
     return this.guardarCartaPerfil(sucursalId, perfil.id, fecha, dto, usuario);
   }
 
+  private async guardarPreciosPerfil(
+    tx: Prisma.TransactionClient,
+    perfilId: number,
+    dto: GuardarPerfilCartaDto,
+  ) {
+    if (dto.preciosProductos === undefined) return;
+    const precios = dto.preciosProductos;
+    const ids = [...new Set(precios.map((item) => item.productoId))];
+    if (ids.length !== precios.length) {
+      throw new BadRequestException(
+        'Un producto no puede repetir precio dentro de la misma carta',
+      );
+    }
+    await tx.productoPerfilCarta.deleteMany({
+      where: {
+        perfilCartaId: perfilId,
+        ...(ids.length ? { productoId: { notIn: ids } } : {}),
+      },
+    });
+    for (const item of precios) {
+      await tx.productoPerfilCarta.upsert({
+        where: {
+          perfilCartaId_productoId: {
+            perfilCartaId: perfilId,
+            productoId: item.productoId,
+          },
+        },
+        create: {
+          perfilCartaId: perfilId,
+          productoId: item.productoId,
+          precio: item.precio,
+        },
+        update: { precio: item.precio },
+      });
+    }
+  }
+
   private datosPerfil(dto: GuardarPerfilCartaDto) {
     return {
       nombre: dto.nombre.trim() || 'Carta',
@@ -363,6 +493,25 @@ export class CartaDiaService {
     };
   }
 
+  private async validarTurnosOperativos(
+    sucursalId: number,
+    turnoOperativoIds: number[] | undefined,
+  ) {
+    if (turnoOperativoIds === undefined) return undefined;
+    const unicos = [...new Set(turnoOperativoIds)];
+    if (!unicos.length) return [];
+    const encontrados = await this.prisma.turnoOperativo.findMany({
+      where: { id: { in: unicos }, sucursalId, estado: true },
+      select: { id: true },
+    });
+    if (encontrados.length !== unicos.length) {
+      throw new BadRequestException(
+        'Uno o más turnos operativos no pertenecen a esta sucursal o están inactivos',
+      );
+    }
+    return unicos;
+  }
+
   private async validarPlantilla(
     sucursalId: number,
     dto: GuardarPerfilCartaDto,
@@ -373,7 +522,10 @@ export class CartaDiaService {
       );
     }
     const ids = [
-      ...new Set(dto.plantilla.secciones.flatMap((s) => s.productoIds)),
+      ...new Set([
+        ...dto.plantilla.secciones.flatMap((s) => s.productoIds),
+        ...(dto.preciosProductos ?? []).map((item) => item.productoId),
+      ]),
     ];
     if (!ids.length) return;
     const productos = await this.prisma.producto.count({
@@ -432,19 +584,52 @@ export class CartaDiaService {
       where: { sucursalId },
     });
     if (existe) return;
-    await this.prisma.perfilCarta.create({
-      data: {
-        sucursalId,
-        nombre: 'Carta principal',
-        descripcion: 'Configura los productos y la presentación de esta carta',
-        estado: true,
-        predeterminada: true,
-        orden: 0,
-        modoActivacion: 'SIEMPRE',
-        activoManual: false,
-        diasSemana: [1, 2, 3, 4, 5, 6, 7],
-        plantilla: plantillaPredeterminada(),
-      },
+    await this.prisma.$transaction(async (tx) => {
+      const perfil = await tx.perfilCarta.create({
+        data: {
+          sucursalId,
+          nombre: 'Carta principal',
+          descripcion:
+            'Configura los productos y la presentación de esta carta',
+          estado: true,
+          predeterminada: true,
+          orden: 0,
+          modoActivacion: 'SIEMPRE',
+          activoManual: false,
+          diasSemana: [1, 2, 3, 4, 5, 6, 7],
+          plantilla: plantillaPredeterminada(),
+        },
+      });
+      const categorias = await tx.categoria.findMany({
+        where: { sucursalId, estado: true },
+        select: { id: true },
+      });
+      if (categorias.length) {
+        await tx.perfilCartaCategoria.createMany({
+          data: categorias.map((categoria) => ({
+            perfilCartaId: perfil.id,
+            categoriaId: categoria.id,
+          })),
+          skipDuplicates: true,
+        });
+      }
+      const turno = await tx.turnoOperativo.upsert({
+        where: { sucursalId_nombre: { sucursalId, nombre: 'General' } },
+        update: { estado: true },
+        create: { sucursalId, nombre: 'General', estado: true, orden: 0 },
+      });
+      await tx.perfilCartaTurnoOperativo.create({
+        data: { perfilCartaId: perfil.id, turnoOperativoId: turno.id },
+      });
+      if (categorias.length) {
+        await tx.categoriaTurnoOperativo.createMany({
+          data: categorias.map((categoria) => ({
+            categoriaId: categoria.id,
+            turnoOperativoId: turno.id,
+          })),
+          skipDuplicates: true,
+        });
+      }
     });
   }
 

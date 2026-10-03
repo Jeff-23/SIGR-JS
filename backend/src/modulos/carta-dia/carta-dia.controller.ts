@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -78,6 +79,16 @@ export class CartaDiaController {
     @Req() req: RequestAutenticada,
   ) {
     return this.service.actualizarPerfil(sucursalId, perfilId, dto, req.user);
+  }
+
+  @Delete(':sucursalId/perfiles/:perfilId')
+  @Permisos('PRODUCTOS_EDITAR')
+  eliminarPerfil(
+    @Param('sucursalId', ParseIntPipe) sucursalId: number,
+    @Param('perfilId', ParseIntPipe) perfilId: number,
+    @Req() req: RequestAutenticada,
+  ) {
+    return this.service.eliminarPerfil(sucursalId, perfilId, req.user);
   }
 
   @Get(':sucursalId/perfiles/:perfilId/:fecha')

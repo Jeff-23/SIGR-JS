@@ -14,6 +14,7 @@ import {
 import toast from "react-hot-toast";
 import { api, errorMessage } from "../../lib/api";
 import { PrintableDocumentModal } from "../../components/PrintableDocumentModal";
+import { listLocalPrinters, printWithLocalAgent } from "../../lib/print-agent";
 import { money } from "../../data/demo";
 import {
   automaticDiscount,
@@ -123,7 +124,7 @@ export function ProfessionalSaleCheckout({
   );
   const [tip, setTip] = useState(String(Number(sale.propina ?? 0)));
   const [invoiceHtml, setInvoiceHtml] = useState<string | null>(null);
-  const [posHtml, setPosHtml] = useState<string | null>(null);
+  const [posDocument, setPosDocument] = useState<{ html: string; text: string; widthMm: 58 | 80 } | null>(null);
   const invoiceFrame = useRef<HTMLIFrameElement>(null);
 
   const selectedMethod = methods.find(
@@ -248,10 +249,14 @@ export function ProfessionalSaleCheckout({
 
   async function loadPosReceipt() {
     await onRun(async () => {
-      const { data } = await api.get<{ contenido: string }>(
+      const { data } = await api.get<{ contenido: string; contenidoTexto: string; anchoPapel: 58 | 80 }>(
         `/ventas/${sale.id}/comprobante-pos`,
       );
-      setPosHtml(data.contenido);
+      setPosDocument({
+        html: data.contenido,
+        text: data.contenidoTexto,
+        widthMm: data.anchoPapel,
+      });
     });
   }
 
@@ -1010,11 +1015,42 @@ export function ProfessionalSaleCheckout({
         </div>
       </section>
 
-      {posHtml && (
+      {posDocument && (
         <PrintableDocumentModal
-          html={posHtml}
+          html={posDocument.html}
           title={`Comprobante POS · Venta #${sale.id}`}
-          onClose={() => setPosHtml(null)}
+          printLabel="Imprimir comprobante directo"
+          onPrint={async () => {
+            try {
+              const printers = await listLocalPrinters();
+              const available = printers.filter((printer) => printer.available);
+              const printer = available.find((item) => item.default) ?? available[0];
+              if (!printer) {
+                toast.error("No hay una impresora local disponible en el agente de SIGR");
+                return "handled";
+              }
+              const result = await printWithLocalAgent({
+                printerName: printer.name,
+                jobName: `SIGR Comprobante POS Venta ${sale.id}`,
+                content: posDocument.text,
+                widthMm: posDocument.widthMm,
+              });
+              if (!result.ok) {
+                throw new Error(result.error || "La impresora no aceptó el comprobante");
+              }
+              toast.success(`Comprobante enviado a ${printer.name}`);
+              return "handled";
+            } catch (error) {
+              toast.error(
+                error instanceof Error
+                  ? error.message
+                  : "No se pudo imprimir el comprobante con el agente local de SIGR",
+                { duration: 5000 },
+              );
+              return "handled";
+            }
+          }}
+          onClose={() => setPosDocument(null)}
         />
       )}
 

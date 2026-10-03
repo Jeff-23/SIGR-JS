@@ -31,6 +31,14 @@ export const CATALOGO_CONFIGURACION = {
       valor >= 0 &&
       valor <= 100,
   },
+  PORCENTAJE_IMPOCONSUMO: {
+    valorPredeterminado: 0,
+    validar: (valor) =>
+      typeof valor === 'number' &&
+      Number.isFinite(valor) &&
+      valor >= 0 &&
+      valor <= 100,
+  },
   PREFIJO_PEDIDO: {
     valorPredeterminado: 'PED',
     validar: validarPrefijo,
@@ -58,6 +66,22 @@ export const CATALOGO_CONFIGURACION = {
   ANCHO_PAPEL: {
     valorPredeterminado: 80,
     validar: (valor) => valor === 58 || valor === 80,
+  },
+  CIERRE_ENVIO_EMAIL_ACTIVO: {
+    valorPredeterminado: false,
+    validar: (valor) => typeof valor === 'boolean',
+  },
+  CIERRE_ENVIO_EMAIL_DESTINOS: {
+    valorPredeterminado: '',
+    validar: (valor) => typeof valor === 'string' && valor.length <= 1000,
+  },
+  CIERRE_ENVIO_WHATSAPP_ACTIVO: {
+    valorPredeterminado: false,
+    validar: (valor) => typeof valor === 'boolean',
+  },
+  CIERRE_ENVIO_WHATSAPP_DESTINOS: {
+    valorPredeterminado: '',
+    validar: (valor) => typeof valor === 'string' && valor.length <= 1000,
   },
 } satisfies Record<string, DefinicionConfiguracion>;
 

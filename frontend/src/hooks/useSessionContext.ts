@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { api } from "../lib/api";
 import { useApp } from "../store/app";
 
-type DynamicSession = { rol: string; restauranteId: number | null; sucursalId: number | null; permisos: string[]; capacidades: string[]; restauranteNombre?: string; sucursalNombre?: string };
+type DynamicSession = { rol: string; roles: string[]; restauranteId: number | null; sucursalId: number | null; permisos: string[]; capacidades: string[]; restauranteNombre?: string; sucursalNombre?: string };
 
 export function useSessionContext() {
   const session = useApp((state) => state.session);
@@ -18,9 +18,9 @@ export function useSessionContext() {
         if (!active) return;
         const current = useApp.getState().session;
         if (!current || current.demo) return;
-        const unchanged = current.user.rol === data.rol && current.user.restauranteId === data.restauranteId && current.user.sucursalId === data.sucursalId && current.user.restauranteNombre === data.restauranteNombre && current.user.sucursalNombre === data.sucursalNombre && current.user.permisos.join("|") === data.permisos.join("|") && current.user.capacidades.join("|") === data.capacidades.join("|");
+        const unchanged = current.user.rol === data.rol && current.user.roles.join("|") === data.roles.join("|") && current.user.restauranteId === data.restauranteId && current.user.sucursalId === data.sucursalId && current.user.restauranteNombre === data.restauranteNombre && current.user.sucursalNombre === data.sucursalNombre && current.user.permisos.join("|") === data.permisos.join("|") && current.user.capacidades.join("|") === data.capacidades.join("|");
         if (unchanged) return;
-        setSession({ ...current, user: { ...current.user, rol: data.rol, restauranteId: data.restauranteId, sucursalId: data.sucursalId, permisos: data.permisos, capacidades: data.capacidades, restauranteNombre: data.restauranteNombre, sucursalNombre: data.sucursalNombre } });
+        setSession({ ...current, user: { ...current.user, rol: data.rol, roles: data.roles, restauranteId: data.restauranteId, sucursalId: data.sucursalId, permisos: data.permisos, capacidades: data.capacidades, restauranteNombre: data.restauranteNombre, sucursalNombre: data.sucursalNombre } });
       } catch { /* El interceptor gestiona expiración y disponibilidad. */ }
     };
     const visibility = () => { if (document.visibilityState === "visible") void refresh(); };

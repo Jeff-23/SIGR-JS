@@ -1,0 +1,105 @@
+-- Bloque 2: completa el catálogo base de roles operativos para restaurantes
+-- activos creados fuera de los seeds. Mantiene ADMIN existente y no toca
+-- restaurantes desactivados.
+
+WITH roles_base(nombre) AS (
+  VALUES
+    ('ADMIN_SEDE'),
+    ('CAJERO'),
+    ('MESERO'),
+    ('COCINA'),
+    ('BAR'),
+    ('DOMICILIARIO'),
+    ('INVENTARIO'),
+    ('CONTADOR')
+)
+INSERT INTO "Rol" ("clave", "nombre", "descripcion", "ambito", "restauranteId")
+SELECT
+  'RESTAURANTE:' || r.id || ':' || rb.nombre,
+  rb.nombre,
+  rb.nombre || ' del restaurante ' || r.nombre,
+  'RESTAURANTE'::"AmbitoRol",
+  r.id
+FROM "Restaurante" r
+CROSS JOIN roles_base rb
+WHERE r.estado = true
+ON CONFLICT ("clave") DO NOTHING;
+
+-- Si ya existe otro restaurante con el mismo rol, clonamos su matriz vigente
+-- de permisos. Esto conserva exactamente los perfiles que ya funcionan en
+-- instalaciones existentes (por ejemplo Sazón) y evita reconstrucciones.
+WITH referencia AS (
+  SELECT DISTINCT ON (r.nombre)
+    r.nombre,
+    r.id AS "rolReferenciaId"
+  FROM "Rol" r
+  WHERE r."ambito" = 'RESTAURANTE'::"AmbitoRol"
+    AND r.nombre IN (
+      'ADMIN_SEDE', 'CAJERO', 'MESERO', 'COCINA', 'BAR',
+      'DOMICILIARIO', 'INVENTARIO', 'CONTADOR'
+    )
+    AND EXISTS (SELECT 1 FROM "RolPermiso" rp WHERE rp."rolId" = r.id)
+  ORDER BY r.nombre, r.id
+)
+INSERT INTO "RolPermiso" ("rolId", "permisoId")
+SELECT destino.id, rp."permisoId"
+FROM "Rol" destino
+JOIN "Restaurante" rest ON rest.id = destino."restauranteId" AND rest.estado = true
+JOIN referencia ref ON ref.nombre = destino.nombre
+JOIN "RolPermiso" rp ON rp."rolId" = ref."rolReferenciaId"
+WHERE destino."ambito" = 'RESTAURANTE'::"AmbitoRol"
+  AND destino.nombre IN (
+    'ADMIN_SEDE', 'CAJERO', 'MESERO', 'COCINA', 'BAR',
+    'DOMICILIARIO', 'INVENTARIO', 'CONTADOR'
+  )
+ON CONFLICT ("rolId", "permisoId") DO NOTHING;
+
+-- Fallback explícito para instalaciones sin un rol de referencia previo.
+WITH matriz(rol, permiso) AS (
+  VALUES
+    ('ADMIN_SEDE','USUARIOS_VER'),('ADMIN_SEDE','SUCURSALES_VER'),
+    ('ADMIN_SEDE','ZONAS_VER'),('ADMIN_SEDE','ZONAS_CREAR'),('ADMIN_SEDE','ZONAS_EDITAR'),
+    ('ADMIN_SEDE','MESAS_VER'),('ADMIN_SEDE','MESAS_CREAR'),('ADMIN_SEDE','MESAS_EDITAR'),
+    ('ADMIN_SEDE','CATEGORIAS_VER'),('ADMIN_SEDE','CATEGORIAS_CREAR'),('ADMIN_SEDE','CATEGORIAS_EDITAR'),
+    ('ADMIN_SEDE','PRODUCTOS_VER'),('ADMIN_SEDE','PRODUCTOS_CREAR'),('ADMIN_SEDE','PRODUCTOS_EDITAR'),
+    ('ADMIN_SEDE','INVENTARIO_VER'),('ADMIN_SEDE','INVENTARIO_AJUSTAR'),
+    ('ADMIN_SEDE','RECETAS_VER'),('ADMIN_SEDE','RECETAS_CREAR'),('ADMIN_SEDE','RECETAS_EDITAR'),
+    ('ADMIN_SEDE','PEDIDOS_VER'),('ADMIN_SEDE','PEDIDOS_CREAR'),('ADMIN_SEDE','PEDIDOS_EDITAR'),('ADMIN_SEDE','PEDIDOS_CANCELAR'),
+    ('ADMIN_SEDE','DOMICILIOS_VER'),('ADMIN_SEDE','DOMICILIOS_ACTUALIZAR'),
+    ('ADMIN_SEDE','COMANDAS_VER'),('ADMIN_SEDE','COMANDAS_ENVIAR'),('ADMIN_SEDE','COMANDAS_ACTUALIZAR_ESTADO'),('ADMIN_SEDE','COMANDAS_IMPRIMIR'),
+    ('ADMIN_SEDE','VENTAS_VER'),('ADMIN_SEDE','VENTAS_CREAR'),('ADMIN_SEDE','VENTAS_REGISTRAR_MANUAL'),('ADMIN_SEDE','VENTAS_ANULAR'),
+    ('ADMIN_SEDE','FACTURAS_VER'),('ADMIN_SEDE','FACTURAS_EMITIR'),
+    ('ADMIN_SEDE','REGISTROS_FACTURA_VER'),('ADMIN_SEDE','REGISTROS_FACTURA_CREAR'),('ADMIN_SEDE','REGISTROS_FACTURA_EXPORTAR'),
+    ('ADMIN_SEDE','PAGOS_REGISTRAR'),('ADMIN_SEDE','METODOS_PAGO_VER'),
+    ('ADMIN_SEDE','CAJA_VER'),('ADMIN_SEDE','CAJA_ABRIR'),('ADMIN_SEDE','CAJA_CERRAR'),('ADMIN_SEDE','CAJA_MOVIMIENTOS'),
+    ('ADMIN_SEDE','DESCUENTOS_APLICAR'),('ADMIN_SEDE','CLIENTES_VER'),('ADMIN_SEDE','CLIENTES_CREAR'),('ADMIN_SEDE','CLIENTES_EDITAR'),
+    ('ADMIN_SEDE','CENTRO_OPERATIVO_VER'),('ADMIN_SEDE','REPORTES_VER'),('ADMIN_SEDE','CONFIGURACION_VER'),('ADMIN_SEDE','AUDITORIA_VER'),
+
+    ('CAJERO','MESAS_VER'),('CAJERO','PRODUCTOS_VER'),('CAJERO','PEDIDOS_VER'),('CAJERO','PEDIDOS_CREAR'),('CAJERO','PEDIDOS_EDITAR'),('CAJERO','PEDIDOS_CANCELAR'),
+    ('CAJERO','COMANDAS_VER'),('CAJERO','COMANDAS_ENVIAR'),('CAJERO','COMANDAS_IMPRIMIR'),
+    ('CAJERO','DOMICILIOS_VER'),('CAJERO','DOMICILIOS_ACTUALIZAR'),('CAJERO','DOMICILIOS_SUPERVISAR'),
+    ('CAJERO','VENTAS_VER'),('CAJERO','VENTAS_CREAR'),('CAJERO','VENTAS_REGISTRAR_MANUAL'),
+    ('CAJERO','FACTURAS_VER'),('CAJERO','FACTURAS_EMITIR'),('CAJERO','REGISTROS_FACTURA_VER'),('CAJERO','REGISTROS_FACTURA_CREAR'),
+    ('CAJERO','PAGOS_REGISTRAR'),('CAJERO','METODOS_PAGO_VER'),('CAJERO','CAJA_VER'),('CAJERO','CAJA_ABRIR'),('CAJERO','CAJA_CERRAR'),('CAJERO','CAJA_MOVIMIENTOS'),
+    ('CAJERO','DESCUENTOS_APLICAR'),('CAJERO','CLIENTES_VER'),('CAJERO','CLIENTES_CREAR'),('CAJERO','CENTRO_OPERATIVO_VER'),
+
+    ('MESERO','MESAS_VER'),('MESERO','PRODUCTOS_VER'),('MESERO','PEDIDOS_VER'),('MESERO','PEDIDOS_CREAR'),('MESERO','PEDIDOS_EDITAR'),('MESERO','PEDIDOS_CANCELAR'),
+    ('MESERO','COMANDAS_VER'),('MESERO','COMANDAS_ENVIAR'),('MESERO','CLIENTES_VER'),('MESERO','CLIENTES_CREAR'),('MESERO','CENTRO_OPERATIVO_VER'),
+
+    ('COCINA','PEDIDOS_VER'),('COCINA','COMANDAS_VER'),('COCINA','COMANDAS_ACTUALIZAR_ESTADO'),('COCINA','CENTRO_OPERATIVO_VER'),
+    ('BAR','PEDIDOS_VER'),('BAR','COMANDAS_VER'),('BAR','COMANDAS_ACTUALIZAR_ESTADO'),('BAR','CENTRO_OPERATIVO_VER'),
+    ('DOMICILIARIO','PEDIDOS_VER'),('DOMICILIARIO','DOMICILIOS_VER'),('DOMICILIARIO','DOMICILIOS_ACTUALIZAR'),
+    ('INVENTARIO','CATEGORIAS_VER'),('INVENTARIO','PRODUCTOS_VER'),('INVENTARIO','INVENTARIO_VER'),('INVENTARIO','INVENTARIO_AJUSTAR'),
+    ('INVENTARIO','RECETAS_VER'),('INVENTARIO','RECETAS_CREAR'),('INVENTARIO','RECETAS_EDITAR'),('INVENTARIO','REPORTES_VER'),
+    ('CONTADOR','SUCURSALES_VER'),('CONTADOR','CONTABILIDAD_VER'),('CONTADOR','VENTAS_VER'),('CONTADOR','REGISTROS_FACTURA_VER'),
+    ('CONTADOR','REGISTROS_FACTURA_EXPORTAR'),('CONTADOR','FACTURAS_VER'),('CONTADOR','METODOS_PAGO_VER'),('CONTADOR','INVENTARIO_VER'),
+    ('CONTADOR','REPORTES_VER'),('CONTADOR','CAJA_VER'),('CONTADOR','AUDITORIA_VER')
+)
+INSERT INTO "RolPermiso" ("rolId", "permisoId")
+SELECT r.id, p.id
+FROM "Rol" r
+JOIN "Restaurante" rest ON rest.id = r."restauranteId" AND rest.estado = true
+JOIN matriz m ON m.rol = r.nombre
+JOIN "Permiso" p ON p.codigo = m.permiso AND p.activo = true
+WHERE r."ambito" = 'RESTAURANTE'::"AmbitoRol"
+ON CONFLICT ("rolId", "permisoId") DO NOTHING;

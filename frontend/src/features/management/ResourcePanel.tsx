@@ -340,10 +340,12 @@ export function ResourceEditor({
   onSaved: () => void;
 }) {
   const { branchId, session } = useApp();
+  const globalSuperadmin =
+    session?.user.rol === "SUPERADMIN" && session.user.restauranteId === null;
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const fields = resource.fields.filter((f) => !(initial && f.createOnly));
-  const [values, setValues] = useState<Record<string, string | boolean>>(() =>
+  const [values, setValues] = useState<Record<string, string | boolean | string[]>>(() =>
     Object.fromEntries(
       fields.map((f) => {
         const relationKey = f.lookup && f.key.endsWith("Id")
@@ -354,6 +356,26 @@ export function ResourceEditor({
           (relation && typeof relation === "object" && "id" in relation
             ? (relation as Row).id
             : undefined);
+        const selectedIds =
+          f.type === "multiselect" && initial
+            ? f.key === "rolIds"
+              ? ((initial.rolesAsignados as Row[] | undefined) ?? [])
+                  .map((item) => {
+                    const rol = item.rol as Row | undefined;
+                    return rol?.id === undefined ? "" : String(rol.id);
+                  })
+                  .filter(Boolean)
+              : f.key === "turnoOperativoIds"
+                ? ((initial.turnosOperativos as Row[] | undefined) ?? [])
+                    .map((item) => {
+                      const turno = item.turnoOperativo as Row | undefined;
+                      return turno?.id === undefined ? "" : String(turno.id);
+                    })
+                    .filter(Boolean)
+                : Array.isArray(initialValue)
+                  ? initialValue.map((item) => String(item))
+                  : []
+            : [];
         return [
           f.key,
           f.type === "password"
@@ -362,13 +384,18 @@ export function ResourceEditor({
               ? initial
                 ? Boolean(initialValue)
                 : Boolean(f.defaultValue)
-              : String(initialValue ?? f.defaultValue ?? ""),
+              : f.type === "multiselect"
+                ? selectedIds
+                : String(initialValue ?? f.defaultValue ?? ""),
         ];
       }),
     ),
   );
   const [options, setOptions] = useState<Record<string, Row[]>>({}),
     [ready, setReady] = useState(false);
+  const restauranteLookupId = String(
+    values.restauranteId ?? session?.user.restauranteId ?? "",
+  );
   useEffect(() => {
     const controller = new AbortController();
     void (async () => {
@@ -377,16 +404,29 @@ export function ResourceEditor({
           resource.fields
             .filter((f) => f.lookup && !(initial && f.createOnly))
             .map(async (f) => {
-              const { data } = await api.get(
-                f.lookup!.replaceAll(":sede", String(branchId)),
-                { signal: controller.signal },
-              );
+              if (f.lookup!.includes(":restaurante") && !restauranteLookupId) {
+                return [f.key, []] as const;
+              }
+              const lookup = f.lookup!
+                .replaceAll(":sede", String(branchId))
+                .replaceAll(":restaurante", restauranteLookupId);
+              const { data } = await api.get(lookup, {
+                signal: controller.signal,
+              });
               return [
                 f.key,
-                rowsOf(data).filter(
-                  (row) =>
-                    row.sucursalId === undefined || row.sucursalId === branchId,
-                ),
+                rowsOf(data).filter((row) => {
+                  if (
+                    globalSuperadmin &&
+                    f.key === "sucursalId" &&
+                    restauranteLookupId
+                  ) {
+                    return row.restauranteId === Number(restauranteLookupId);
+                  }
+                  return (
+                    row.sucursalId === undefined || row.sucursalId === branchId
+                  );
+                }),
               ] as const;
             }),
         );
@@ -399,7 +439,13 @@ export function ResourceEditor({
       }
     })();
     return () => controller.abort();
-  }, [resource, initial, branchId]);
+  }, [
+    resource,
+    initial,
+    branchId,
+    restauranteLookupId,
+    globalSuperadmin,
+  ]);
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (busy || !ready || session?.demo) return;
@@ -439,10 +485,20 @@ export function ResourceEditor({
             <EditorField
               key={f.key}
               field={f}
+              editing={Boolean(initial)}
               value={values[f.key]}
               options={options[f.key]}
               onChange={(v) =>
-                setValues((current) => ({ ...current, [f.key]: v }))
+                setValues((current) =>
+                  f.key === "restauranteId"
+                    ? {
+                        ...current,
+                        restauranteId: v,
+                        rolIds: [],
+                        sucursalId: "",
+                      }
+                    : { ...current, [f.key]: v },
+                )
               }
             />
           ))}
@@ -465,23 +521,82 @@ export function ResourceEditor({
 }
 export function EditorField({
   field: f,
+  editing = false,
   value,
   options,
   onChange,
 }: {
   field: Field;
-  value: string | boolean | undefined;
+  editing?: boolean;
+  value: string | boolean | string[] | undefined;
   options?: Row[];
-  onChange: (value: string | boolean) => void;
+  onChange: (value: string | boolean | string[]) => void;
 }) {
+  const required = Boolean(f.required && !(editing && f.type === "password"));
   return (
     <label className="text-sm font-semibold">
       {f.label}
-      {f.required ? " *" : ""}
-      {f.options || f.lookup ? (
+      {required ? " *" : ""}
+      {editing && f.type === "password" ? (
+        <span className="ml-2 text-xs font-normal text-denim/60">
+          (opcional; déjala vacía para conservar la actual)
+        </span>
+      ) : null}
+      {f.type === "multiselect" && f.lookup ? (
+        <div className="mt-2 space-y-2 rounded-xl border border-denim/15 p-3">
+          {options?.map((o) => {
+            const selected = Array.isArray(value) && value.includes(String(o.id));
+            return (
+              <label key={o.id} className="flex items-center gap-2 font-medium">
+                <input
+                  type="checkbox"
+                  checked={selected}
+                  onChange={(event) => {
+                    const current = Array.isArray(value) ? value : [];
+                    if (!event.target.checked) {
+                      onChange(current.filter((id) => id !== String(o.id)));
+                      return;
+                    }
+                    if (f.key === "rolIds") {
+                      const exclusivos = new Set(["ADMIN", "ADMIN_SEDE", "CONTADOR"]);
+                      const nombreSeleccionado = String(o.nombre ?? "");
+                      if (exclusivos.has(nombreSeleccionado)) {
+                        onChange([String(o.id)]);
+                        return;
+                      }
+                      const idsExclusivos = new Set(
+                        (options ?? [])
+                          .filter((opcion) => exclusivos.has(String(opcion.nombre ?? "")))
+                          .map((opcion) => String(opcion.id)),
+                      );
+                      onChange([
+                        ...current.filter((id) => !idsExclusivos.has(id)),
+                        String(o.id),
+                      ]);
+                      return;
+                    }
+                    onChange([...current, String(o.id)]);
+                  }}
+                />
+                {display(o.nombre ?? o.nombres ?? o.numero)}
+              </label>
+            );
+          })}
+          {!options?.length && (
+            <span className="text-denim/60">
+              {f.key === "rolIds" ? "Sin roles disponibles" : "Sin opciones disponibles"}
+            </span>
+          )}
+          {f.key === "rolIds" && (
+            <p className="text-xs font-normal text-denim/60">
+              ADMIN, ADMIN_SEDE y CONTADOR son exclusivos. Los demás roles operativos pueden combinarse.
+            </p>
+          )}
+        </div>
+      ) : f.options || f.lookup ? (
         <select
           className="input mt-1"
-          required={f.required}
+          required={required}
           value={String(value ?? "")}
           onChange={(e) => onChange(e.target.value)}
         >
@@ -495,6 +610,13 @@ export function EditorField({
             </option>
           ))}
         </select>
+      ) : f.type === "textarea" ? (
+        <textarea
+          className="input mt-1 min-h-28"
+          maxLength={f.maxLength}
+          value={String(value ?? "")}
+          onChange={(e) => onChange(e.target.value)}
+        />
       ) : f.type === "checkbox" ? (
         <input
           className="ml-3"
@@ -506,7 +628,7 @@ export function EditorField({
         <input
           className="input mt-1"
           type={f.type ?? "text"}
-          required={f.required}
+          required={required}
           min={f.type === "number" ? (f.min ?? 0) : undefined}
           step={f.step}
           maxLength={f.maxLength}

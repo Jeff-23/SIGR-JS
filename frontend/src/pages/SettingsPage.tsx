@@ -8,6 +8,16 @@ type Config = {
   valores: Record<string, string | number | boolean>;
   origenes: Record<string, string>;
 };
+type CierreDistribucion = {
+  emailActivo: boolean;
+  emails: string[];
+  whatsappActivo: boolean;
+  whatsapps: string[];
+  proveedores: {
+    emailConfigurado: boolean;
+    whatsappConfigurado: boolean;
+  };
+};
 export function SettingsPage() {
   const { session, branchId } = useApp();
   return <Settings key={`${session?.user.id}:${branchId}`} />;
@@ -25,8 +35,18 @@ function Settings() {
     [message, setMessage] = useState("");
   const [theme, setTheme] = useState<RestaurantTheme>(DEFAULT_THEME);
   const [themeBusy, setThemeBusy] = useState(false);
+  const [distribution, setDistribution] = useState<CierreDistribucion>({
+    emailActivo: false,
+    emails: [],
+    whatsappActivo: false,
+    whatsapps: [],
+    proveedores: { emailConfigurado: false, whatsappConfigurado: false },
+  });
+  const [distributionBusy, setDistributionBusy] = useState(false);
+  const [distributionMessage, setDistributionMessage] = useState("");
   const canEditTheme =
-    hasPermission("CONFIGURACION_GESTIONAR") && session?.user.sucursalId === null;
+    hasPermission("CONFIGURACION_GESTIONAR") &&
+    (session?.user.sucursalId === null || session?.user.roles?.includes("ADMIN"));
 
   useEffect(() => {
     if (!branchId || session?.demo) return;
@@ -36,6 +56,15 @@ function Settings() {
       .catch(() => undefined);
     return () => { active = false; };
   }, [branchId, session?.demo]);
+
+  useEffect(() => {
+    if (!branchId || session?.demo || !hasPermission("CONFIGURACION_VER")) return;
+    let active = true;
+    api.get<CierreDistribucion>(`/cierre-distribucion/configuracion?sucursalId=${branchId}`)
+      .then(({ data }) => { if (active) setDistribution(data); })
+      .catch((error) => { if (active) setDistributionMessage(errorMessage(error)); });
+    return () => { active = false; };
+  }, [branchId, hasPermission, session?.demo]);
 
   const saveTheme = async () => {
     if (!canEditTheme || session?.demo) return;
@@ -50,6 +79,32 @@ function Settings() {
       setMessage(errorMessage(error));
     } finally {
       setThemeBusy(false);
+    }
+  };
+
+
+  const saveDistribution = async () => {
+    if (!branchId || !hasPermission("CONFIGURACION_GESTIONAR") || session?.demo) return;
+    setDistributionBusy(true);
+    setDistributionMessage("");
+    try {
+      const { data } = await api.patch<CierreDistribucion>(
+        `/cierre-distribucion/configuracion/${branchId}`,
+        {
+          emails: distribution.emails,
+          whatsapps: distribution.whatsapps,
+        },
+      );
+      setDistribution(data);
+      setDistributionMessage(
+        distribution.emails.length || distribution.whatsapps.length
+          ? "Destinos guardados. Los próximos reportes se enviarán automáticamente."
+          : "Destinos eliminados. El envío automático quedó desactivado para esta sede.",
+      );
+    } catch (error) {
+      setDistributionMessage(errorMessage(error));
+    } finally {
+      setDistributionBusy(false);
     }
   };
 
@@ -140,6 +195,69 @@ function Settings() {
           <p className="text-xs text-denim/50">La identidad visual global la administra el administrador general del restaurante.</p>
         )}
       </section>
+      {hasPermission("CONFIGURACION_VER") && (
+        <section className="card max-w-4xl space-y-4">
+          <div>
+            <h2 className="text-xl font-black">Distribución automática del reporte de cierre</h2>
+            <p className="text-sm text-denim/55">
+              Al generar Excel + PDF, SIGR los envía a los destinos configurados. Si no hay internet o el proveedor no responde, el envío queda pendiente y se reintenta sin bloquear el cierre de caja.
+            </p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border border-denim/10 p-4 space-y-3">
+              <div>
+                <h3 className="font-black">Correo que recibirá el cierre</h3>
+                <p className="text-xs text-denim/50">
+                  Escribe el correo de gerencia o administración. Con solo guardarlo, el envío automático queda activo.
+                </p>
+              </div>
+              <textarea
+                className="input min-h-28"
+                placeholder="gerencia@york.com"
+                disabled={!hasPermission("CONFIGURACION_GESTIONAR") || distributionBusy}
+                value={distribution.emails.join("\n")}
+                onChange={(event) => setDistribution((current) => ({
+                  ...current,
+                  emails: event.target.value.split(/[;,\n]/).map((value) => value.trim()).filter(Boolean),
+                  emailActivo: event.target.value.split(/[;,\n]/).map((value) => value.trim()).filter(Boolean).length > 0,
+                }))}
+              />
+              <small className="text-denim/50">Para desactivar el envío por correo, elimina todos los correos y guarda.</small>
+            </div>
+            <div className="rounded-2xl border border-denim/10 p-4 space-y-3">
+              <div>
+                <h3 className="font-black">WhatsApp que recibirá el cierre</h3>
+                <p className="text-xs text-denim/50">
+                  Opcional. Al guardar un número, el envío por WhatsApp queda activo cuando el canal global de SIGR esté conectado.
+                </p>
+              </div>
+              <textarea
+                className="input min-h-28"
+                placeholder="+573001234567"
+                disabled={!hasPermission("CONFIGURACION_GESTIONAR") || distributionBusy}
+                value={distribution.whatsapps.join("\n")}
+                onChange={(event) => setDistribution((current) => ({
+                  ...current,
+                  whatsapps: event.target.value.split(/[;,\n]/).map((value) => value.trim()).filter(Boolean),
+                  whatsappActivo: event.target.value.split(/[;,\n]/).map((value) => value.trim()).filter(Boolean).length > 0,
+                }))}
+              />
+              <small className="text-denim/50">Para desactivar WhatsApp, elimina todos los números y guarda.</small>
+            </div>
+          </div>
+          {distributionMessage && <p role="status">{distributionMessage}</p>}
+          {hasPermission("CONFIGURACION_GESTIONAR") && (
+            <button
+              className="primary h-11 w-auto px-5"
+              disabled={distributionBusy || session?.demo}
+              onClick={() => void saveDistribution()}
+              type="button"
+            >
+              Guardar destinos de cierre
+            </button>
+          )}
+        </section>
+      )}
       <form
         className="card max-w-4xl space-y-5"
         onSubmit={async (e) => {
@@ -173,7 +291,7 @@ function Settings() {
         }}
       >
         <div className="grid gap-4 sm:grid-cols-2">
-          {Object.entries(query.data.valores).filter(([key]) => key !== "QR_REQUIERE_ACEPTACION").map(([key, value]) => (
+          {Object.entries(query.data.valores).filter(([key]) => key !== "QR_REQUIERE_ACEPTACION" && !key.startsWith("CIERRE_ENVIO_")).map(([key, value]) => (
             <label key={key}>
               {key === "QR_MODO" ? "Modo del menú QR" : key.replaceAll("_", " ")}
               {key === "QR_MODO" ? (
@@ -228,7 +346,7 @@ function Settings() {
                   disabled={!hasPermission("CONFIGURACION_GESTIONAR") || busy}
                   type={typeof value === "number" ? "number" : "text"}
                   min={typeof value === "number" ? 0 : undefined}
-                  max={key === "PORCENTAJE_IMPUESTO" ? 100 : undefined}
+                  max={key === "PORCENTAJE_IMPUESTO" || key === "PORCENTAJE_IMPOCONSUMO" ? 100 : undefined}
                   step="0.01"
                   value={String(changes[key] ?? value)}
                   onChange={(e) =>

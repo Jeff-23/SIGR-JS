@@ -5,13 +5,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import { EstrategiaInventario } from '@prisma/client';
+import { EstrategiaInventario, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProductoDto } from './dto/create-producto.dto';
 import { UpdateProductoDto } from './dto/update-producto.dto';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { imagenProductoDb } from './imagenes-producto.prisma';
 import { SyncBusinessService } from '../sync/sync-business.service';
+import {
+  preciosPerfil,
+  resolverContextoCartaOperativa,
+} from '../../plataforma/turno-operativo';
 
 @Injectable()
 export class ProductosService {
@@ -103,7 +107,6 @@ export class ProductosService {
 
         categoria: {
           estado: true,
-
           sucursal: {
             estado: true,
 
@@ -191,13 +194,28 @@ export class ProductosService {
     });
   }
 
-  async findAll(usuarioActual: UsuarioAutenticado, sucursalId?: number) {
+  async findAll(
+    usuarioActual: UsuarioAutenticado,
+    sucursalId?: number,
+    operativo = false,
+  ) {
+    const contexto =
+      operativo && sucursalId
+        ? await resolverContextoCartaOperativa(
+            this.prisma,
+            sucursalId,
+            usuarioActual.id,
+          )
+        : null;
+    const idsPermitidos = contexto?.productoIds;
     const productos = await this.prisma.producto.findMany({
       where: {
         estado: true,
+        ...(idsPermitidos ? { id: { in: idsPermitidos } } : {}),
 
         categoria: {
           estado: true,
+          ...(contexto ? { id: { in: contexto.categoriaIds ?? [] } } : {}),
 
           sucursal: {
             estado: true,
@@ -240,8 +258,24 @@ export class ProductosService {
     const porProducto = new Map(
       imagenes.map((imagen) => [imagen.productoId, imagen]),
     );
+    const precios = contexto?.perfilId
+      ? await preciosPerfil(
+          this.prisma,
+          contexto.perfilId!,
+          productos.map((producto) => producto.id),
+        )
+      : new Map<number, Prisma.Decimal>();
     return productos.map((producto) => ({
       ...producto,
+      precioBase: producto.precio,
+      precio: precios.get(producto.id) ?? producto.precio,
+      perfilCartaOperativa: contexto
+        ? {
+            id: contexto.perfilId!,
+            nombre: contexto.turnoNombre,
+            fuente: contexto.fuente,
+          }
+        : null,
       imagenPrincipal: porProducto.get(producto.id) ?? null,
     }));
   }

@@ -14,6 +14,7 @@ import {
 import { UsuariosService } from './usuarios.service';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
+import { CambiarTurnoOperativoDto } from './dto/cambiar-turno-operativo.dto';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
@@ -42,6 +43,22 @@ export class UsuariosController {
   @Permisos('USUARIOS_VER')
   findAll(@Req() request: RequestAutenticada) {
     return this.usuariosService.findAll(request.user);
+  }
+
+  @Get('me/turnos-operativos')
+  misTurnosOperativos(@Req() request: RequestAutenticada) {
+    return this.usuariosService.misTurnosOperativos(request.user);
+  }
+
+  @Patch('me/turno-operativo')
+  cambiarMiTurnoOperativo(
+    @Body() dto: CambiarTurnoOperativoDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.usuariosService.cambiarMiTurnoOperativo(
+      dto.turnoOperativoId,
+      request.user,
+    );
   }
 
   @Get(':id')

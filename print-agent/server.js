@@ -185,7 +185,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const result = await printText({ printerName, jobName, content, widthMm });
-      const httpStatus = result?.ok && result?.status === 'completed' ? 200 : 409;
+      const httpStatus = result?.ok && ['submitted', 'completed'].includes(result?.status) ? 200 : 409;
       json(res, httpStatus, result);
       return;
     }

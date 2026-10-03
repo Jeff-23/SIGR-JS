@@ -57,8 +57,13 @@ export class ProductosController {
     @Req() request: RequestAutenticada,
     @Query('sucursalId', new ParseIntPipe({ optional: true }))
     sucursalId?: number,
+    @Query('operativo') operativo?: string,
   ) {
-    return this.productosService.findAll(request.user, sucursalId);
+    return this.productosService.findAll(
+      request.user,
+      sucursalId,
+      operativo === 'true' || operativo === '1',
+    );
   }
 
   @Post(':id/imagen')

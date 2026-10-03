@@ -282,6 +282,19 @@ enum IndicadorMetaOperativa {
   TICKET_PROMEDIO
 }
 
+enum CanalEnvioReporteCierre {
+  EMAIL
+  WHATSAPP
+}
+
+enum EstadoEnvioReporteCierre {
+  PENDIENTE
+  ENVIANDO
+  ENVIADO
+  ERROR
+  PENDIENTE_CONFIGURACION
+}
+
 model Restaurante {
   id            Int      @id @default(autoincrement())
   globalId String @unique @default(uuid()) @db.Uuid
@@ -318,6 +331,8 @@ model Restaurante {
   empleados           Empleado[]
   funcionesPersonal   FuncionPersonal[]
   imagenesProducto    ImagenProducto[]
+  metodosPago          RestauranteMetodoPago[]
+  enviosReporteCierre  EnvioReporteCierre[]
 
   @@index([planId])
 }
@@ -392,6 +407,7 @@ model Sucursal {
   solicitudesPedidoQr    SolicitudPedidoQr[]
   cartasDia              CartaDia[]
   perfilesCarta          PerfilCarta[]
+  turnosOperativos       TurnoOperativo[]
   solicitudesCompra      SolicitudCompra[]
   ordenesCompra          OrdenCompra[]
   recepcionesCompra      RecepcionCompra[]
@@ -402,6 +418,7 @@ model Sucursal {
   turnosPersonal         TurnoPersonal[]
   metasOperativas        MetaOperativa[]
   eventosOperacionales   EventoOperacional[]
+  enviosReporteCierre    EnvioReporteCierre[]
 }
 
 model PerfilCarta {
@@ -424,6 +441,11 @@ model PerfilCarta {
   sucursalId Int
   sucursal   Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Cascade)
   cartasDia CartaDia[]
+  preciosProductos ProductoPerfilCarta[]
+  usuariosOperativos Usuario[] @relation("UsuarioPerfilCartaOperativa")
+  categorias        PerfilCartaCategoria[]
+  turnosOperativos  PerfilCartaTurnoOperativo[]
+  pedidosOperativos Pedido[] @relation("PedidoPerfilCartaOperativa")
 
   @@index([sucursalId, estado, orden])
 }
@@ -489,8 +511,9 @@ model Rol {
 
   restaurante Restaurante? @relation(fields: [restauranteId], references: [id], onDelete: Restrict)
 
-  usuarios Usuario[]
-  permisos RolPermiso[]
+  usuarios         Usuario[]
+  usuariosAsignados UsuarioRol[]
+  permisos         RolPermiso[]
 
   @@unique([restauranteId, nombre])
   @@index([ambito])
@@ -509,12 +532,18 @@ model Usuario {
   rolId         Int
   restauranteId Int?
   sucursalId    Int?
+  perfilCartaId Int?
+  turnoOperativoActivoId Int?
 
   creadoEn DateTime @default(now())
 
-  rol         Rol          @relation(fields: [rolId], references: [id])
-  restaurante Restaurante? @relation(fields: [restauranteId], references: [id])
+  rol              Rol          @relation(fields: [rolId], references: [id])
+  rolesAsignados   UsuarioRol[]
+  restaurante      Restaurante? @relation(fields: [restauranteId], references: [id])
   sucursal    Sucursal?    @relation(fields: [sucursalId], references: [id])
+  perfilCartaOperativa PerfilCarta? @relation("UsuarioPerfilCartaOperativa", fields: [perfilCartaId], references: [id], onDelete: SetNull)
+  turnoOperativoActivo TurnoOperativo? @relation("UsuarioTurnoOperativoActivo", fields: [turnoOperativoActivoId], references: [id], onDelete: SetNull)
+  turnosOperativos UsuarioTurnoOperativo[]
 
   pedidosCreados   Pedido[]             @relation("PedidoCreadoPor")
   pedidosAtendidos Pedido[]             @relation("PedidoMesero")
@@ -533,6 +562,8 @@ model Usuario {
   mesasOcupadasManual          Mesa[]                     @relation("MesaOcupadaManualPor")
   domiciliosAsignados          Domicilio[]                @relation("DomicilioRepartidor")
   registrosFactura             RegistroFacturaOperativa[]
+  @@index([perfilCartaId])
+  @@index([turnoOperativoActivoId])
   consentimientosRegistrados   ConsentimientoCliente[]
   movimientosPuntosRegistrados MovimientoPuntos[]
   solicitudesQrAceptadas       SolicitudPedidoQr[]        @relation("SolicitudQrAceptadaPor")
@@ -795,16 +826,85 @@ model EntradaListaEspera {
 }
 
 model Categoria {
-  id       Int      @id @default(autoincrement())
-  globalId String @unique @default(uuid()) @db.Uuid
-  nombre   String   @db.VarChar(50)
-  estado   Boolean  @default(true)
+  id          Int      @id @default(autoincrement())
+  globalId    String   @unique @default(uuid()) @db.Uuid
+  nombre      String   @db.VarChar(50)
+  descripcion String?  @db.VarChar(500)
+  estado      Boolean  @default(true)
   creadoEn DateTime @default(now())
 
   sucursalId Int
   sucursal   Sucursal @relation(fields: [sucursalId], references: [id])
 
   productos Producto[]
+  perfilesCarta PerfilCartaCategoria[]
+  turnosOperativos CategoriaTurnoOperativo[]
+}
+
+
+model TurnoOperativo {
+  id        Int      @id @default(autoincrement())
+  globalId  String   @unique @default(uuid()) @db.Uuid
+  nombre    String   @db.VarChar(80)
+  estado    Boolean  @default(true)
+  orden     Int      @default(0)
+  creadoEn  DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  sucursalId Int
+  sucursal   Sucursal @relation(fields: [sucursalId], references: [id], onDelete: Cascade)
+  usuariosPermitidos UsuarioTurnoOperativo[]
+  usuariosActivos Usuario[] @relation("UsuarioTurnoOperativoActivo")
+  perfilesCarta PerfilCartaTurnoOperativo[]
+  categorias CategoriaTurnoOperativo[]
+  pedidos Pedido[] @relation("PedidoTurnoOperativo")
+
+  @@unique([sucursalId, nombre])
+  @@index([sucursalId, estado, orden])
+}
+
+model UsuarioTurnoOperativo {
+  usuarioId Int
+  turnoOperativoId Int
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  turnoOperativo TurnoOperativo @relation(fields: [turnoOperativoId], references: [id], onDelete: Cascade)
+  creadoEn DateTime @default(now())
+
+  @@id([usuarioId, turnoOperativoId])
+  @@index([turnoOperativoId, usuarioId])
+}
+
+model PerfilCartaTurnoOperativo {
+  perfilCartaId Int
+  turnoOperativoId Int
+  perfilCarta PerfilCarta @relation(fields: [perfilCartaId], references: [id], onDelete: Cascade)
+  turnoOperativo TurnoOperativo @relation(fields: [turnoOperativoId], references: [id], onDelete: Cascade)
+  creadoEn DateTime @default(now())
+
+  @@id([perfilCartaId, turnoOperativoId])
+  @@index([turnoOperativoId, perfilCartaId])
+}
+
+model CategoriaTurnoOperativo {
+  categoriaId Int
+  turnoOperativoId Int
+  categoria Categoria @relation(fields: [categoriaId], references: [id], onDelete: Cascade)
+  turnoOperativo TurnoOperativo @relation(fields: [turnoOperativoId], references: [id], onDelete: Cascade)
+  creadoEn DateTime @default(now())
+
+  @@id([categoriaId, turnoOperativoId])
+  @@index([turnoOperativoId, categoriaId])
+}
+
+model PerfilCartaCategoria {
+  perfilCartaId Int
+  categoriaId   Int
+  perfilCarta   PerfilCarta @relation(fields: [perfilCartaId], references: [id], onDelete: Cascade)
+  categoria     Categoria   @relation(fields: [categoriaId], references: [id], onDelete: Cascade)
+  creadoEn      DateTime    @default(now())
+
+  @@id([perfilCartaId, categoriaId])
+  @@index([categoriaId, perfilCartaId])
 }
 
 model Producto {
@@ -839,9 +939,26 @@ model Producto {
   promociones           PromocionProducto[]
   detallesSolicitudQr   DetalleSolicitudPedidoQr[]
   imagenPrincipal       ImagenProducto?
+  perfilesCarta         ProductoPerfilCarta[]
 
   @@index([estacionId])
   @@index([codigo])
+}
+
+
+model ProductoPerfilCarta {
+  id            Int      @id @default(autoincrement())
+  precio        Decimal  @db.Decimal(10, 2)
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  perfilCartaId Int
+  productoId    Int
+  perfilCarta   PerfilCarta @relation(fields: [perfilCartaId], references: [id], onDelete: Cascade)
+  producto      Producto    @relation(fields: [productoId], references: [id], onDelete: Cascade)
+
+  @@unique([perfilCartaId, productoId])
+  @@index([productoId, perfilCartaId])
 }
 
 model ImagenProducto {
@@ -922,11 +1039,15 @@ model Pedido {
   mesaId     Int?
   usuarioId  Int?
   meseroId   Int?
+  turnoOperativoId Int?
+  perfilCartaOperativaId Int?
 
   sucursal Sucursal @relation(fields: [sucursalId], references: [id])
   mesa     Mesa?    @relation(fields: [mesaId], references: [id])
   usuario  Usuario? @relation("PedidoCreadoPor", fields: [usuarioId], references: [id], onDelete: SetNull)
   mesero   Usuario? @relation("PedidoMesero", fields: [meseroId], references: [id], onDelete: SetNull)
+  turnoOperativo TurnoOperativo? @relation("PedidoTurnoOperativo", fields: [turnoOperativoId], references: [id], onDelete: SetNull)
+  perfilCartaOperativa PerfilCarta? @relation("PedidoPerfilCartaOperativa", fields: [perfilCartaOperativaId], references: [id], onDelete: SetNull)
 
   detalles             DetallePedido[]
   comandas             Comanda[]
@@ -939,6 +1060,8 @@ model Pedido {
 
   @@unique([sucursalId, idempotenciaClave])
   @@index([sucursalId, creadoEn])
+  @@index([turnoOperativoId])
+  @@index([perfilCartaOperativaId])
 }
 
 model SolicitudPedidoQr {
@@ -1534,9 +1657,26 @@ model MetodoPago {
   tipo   TipoMetodoPago @default(OTRO)
   activo Boolean        @default(true)
 
-  pagos Pago[]
+  pagos        Pago[]
+  restaurantes RestauranteMetodoPago[]
 
   @@index([tipo])
+}
+
+model RestauranteMetodoPago {
+  id             Int      @id @default(autoincrement())
+  restauranteId  Int
+  metodoPagoId   Int
+  activo         Boolean  @default(true)
+  creadoEn       DateTime @default(now())
+  actualizadoEn  DateTime @updatedAt
+
+  restaurante Restaurante @relation(fields: [restauranteId], references: [id], onDelete: Cascade)
+  metodoPago  MetodoPago  @relation(fields: [metodoPagoId], references: [id], onDelete: Restrict)
+
+  @@unique([restauranteId, metodoPagoId])
+  @@index([restauranteId, activo])
+  @@index([metodoPagoId])
 }
 
 model Factura {
@@ -1786,6 +1926,7 @@ model Caja {
 
   movimientos MovimientoCaja[]
   pagos       Pago[]
+  enviosReporteCierre EnvioReporteCierre[]
 
   @@unique([sucursalId, aperturaClave])
   @@index([sucursalId])
@@ -1793,6 +1934,36 @@ model Caja {
   @@index([fechaApertura])
   @@index([abiertaPorId])
   @@index([cerradaPorId])
+}
+
+model EnvioReporteCierre {
+  id                  Int                       @id @default(autoincrement())
+  globalId            String                    @unique @default(uuid()) @db.Uuid
+  canal               CanalEnvioReporteCierre
+  destino             String                    @db.VarChar(200)
+  estado              EstadoEnvioReporteCierre  @default(PENDIENTE)
+  intentos            Int                       @default(0)
+  proximoIntentoEn    DateTime?
+  ultimoIntentoEn     DateTime?
+  enviadoEn           DateTime?
+  errorCodigo         String?                   @db.VarChar(80)
+  errorMensaje        String?                   @db.VarChar(300)
+  preCierreHash       String                    @db.VarChar(64)
+  creadoEn            DateTime                  @default(now())
+  actualizadoEn       DateTime                  @updatedAt
+
+  cajaId              Int
+  sucursalId          Int
+  restauranteId       Int
+
+  caja                Caja        @relation(fields: [cajaId], references: [id], onDelete: Restrict)
+  sucursal            Sucursal    @relation(fields: [sucursalId], references: [id], onDelete: Restrict)
+  restaurante         Restaurante @relation(fields: [restauranteId], references: [id], onDelete: Restrict)
+
+  @@unique([cajaId, canal, destino, preCierreHash])
+  @@index([estado, proximoIntentoEn])
+  @@index([sucursalId, creadoEn])
+  @@index([restauranteId, creadoEn])
 }
 
 model MovimientoCaja {
@@ -2023,6 +2194,19 @@ model PlanCapacidad {
 // ==========================================
 // SPRINT 2: PERMISOS GRANULARES
 // ==========================================
+
+
+model UsuarioRol {
+  usuarioId Int
+  rolId     Int
+  creadoEn  DateTime @default(now())
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  rol     Rol     @relation(fields: [rolId], references: [id], onDelete: Cascade)
+
+  @@id([usuarioId, rolId])
+  @@index([rolId])
+}
 
 model Permiso {
   id          Int      @id @default(autoincrement())

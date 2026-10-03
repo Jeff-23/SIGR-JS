@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RefreshCw, X } from "lucide-react";
+import { Bike, CheckCircle2, RefreshCw, Route, X, XCircle } from "lucide-react";
 import toast from "react-hot-toast";
 import { isAxiosError } from "axios";
-import { api, errorMessage } from "../lib/api";
+import { api, apiFailure, errorMessage } from "../lib/api";
 import { useApp } from "../store/app";
 import { money } from "../data/demo";
 import {
@@ -15,11 +15,45 @@ import {
 import type { ApiOrder } from "../features/salon/contracts";
 import { confirmedPost } from "../lib/confirmed-operation";
 import { FinancialRecovery } from "../components/FinancialRecovery";
+import { OperationalTurnSelector } from "../components/OperationalTurnSelector";
 import { SaleForm } from "../features/cash/SaleForm";
 import {
   ProfessionalSaleCheckout,
   type PaymentDraft,
 } from "../features/cash/ProfessionalSaleCheckout";
+
+type CashDeliveryState =
+  | "PENDIENTE_ASIGNACION"
+  | "ASIGNADO"
+  | "EN_RUTA"
+  | "ENTREGADO"
+  | "NO_ENTREGADO"
+  | "CANCELADO";
+
+type CashDelivery = {
+  id: number;
+  estado: CashDeliveryState;
+  destinatario: string;
+  direccion: string;
+  telefono: string;
+  repartidor?: { id: number; nombres: string; apellidos: string } | null;
+  pedido: {
+    id: number;
+    sucursalId: number;
+    estado: string;
+  };
+};
+
+type CashCourier = { id: number; nombres: string; apellidos: string; sucursalId?: number | null };
+
+const cashDeliveryLabel: Record<CashDeliveryState, string> = {
+  PENDIENTE_ASIGNACION: "Pendiente de asignación",
+  ASIGNADO: "Asignado",
+  EN_RUTA: "En ruta",
+  ENTREGADO: "Entregado",
+  NO_ENTREGADO: "No entregado",
+  CANCELADO: "Cancelado",
+};
 
 export function RealCashPage() {
   const { branchId, session, hasPermission, hasCapability } = useApp();
@@ -29,6 +63,9 @@ export function RealCashPage() {
   const [salesPage, setSalesPage] = useState(1);
   const [hasMoreSales, setHasMoreSales] = useState(false);
   const [orders, setOrders] = useState<ApiOrder[]>([]);
+  const [deliveries, setDeliveries] = useState<CashDelivery[]>([]);
+  const [couriers, setCouriers] = useState<CashCourier[]>([]);
+  const [deliveryCourier, setDeliveryCourier] = useState<Record<number, number>>({});
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
   const [history, setHistory] = useState<CashDrawer[]>([]);
   const [selectedDrawer, setSelectedDrawer] = useState<CashDrawer | null>(null);
@@ -127,20 +164,33 @@ export function RealCashPage() {
         pagina: 1,
         limite: 200,
       };
-      const [cash, salesResponse, ordersResponse, methodResponse, historic] =
-        await Promise.all([
-          api.get<CashDrawer[]>("/cajas/abiertas", { params }),
-          hasPermission("VENTAS_VER")
-            ? api.get<Sale[]>("/ventas", { params: salesParams })
-            : Promise.resolve({ data: [] as Sale[] }),
-          hasPermission("PEDIDOS_VER")
-            ? api.get<ApiOrder[]>("/pedidos", { params })
-            : Promise.resolve({ data: [] as ApiOrder[] }),
-          hasPermission("METODOS_PAGO_VER")
-            ? api.get<PaymentMethod[]>("/metodos-pago")
-            : Promise.resolve({ data: [] as PaymentMethod[] }),
-          api.get<CashDrawer[]>("/cajas/historial", { params }),
-        ]);
+      const [
+        cash,
+        salesResponse,
+        ordersResponse,
+        methodResponse,
+        historic,
+        deliveryResponse,
+        courierResponse,
+      ] = await Promise.all([
+        api.get<CashDrawer[]>("/cajas/abiertas", { params }),
+        hasPermission("VENTAS_VER")
+          ? api.get<Sale[]>("/ventas", { params: salesParams })
+          : Promise.resolve({ data: [] as Sale[] }),
+        hasPermission("PEDIDOS_VER")
+          ? api.get<ApiOrder[]>("/pedidos", { params })
+          : Promise.resolve({ data: [] as ApiOrder[] }),
+        hasPermission("METODOS_PAGO_VER")
+          ? api.get<PaymentMethod[]>("/metodos-pago")
+          : Promise.resolve({ data: [] as PaymentMethod[] }),
+        api.get<CashDrawer[]>("/cajas/historial", { params }),
+        hasPermission("DOMICILIOS_VER")
+          ? api.get<CashDelivery[]>("/pedidos/domicilios/activos")
+          : Promise.resolve({ data: [] as CashDelivery[] }),
+        hasPermission("DOMICILIOS_SUPERVISAR")
+          ? api.get<CashCourier[]>("/pedidos/domicilios/repartidores")
+          : Promise.resolve({ data: [] as CashCourier[] }),
+      ]);
       if (!mounted.current) return;
       setDrawers(cash.data);
       setSales((current) =>
@@ -160,6 +210,17 @@ export function RealCashPage() {
         setHasMoreSales(salesResponse.data.length === 200);
       }
       setOrders(ordersResponse.data);
+      setDeliveries(
+        deliveryResponse.data.filter((delivery) => delivery.pedido.sucursalId === branchId),
+      );
+      setCouriers(
+        courierResponse.data.filter(
+          (courier) =>
+            courier.sucursalId === null ||
+            courier.sucursalId === undefined ||
+            courier.sucursalId === branchId,
+        ),
+      );
       setMethods(methodResponse.data.filter((method) => method.activo));
       setHistory(historic.data);
       setFailure("");
@@ -181,7 +242,9 @@ export function RealCashPage() {
         restored.current = true;
       }
     } catch (error) {
-      if (mounted.current) setFailure(errorMessage(error));
+      if (mounted.current && apiFailure(error).status !== 429) {
+        setFailure(errorMessage(error));
+      }
     } finally {
       if (mounted.current) setLoading(false);
     }
@@ -189,7 +252,7 @@ export function RealCashPage() {
   useEffect(() => {
     mounted.current = true;
     const start = window.setTimeout(() => void load(), 0);
-    const timer = window.setInterval(() => void load(), 10000);
+    const timer = window.setInterval(() => void load(), 20000);
 
     return () => {
       mounted.current = false;
@@ -243,6 +306,55 @@ export function RealCashPage() {
       if (mounted.current) setBusy(false);
     }
   }
+  async function transitionDelivery(
+    delivery: CashDelivery,
+    estado: CashDeliveryState,
+    repartidorId?: number,
+  ) {
+    await api.patch(`/pedidos/domicilios/${delivery.id}/estado`, {
+      estado,
+      ...(repartidorId ? { repartidorId } : {}),
+    });
+  }
+
+  async function assignAndStartDelivery(delivery: CashDelivery) {
+    const courierId = deliveryCourier[delivery.id] ?? delivery.repartidor?.id ?? 0;
+    if (!courierId) {
+      toast.error("Selecciona el domiciliario antes de iniciar la ruta");
+      return;
+    }
+    await run(async () => {
+      if (delivery.estado !== "ASIGNADO") {
+        await transitionDelivery(delivery, "ASIGNADO", courierId);
+      }
+      await transitionDelivery(
+        { ...delivery, estado: "ASIGNADO", repartidor: delivery.repartidor },
+        "EN_RUTA",
+      );
+      toast.success("Domicilio asignado y salida a ruta registrada");
+    });
+  }
+
+  async function openOrderForPayment(order: ApiOrder) {
+    if (!hasPermission("VENTAS_CREAR") || !hasPermission("PAGOS_REGISTRAR")) return;
+    await run(async () => {
+      let sale: Sale;
+      if (order.venta?.id) {
+        sale = (await api.get<Sale>(`/ventas/${order.venta.id}`)).data;
+      } else {
+        sale = (
+          await api.post<Sale>(
+            "/ventas/pedido",
+            { pedidoId: order.id },
+            { headers: { "Idempotency-Key": `venta-pedido-${order.id}` } },
+          )
+        ).data;
+      }
+      chooseSale(sale);
+      toast.success(order.venta?.id ? "Venta lista para cobrar" : "Venta creada y lista para cobrar");
+    });
+  }
+
   async function loadTurnExclusions(id: number) {
     if (!hasPermission("DOCUMENTOS_INTERNOS_EXCLUIR_CIERRE")) {
       if (mounted.current) setTurnExclusions([]);
@@ -495,6 +607,7 @@ export function RealCashPage() {
           ? "Pago registrado. Puedes agregar otro medio."
           : "Venta pagada completamente.",
       );
+      await load();
     } catch (error) {
       // Keep the exact operation/key even when the server committed but its response was lost.
       if (
@@ -563,10 +676,13 @@ export function RealCashPage() {
             Un cobro no emite factura ni se envía a DIAN.
           </p>
         </div>
-        <button className="secondary w-auto" onClick={() => void load()}>
-          <RefreshCw size={18} />
-          Actualizar
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <OperationalTurnSelector onChanged={() => load()} />
+          <button className="secondary w-auto" onClick={() => void load()}>
+            <RefreshCw size={18} />
+            Actualizar
+          </button>
+        </div>
       </header>
       <FinancialRecovery
         scope={attemptKey}
@@ -692,38 +808,166 @@ export function RealCashPage() {
             )}
           </div>
         </section>
+        {hasPermission("DOMICILIOS_VER") && deliveries.length > 0 && (
+          <section className="card">
+            <div>
+              <h2 className="text-xl font-bold">Despacho de domicilios</h2>
+              <p className="text-sm text-denim/60">
+                Caja puede coordinar la salida y confirmar la entrega. El cobro sigue siendo una operación separada y auditable.
+              </p>
+            </div>
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              {deliveries.map((delivery) => {
+                const order = orders.find((item) => item.id === delivery.pedido.id);
+                const courierId = deliveryCourier[delivery.id] ?? delivery.repartidor?.id ?? 0;
+                return (
+                  <article key={delivery.id} className="rounded-2xl border border-denim/10 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <strong className="text-lg">Domicilio #{delivery.pedido.id} · {delivery.destinatario}</strong>
+                        <p className="text-sm text-denim/55">{delivery.direccion} · {delivery.telefono}</p>
+                      </div>
+                      <span className="rounded-full bg-[#f4f2ec] px-3 py-1 text-xs font-black uppercase">
+                        {cashDeliveryLabel[delivery.estado]}
+                      </span>
+                    </div>
+                    {hasPermission("DOMICILIOS_SUPERVISAR") &&
+                      ["PENDIENTE_ASIGNACION", "NO_ENTREGADO"].includes(delivery.estado) && (
+                        <label className="mt-3 block text-sm font-bold">
+                          Domiciliario
+                          <select
+                            className="input mt-1"
+                            value={courierId}
+                            onChange={(event) =>
+                              setDeliveryCourier((current) => ({
+                                ...current,
+                                [delivery.id]: Number(event.target.value),
+                              }))
+                            }
+                          >
+                            <option value={0}>Seleccionar…</option>
+                            {couriers.map((courier) => (
+                              <option key={courier.id} value={courier.id}>
+                                {courier.nombres} {courier.apellidos}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {hasPermission("DOMICILIOS_SUPERVISAR") &&
+                        ["PENDIENTE_ASIGNACION", "NO_ENTREGADO"].includes(delivery.estado) && (
+                          <button
+                            type="button"
+                            className="secondary w-auto"
+                            disabled={busy || !courierId}
+                            onClick={() => void assignAndStartDelivery(delivery)}
+                          >
+                            <Route size={17} /> Asignar e iniciar ruta
+                          </button>
+                        )}
+                      {hasPermission("DOMICILIOS_SUPERVISAR") && delivery.estado === "ASIGNADO" && (
+                        <button
+                          type="button"
+                          className="secondary w-auto"
+                          disabled={busy}
+                          onClick={() =>
+                            void run(async () => {
+                              await transitionDelivery(delivery, "EN_RUTA");
+                              toast.success("Salida a ruta registrada");
+                            })
+                          }
+                        >
+                          <Route size={17} /> Iniciar ruta
+                        </button>
+                      )}
+                      {hasPermission("DOMICILIOS_SUPERVISAR") && delivery.estado === "EN_RUTA" && (
+                        <>
+                          <button
+                            type="button"
+                            className="secondary w-auto"
+                            disabled={busy}
+                            onClick={() =>
+                              void run(async () => {
+                                await transitionDelivery(delivery, "ENTREGADO");
+                                toast.success("Entrega registrada");
+                              })
+                            }
+                          >
+                            <CheckCircle2 size={17} /> Marcar entregado
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary w-auto"
+                            disabled={busy}
+                            onClick={() =>
+                              void run(async () => {
+                                await transitionDelivery(delivery, "NO_ENTREGADO");
+                                toast.success("Novedad de entrega registrada");
+                              })
+                            }
+                          >
+                            <XCircle size={17} /> No entregado
+                          </button>
+                        </>
+                      )}
+                      {order && hasPermission("VENTAS_CREAR") && hasPermission("PAGOS_REGISTRAR") && (
+                        <button
+                          type="button"
+                          className="primary w-auto"
+                          disabled={busy || drawers.length === 0}
+                          onClick={() => void openOrderForPayment(order)}
+                        >
+                          <Bike size={17} /> {order.venta?.id ? "Cobrar en caja" : "Crear venta y cobrar"}
+                        </button>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        )}
         <section className="card">
-          <h2 className="text-xl font-bold">Pedidos entregados sin venta</h2>
+          <h2 className="text-xl font-bold">Pedidos listos o entregados sin venta</h2>
           <p className="text-sm text-denim/60">
-            Crear la venta conserva precios del pedido; todavía no registra el
-            pago.
+            Los domicilios pasan a caja al quedar listos para despacho. Crear la venta conserva precios del pedido; todavía no registra el pago.
           </p>
           <div className="mt-4 flex flex-wrap gap-3">
             {orders
-              .filter((order) => order.estado === "ENTREGADO" && !order.venta)
+              .filter(
+                (order) =>
+                  !order.venta &&
+                  (order.estado === "ENTREGADO" ||
+                    (order.tipo === "DOMICILIO" && order.estado === "LISTO")),
+              )
               .map((order) => (
                 <button
                   key={order.id}
-                  className="secondary w-auto"
-                  disabled={!hasPermission("VENTAS_CREAR")}
+                  className={order.tipo === "DOMICILIO" ? "primary w-auto" : "secondary w-auto"}
+                  disabled={
+                    !hasPermission("VENTAS_CREAR") ||
+                    (order.tipo === "DOMICILIO" && (!hasPermission("PAGOS_REGISTRAR") || drawers.length === 0))
+                  }
                   onClick={() =>
-                    void run(async () => {
-                      await api.post(
-                        "/ventas/pedido",
-                        { pedidoId: order.id },
-                        {
-                          headers: {
-                            "Idempotency-Key": `venta-pedido-${order.id}`,
-                          },
-                        },
-                      );
-                      toast.success("Venta creada");
-                    })
+                    order.tipo === "DOMICILIO"
+                      ? void openOrderForPayment(order)
+                      : void run(async () => {
+                          await api.post(
+                            "/ventas/pedido",
+                            { pedidoId: order.id },
+                            {
+                              headers: {
+                                "Idempotency-Key": `venta-pedido-${order.id}`,
+                              },
+                            },
+                          );
+                          toast.success("Venta creada");
+                        })
                   }
                 >
-                  Crear venta ·{" "}
-                  {order.mesa ? `Mesa ${order.mesa.numero}` : order.tipo} · #
-                  {order.id}
+                  {order.tipo === "DOMICILIO" ? "Crear venta y cobrar" : "Crear venta"} ·{" "}
+                  {order.mesa ? `Mesa ${order.mesa.numero}` : order.tipo} · #{order.id}
                 </button>
               ))}
           </div>

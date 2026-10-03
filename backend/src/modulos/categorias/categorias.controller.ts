@@ -4,13 +4,17 @@
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Req,
   UseGuards,
 } from '@nestjs/common';
 
 import { CategoriasService } from './categorias.service';
-import { CreateCategoriaDto } from './dto/create-categoria.dto';
+import {
+  CreateCategoriaDto,
+  UpdateCategoriaDto,
+} from './dto/create-categoria.dto';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
@@ -33,6 +37,16 @@ export class CategoriasController {
     @Req() request: RequestAutenticada,
   ) {
     return this.categoriasService.create(createCategoriaDto, request.user);
+  }
+
+  @Patch(':id')
+  @Permisos('CATEGORIAS_EDITAR')
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() data: UpdateCategoriaDto,
+    @Req() request: RequestAutenticada,
+  ) {
+    return this.categoriasService.update(id, data, request.user);
   }
 
   @Get('sucursal/:sucursalId')

@@ -23,7 +23,9 @@ const resources: Resource[] = [
       field("nombres", "Nombres"),
       field("apellidos", "Apellidos"),
       field("email", "Correo"),
-      field("rol", "Rol"),
+      field("rolesAsignados", "Roles"),
+      field("turnosOperativos", "Turnos permitidos"),
+      field("turnoOperativoActivo", "Turno activo"),
       field("sucursalId", "Sucursal"),
       field("activo", "Activo"),
     ],
@@ -33,15 +35,27 @@ const resources: Resource[] = [
       field("email", "Correo", { required: true, type: "email" }),
       field("password", "Contraseña nueva (mínimo 10 caracteres)", {
         type: "password",
+        required: true,
       }),
-      field("rolId", "Rol", { lookup: "/autorizacion/roles", required: true }),
-      field("restauranteId", "ID del restaurante", { type: "number", min: 1 }),
+      field("restauranteId", "Restaurante", {
+        lookup: "/restaurantes",
+        required: true,
+      }),
+      field("rolIds", "Roles", {
+        lookup: "/autorizacion/roles?restauranteId=:restaurante",
+        type: "multiselect",
+        required: true,
+      }),
       field("sucursalId", "Sucursal (vacío: alcance del restaurante)", {
         lookup: "/sucursales",
       }),
+      field("turnoOperativoIds", "Turnos permitidos", {
+        lookup: "/turnos-operativos?sucursalId=:sede",
+        type: "multiselect",
+      }),
     ],
     notice:
-      "Los cambios de rol y alcance se validan en el servidor. La contraseña se transmite sólo al guardar y nunca se persiste en el borrador.",
+      "Puedes asignar varios roles operativos. ADMIN, ADMIN_SEDE y CONTADOR son exclusivos y no pueden combinarse. Los turnos operativos son independientes de la carta. Puedes habilitar uno o varios turnos por usuario; si tiene varios, podrá cambiar su turno activo desde Salón o Caja sin depender del ADMIN. La contraseña se transmite sólo al guardar y nunca se persiste en el borrador.",
   },
   {
     key: "sucursales",
@@ -74,10 +88,28 @@ const resources: Resource[] = [
     ],
   },
   {
+    key: "turnos-operativos",
+    title: "Turnos operativos",
+    path: "/turnos-operativos",
+    listPath: "/turnos-operativos?sucursalId=:sede&incluirInactivos=true",
+    permission: "CONFIGURACION_GESTIONAR",
+    create: "CONFIGURACION_GESTIONAR",
+    edit: "CONFIGURACION_GESTIONAR",
+    branchBody: true,
+    columns: [name, field("estado", "Activo"), field("orden", "Orden")],
+    fields: [
+      field("nombre", "Nombre del turno", { required: true, maxLength: 80 }),
+      field("estado", "Turno activo", { type: "checkbox", defaultValue: true }),
+      field("orden", "Orden", { type: "number", min: 0, step: "1" }),
+    ],
+    notice:
+      "Ejemplos: AM, PM, Desayuno, Almuerzo o Cena. Un usuario puede tener varios turnos permitidos y cambiar entre ellos durante la operación.",
+  },
+  {
     key: "estaciones",
     title: "Estaciones",
     path: "/estaciones-preparacion",
-    listPath: "/estaciones-preparacion?sucursalId=:sede",
+    listPath: "/estaciones-preparacion?sucursalId=:sede&incluirInactivas=true",
     permission: "COMANDAS_VER",
     capability: "KDS",
     create: "CONFIGURACION_GESTIONAR",
@@ -98,21 +130,25 @@ const resources: Resource[] = [
       }),
       field("color", "Color hexadecimal (#F7CE3E)", { required: true }),
       field("orden", "Orden", { type: "number", step: "1" }),
+      field("estado", "Estación activa", { type: "checkbox", defaultValue: true }),
     ],
   },
   {
     key: "metodos",
     title: "Medios de pago",
     path: "/metodos-pago",
+    updatePath: "/metodos-pago/:id/configuracion",
     permission: "METODOS_PAGO_VER",
-    create: "METODOS_PAGO_GESTIONAR",
-    columns: [name, field("tipo", "Tipo")],
+    edit: "METODOS_PAGO_GESTIONAR",
+    columns: [name, field("tipo", "Tipo"), field("activo", "Activo")],
     fields: [
-      name,
-      field("tipo", "Tipo", {
-        options: ["EFECTIVO", "TARJETA", "TRANSFERENCIA", "OTRO"],
+      field("activo", "Disponible para este restaurante", {
+        type: "checkbox",
+        defaultValue: true,
       }),
     ],
+    notice:
+      "Activa o desactiva los medios que acepta este restaurante. Desactivar no elimina pagos históricos.",
   },
 ];
 const restaurants: Resource = {
@@ -146,7 +182,7 @@ const restaurants: Resource = {
     "Datos maestros de puesta en marcha. Moneda y zona horaria se inicializan con COP y America/Bogota y pueden ajustarse en Configuración.",
 };
 const tenantResources: Resource[] = resources.map((resource) =>
-  resource.key === "usuarios"
+  resource.key === "usuarios" || resource.key === "sucursales"
     ? {
         ...resource,
         fields: resource.fields.filter(
@@ -160,10 +196,12 @@ export function AdminPage() {
   const { session, branchId, hasPermission, hasCapability } = useApp();
   const global =
     session?.user.rol === "SUPERADMIN" && session.user.restauranteId === null;
-  const available = (global ? resources : tenantResources).filter(
-    (resource) =>
-      hasPermission(resource.permission) && hasCapability(resource.capability),
-  );
+  const available = (global
+    ? resources.filter((resource) => resource.key === "usuarios")
+    : tenantResources.filter(
+        (resource) =>
+          hasPermission(resource.permission) && hasCapability(resource.capability),
+      ));
   if (global)
     available.unshift({
       ...restaurants,

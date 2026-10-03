@@ -17,6 +17,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { UsuarioAutenticado } from '../auth/types/usuario-autenticado.type';
 import { SyncBusinessService } from '../sync/sync-business.service';
 import { FacturasService } from '../facturas/facturas.service';
+import { CierreDistribucionService } from '../cierre-distribucion/cierre-distribucion.service';
 
 import { AbrirCajaDto } from './dto/abrir-caja.dto';
 import { CerrarCajaDto } from './dto/cerrar-caja.dto';
@@ -42,6 +43,7 @@ export class CajasService {
     private readonly prisma: PrismaService,
     private readonly syncBusiness: SyncBusinessService,
     private readonly facturasService: FacturasService,
+    private readonly cierreDistribucion: CierreDistribucionService,
   ) {}
 
   private esSuperadmin(usuario: UsuarioAutenticado) {
@@ -559,7 +561,25 @@ export class CajasService {
       where: { id: cajaId, sucursal: this.filtroSucursal(usuario) },
       include: {
         sucursal: {
-          include: { restaurante: { select: { id: true } } },
+          include: {
+            restaurante: {
+              select: {
+                id: true,
+                nombre: true,
+                razonSocial: true,
+                nit: true,
+                dv: true,
+                direccion: true,
+                municipio: true,
+                departamento: true,
+                telefono: true,
+                correo: true,
+              },
+            },
+          },
+        },
+        abiertaPor: {
+          select: { nombres: true, apellidos: true },
         },
       },
     });
@@ -597,7 +617,10 @@ export class CajasService {
           include: {
             cliente: true,
             pedido: { include: { mesa: true } },
-            detalles: { include: { producto: true }, orderBy: { id: 'asc' } },
+            detalles: {
+              include: { producto: { include: { categoria: true } } },
+              orderBy: { id: 'asc' },
+            },
             factura: { include: { documentoElectronico: true } },
             pagos: {
               where: { cajaId: caja.id },
@@ -614,31 +637,107 @@ export class CajasService {
     let totalDevoluciones = 0;
     let efectivo = 0;
     let otrosPagos = 0;
+    let subtotalVentas = 0;
+    let descuentos = 0;
+    let impuestos = 0;
+    let impoconsumo = 0;
+    let propinas = 0;
+    let domicilios = 0;
+
+    const formasPagoMap = new Map<
+      string,
+      {
+        metodo: string;
+        tipo: string;
+        bruto: number;
+        devoluciones: number;
+        neto: number;
+      }
+    >();
+    const productosMap = new Map<
+      number,
+      {
+        codigo: string | null;
+        producto: string;
+        grupo: string;
+        cantidad: number;
+        base: number;
+      }
+    >();
+    const gruposMap = new Map<
+      number,
+      { grupo: string; cantidad: number; base: number }
+    >();
 
     const snapshotVentas: CierreTurnoSnapshot['ventas'] = ventas.map(
       (venta) => {
         const pagosVenta = venta.pagos.map((pago) => {
-          const devoluciones = pago.devoluciones.reduce(
+          const devolucionesPago = pago.devoluciones.reduce(
             (sum, item) => sum + Number(item.monto),
             0,
           );
           const monto = Number(pago.monto);
-          const neto = monto - devoluciones;
+          const neto = monto - devolucionesPago;
           totalPagos += monto;
-          totalDevoluciones += devoluciones;
+          totalDevoluciones += devolucionesPago;
           if (pago.metodoPago.tipo === TipoMetodoPago.EFECTIVO)
             efectivo += neto;
           else otrosPagos += neto;
+
+          const formaKey = `${pago.metodoPago.id}`;
+          const formaActual = formasPagoMap.get(formaKey) ?? {
+            metodo: pago.metodoPago.nombre,
+            tipo: pago.metodoPago.tipo,
+            bruto: 0,
+            devoluciones: 0,
+            neto: 0,
+          };
+          formaActual.bruto += monto;
+          formaActual.devoluciones += devolucionesPago;
+          formaActual.neto += neto;
+          formasPagoMap.set(formaKey, formaActual);
+
           return {
             metodo: pago.metodoPago.nombre,
             tipo: pago.metodoPago.tipo,
             monto,
-            devoluciones,
+            devoluciones: devolucionesPago,
             neto,
             referencia: pago.referencia,
           };
         });
+
         totalVentas += Number(venta.total);
+        subtotalVentas += Number(venta.subtotal);
+        descuentos += Number(venta.descuentos);
+        impuestos += Number(venta.impuestos);
+        impoconsumo += Number(venta.impoconsumo);
+        propinas += Number(venta.propina);
+        domicilios += Number(venta.domicilioCosto);
+
+        for (const detalle of venta.detalles) {
+          const base = Number(detalle.subtotal);
+          const productoActual = productosMap.get(detalle.productoId) ?? {
+            codigo: detalle.producto.codigo,
+            producto: detalle.producto.nombre,
+            grupo: detalle.producto.categoria.nombre,
+            cantidad: 0,
+            base: 0,
+          };
+          productoActual.cantidad += detalle.cantidad;
+          productoActual.base += base;
+          productosMap.set(detalle.productoId, productoActual);
+
+          const grupoActual = gruposMap.get(detalle.producto.categoriaId) ?? {
+            grupo: detalle.producto.categoria.nombre,
+            cantidad: 0,
+            base: 0,
+          };
+          grupoActual.cantidad += detalle.cantidad;
+          grupoActual.base += base;
+          gruposMap.set(detalle.producto.categoriaId, grupoActual);
+        }
+
         const documento = venta.factura?.documentoElectronico ?? null;
         return {
           ventaId: venta.id,
@@ -664,7 +763,9 @@ export class CajasService {
           documentoElectronicoNumero: documento?.numeroCompleto ?? null,
           fiscalizada: documento?.estado === 'ACEPTADO',
           detalles: venta.detalles.map((detalle) => ({
+            codigo: detalle.producto.codigo,
             producto: detalle.producto.nombre,
+            grupo: detalle.producto.categoria.nombre,
             cantidad: detalle.cantidad,
             precioUnitario: Number(detalle.precioUnitario),
             subtotal: Number(detalle.subtotal),
@@ -674,8 +775,29 @@ export class CajasService {
       },
     );
 
+    const comprobantes = snapshotVentas
+      .map((venta) => venta.facturaInterna)
+      .filter((numero): numero is string => Boolean(numero));
+    const resumenCaja = await this.calcularResumen(
+      tx,
+      caja.id,
+      caja.saldoInicial,
+    );
+    const restaurante = caja.sucursal.restaurante;
+
     return {
-      version: 1,
+      version: 2,
+      restaurante: {
+        nombre: restaurante.nombre,
+        razonSocial: restaurante.razonSocial,
+        nit: restaurante.nit,
+        dv: restaurante.dv,
+        direccion: restaurante.direccion,
+        municipio: restaurante.municipio,
+        departamento: restaurante.departamento,
+        telefono: restaurante.telefono,
+        correo: restaurante.correo,
+      },
       caja: {
         id: caja.id,
         nombre: caja.nombre,
@@ -683,6 +805,9 @@ export class CajasService {
         sucursal: caja.sucursal.nombre,
         fechaApertura: caja.fechaApertura.toISOString(),
         generadoEn: new Date().toISOString(),
+        saldoInicial: Number(caja.saldoInicial),
+        cajero:
+          `${caja.abiertaPor.nombres} ${caja.abiertaPor.apellidos}`.trim(),
       },
       resumen: {
         operaciones: snapshotVentas.length,
@@ -692,7 +817,30 @@ export class CajasService {
         totalNetoCobrado: totalPagos - totalDevoluciones,
         efectivo,
         otrosPagos,
+        totalIngresos: Number(resumenCaja.totalIngresos),
+        totalEgresos: Number(resumenCaja.totalEgresos),
+        efectivoEsperado: Number(resumenCaja.saldoEsperado),
+        subtotalVentas,
+        descuentos,
+        impuestos,
+        impoconsumo,
+        propinas,
+        domicilios,
+        primerComprobanteInterno: comprobantes[0] ?? null,
+        ultimoComprobanteInterno:
+          comprobantes.length > 0
+            ? comprobantes[comprobantes.length - 1]
+            : null,
       },
+      formasPago: [...formasPagoMap.values()].sort((a, b) =>
+        a.metodo.localeCompare(b.metodo),
+      ),
+      grupos: [...gruposMap.values()].sort((a, b) =>
+        a.grupo.localeCompare(b.grupo),
+      ),
+      productos: [...productosMap.values()].sort((a, b) =>
+        a.producto.localeCompare(b.producto),
+      ),
       ventas: snapshotVentas,
     };
   }
@@ -823,7 +971,7 @@ export class CajasService {
 
   async descargarExcelCierreTurno(cajaId: number, usuario: UsuarioAutenticado) {
     await this.prepararCierreTurno(cajaId, usuario);
-    return this.prisma.transaccionSerializable(async (tx) => {
+    const archivo = await this.prisma.transaccionSerializable(async (tx) => {
       await this.bloquearCaja(tx, cajaId);
       const caja = await this.obtenerCajaTurno(tx, cajaId, usuario);
       const snapshot = caja.preCierreSnapshot as CierreTurnoSnapshot | null;
@@ -841,6 +989,8 @@ export class CajasService {
         nombre: `cierre-turno-${caja.id}-previo.xlsx`,
       };
     });
+    await this.cierreDistribucion.encolarDesdeCaja(cajaId);
+    return archivo;
   }
 
   async descargarPdfCierreTurno(cajaId: number, usuario: UsuarioAutenticado) {

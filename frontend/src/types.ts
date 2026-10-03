@@ -6,6 +6,7 @@ export type Session = {
     nombres: string;
     email: string;
     rol: string;
+    roles: string[];
     restauranteId: number | null;
     sucursalId: number | null;
     permisos: string[];

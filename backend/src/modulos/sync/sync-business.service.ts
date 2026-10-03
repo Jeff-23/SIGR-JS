@@ -543,6 +543,7 @@ export class SyncBusinessService {
       restauranteGlobalId: categoria.sucursal.restaurante.globalId,
       sucursalGlobalId: categoria.sucursal.globalId,
       nombre: categoria.nombre,
+      descripcion: categoria.descripcion,
       estado: categoria.estado,
       creadoEn: categoria.creadoEn.toISOString(),
     } satisfies Prisma.InputJsonObject;
@@ -680,12 +681,22 @@ export class SyncBusinessService {
       where: { id: usuarioId },
       include: {
         rol: true,
+        rolesAsignados: { include: { rol: true } },
         restaurante: true,
         sucursal: true,
       },
     });
     if (!usuario || !usuario.restaurante) return 0;
-    if (usuario.rol.ambito !== 'RESTAURANTE' || usuario.rol.restauranteId !== usuario.restauranteId) {
+    const roles = usuario.rolesAsignados.length
+      ? usuario.rolesAsignados.map((item) => item.rol)
+      : [usuario.rol];
+    if (
+      roles.some(
+        (rol) =>
+          rol.ambito !== 'RESTAURANTE' ||
+          rol.restauranteId !== usuario.restauranteId,
+      )
+    ) {
       throw new Error('Usuario tenant tiene un rol fuera de su restaurante');
     }
 
@@ -694,6 +705,7 @@ export class SyncBusinessService {
       restauranteGlobalId: usuario.restaurante.globalId,
       sucursalGlobalId: usuario.sucursal?.globalId ?? null,
       rolClave: usuario.rol.clave,
+      rolClaves: roles.map((rol) => rol.clave),
       nombres: usuario.nombres,
       apellidos: usuario.apellidos,
       email: usuario.email,

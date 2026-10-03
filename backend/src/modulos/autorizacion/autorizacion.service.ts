@@ -64,8 +64,23 @@ export class AutorizacionService {
     return { planes, capacidades, permisos };
   }
 
-  async listarRoles(usuario: UsuarioAutenticado) {
-    const restauranteId = this.exigirAdministradorRestaurante(usuario, false);
+  async listarRoles(
+    usuario: UsuarioAutenticado,
+    restauranteIdSolicitado?: string,
+  ) {
+    let restauranteId: number;
+    if (this.esSuperadminGlobal(usuario)) {
+      restauranteId = Number(restauranteIdSolicitado);
+      if (!Number.isInteger(restauranteId) || restauranteId <= 0) {
+        throw new BadRequestException(
+          'Indica un restaurante válido para consultar sus roles',
+        );
+      }
+      await this.exigirRestauranteActivo(restauranteId);
+    } else {
+      restauranteId = this.exigirAdministradorRestaurante(usuario, false);
+    }
+
     return this.prisma.rol.findMany({
       where: { restauranteId, ambito: AmbitoRol.RESTAURANTE },
       select: {
@@ -422,9 +437,9 @@ export class AutorizacionService {
         'La operación requiere contexto de restaurante',
       );
     }
-    if (usuario.sucursalId !== null) {
+    if (gestionar && usuario.sucursalId !== null) {
       throw new ForbiddenException(
-        'Un usuario limitado a sucursal no puede administrar autorización',
+        'Un usuario limitado a sucursal no puede modificar la autorización del restaurante',
       );
     }
     if (gestionar && usuario.rol !== 'ADMIN') {

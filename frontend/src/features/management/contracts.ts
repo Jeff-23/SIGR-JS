@@ -2,7 +2,7 @@ export type Row = Record<string, unknown> & { id?: number };
 export type Field = {
   key: string;
   label: string;
-  type?: "number" | "email" | "password" | "date" | "checkbox";
+  type?: "number" | "email" | "password" | "date" | "checkbox" | "multiselect" | "textarea";
   required?: boolean;
   min?: number;
   step?: string;
@@ -11,6 +11,7 @@ export type Field = {
   lookup?: string;
   createOnly?: boolean;
   defaultValue?: string | boolean;
+  nullable?: boolean;
 };
 export type Resource = {
   key: string;
@@ -52,7 +53,7 @@ export function rowsOf(value: unknown): Row[] {
 }
 export function formBody(
   fields: Field[],
-  values: Record<string, string | boolean>,
+  values: Record<string, string | boolean | string[]>,
   editing: boolean,
 ): Row {
   const body: Row = {};
@@ -62,9 +63,20 @@ export function formBody(
     if (value === undefined || value === "") {
       if (f.required && !(editing && f.type === "password"))
         throw new Error(`Completa ${f.label}`);
+      if (editing && f.nullable) body[f.key] = null;
       continue;
     }
-    if (f.type === "number" || f.lookup) {
+    if (f.type === "multiselect") {
+      if (!Array.isArray(value) || value.length === 0) {
+        if (f.required) throw new Error(`Completa ${f.label}`);
+        if (editing) body[f.key] = [];
+        continue;
+      }
+      const ids = value.map(Number);
+      if (ids.some((id) => !Number.isFinite(id) || id < (f.min ?? 0)))
+        throw new Error(`Revisa ${f.label}`);
+      body[f.key] = ids;
+    } else if (f.type === "number" || f.lookup) {
       const n = Number(value);
       if (!Number.isFinite(n) || n < (f.min ?? 0))
         throw new Error(`Revisa ${f.label}`);
@@ -76,8 +88,13 @@ export function formBody(
 export function display(value: unknown): string {
   if (value === null || value === undefined) return "—";
   if (typeof value === "boolean") return value ? "Sí" : "No";
+  if (Array.isArray(value)) {
+    return value.map((item) => display(item)).filter((item) => item !== "—").join(", ") || "—";
+  }
   if (typeof value === "object") {
     const row = value as Row;
+    if (row.rol && typeof row.rol === "object") return display(row.rol);
+    if (row.turnoOperativo && typeof row.turnoOperativo === "object") return display(row.turnoOperativo);
     return String(row.nombre ?? row.nombres ?? row.codigo ?? "—");
   }
   return String(value);
@@ -139,9 +156,23 @@ export const catalogResources: Resource[] = [
     listPath: "/categorias/sucursal/:sede",
     permission: "CATEGORIAS_VER",
     create: "CATEGORIAS_CREAR",
+    edit: "CATEGORIAS_EDITAR",
     branchBody: true,
-    columns: [name],
-    fields: [{ ...name, maxLength: 50 }],
+    columns: [
+      name,
+      field("descripcion", "Detalles / qué incluye"),
+      field("turnosOperativos", "Turnos operativos"),
+    ],
+    fields: [
+      { ...name, maxLength: 50 },
+      field("descripcion", "Detalles / qué incluye", { type: "textarea", maxLength: 500 }),
+      field("turnoOperativoIds", "Turnos operativos", {
+        lookup: "/turnos-operativos?sucursalId=:sede",
+        type: "multiselect",
+      }),
+    ],
+    notice:
+      "Asocia cada categoría a AM, PM u otros turnos operativos. Si una categoría nueva se guarda sin selección, queda disponible en todos los turnos activos.",
   },
   {
     key: "zonas",

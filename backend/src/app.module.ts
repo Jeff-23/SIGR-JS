@@ -49,6 +49,7 @@ import { PersonalModule } from './modulos/personal/personal.module';
 import { InteligenciaModule } from './modulos/inteligencia/inteligencia.module';
 import { SyncModule } from './modulos/sync/sync.module';
 import { ContabilidadModule } from './modulos/contabilidad/contabilidad.module';
+import { TurnosOperativosModule } from './modulos/turnos-operativos/turnos-operativos.module';
 
 const entorno = obtenerEntorno();
 
@@ -99,6 +100,7 @@ const entorno = obtenerEntorno();
     InteligenciaModule,
     SyncModule,
     ContabilidadModule,
+    TurnosOperativosModule,
   ],
   controllers: [AppController],
   providers: [

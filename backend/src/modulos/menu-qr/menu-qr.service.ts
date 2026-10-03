@@ -124,6 +124,7 @@ export class MenuQrService {
       categorias: acceso.mesa.zona.sucursal.categorias.map((categoria) => ({
         id: categoria.id,
         nombre: categoria.nombre,
+        descripcion: categoria.descripcion,
         productos: categoria.productos.map((producto) => ({
           ...producto,
           imagenPrincipal: porProducto.get(producto.id) ?? null,

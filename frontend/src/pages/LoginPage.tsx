@@ -34,6 +34,7 @@ export function LoginPage() {
           nombres: context.nombres ?? "Usuario",
           email: context.email,
           rol: context.rol ?? "USUARIO",
+          roles: context.roles ?? [context.rol ?? "USUARIO"],
           restauranteId: context.restauranteId ?? null,
           sucursalId: context.sucursalId ?? null,
           permisos: context.permisos ?? [],

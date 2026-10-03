@@ -95,8 +95,19 @@ export class SucursalesService {
         'Un administrador limitado a sucursal no puede crear nuevas sucursales',
       );
     }
+    const restauranteDestino = this.esSuperadmin(usuarioActual)
+      ? data.restauranteId
+      : usuarioActual.restauranteId;
+
+    if (restauranteDestino === null || restauranteDestino === undefined) {
+      throw new ForbiddenException(
+        'Debes indicar el restaurante para crear la sucursal',
+      );
+    }
+
     if (
       !this.esSuperadmin(usuarioActual) &&
+      data.restauranteId !== undefined &&
       data.restauranteId !== usuarioActual.restauranteId
     ) {
       throw new ForbiddenException(
@@ -104,13 +115,14 @@ export class SucursalesService {
       );
     }
 
-    await this.validarRestauranteActivo(data.restauranteId);
-    await this.validarLimiteSedes(data.restauranteId);
+    await this.validarRestauranteActivo(restauranteDestino);
+    await this.validarLimiteSedes(restauranteDestino);
 
     return this.prisma.$transaction(async (tx) => {
       const sucursal = await tx.sucursal.create({
         data: {
           ...data,
+          restauranteId: restauranteDestino,
           estacionesPreparacion: {
             create: [
               {

@@ -43,7 +43,7 @@ export function SaleForm({
   const [adjustments, setAdjustments] = useState({
     descuentos: "0",
     impuestos: mode === "manual" ? "0" : "",
-    impoconsumo: "0",
+    impoconsumo: mode === "manual" ? "0" : "",
     propina: "0",
   });
   const [paper, setPaper] = useState({
@@ -60,7 +60,7 @@ export function SaleForm({
     void api
       .get<ApiProduct[]>("/productos", {
         signal: controller.signal,
-        params: { sucursalId: branchId },
+        params: { sucursalId: branchId, operativo: true },
       })
       .then(({ data }) => setProducts(data))
       .catch((failure) => {
@@ -359,7 +359,7 @@ export function SaleForm({
                     {
                       descuentos: "Descuentos",
                       impuestos: "Impuestos (vacío: configuración)",
-                      impoconsumo: "Impoconsumo",
+                      impoconsumo: "Impoconsumo (vacío: configuración)",
                       propina: "Propina",
                     }[key]
                   }

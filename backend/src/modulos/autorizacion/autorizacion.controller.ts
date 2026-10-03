@@ -5,6 +5,7 @@ import {
   Param,
   ParseIntPipe,
   Put,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -36,8 +37,11 @@ export class AutorizacionController {
 
   @Get('roles')
   @Permisos('AUTORIZACION_VER')
-  listarRoles(@Req() request: RequestAuditable) {
-    return this.autorizacionService.listarRoles(request.user);
+  listarRoles(
+    @Req() request: RequestAuditable,
+    @Query('restauranteId') restauranteId?: string,
+  ) {
+    return this.autorizacionService.listarRoles(request.user, restauranteId);
   }
 
   @Get('restaurantes/:restauranteId/politica-documentos-internos')

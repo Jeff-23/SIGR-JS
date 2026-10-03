@@ -136,7 +136,9 @@ export class PersonalService {
   ) {
     const employee = await this.empleado(id, usuario);
     if (!employee.activo)
-      throw new BadRequestException('El empleado ya está retirado del personal');
+      throw new BadRequestException(
+        'El empleado ya está retirado del personal',
+      );
 
     const motivo = data.motivo.trim();
     if (!motivo) throw new BadRequestException('Indica el motivo del retiro');
@@ -173,15 +175,18 @@ export class PersonalService {
         data: {
           empleadoId: employee.id,
           tipo: 'RETIRO_PERSONAL',
-          descripcion: data.desactivarUsuario && employee.usuarioId
-            ? `${motivo} · Acceso SIGR desactivado`
-            : motivo,
+          descripcion:
+            data.desactivarUsuario && employee.usuarioId
+              ? `${motivo} · Acceso SIGR desactivado`
+              : motivo,
           registradoPorId: usuario.id,
         },
       });
       return tx.empleado.findUnique({
         where: { id: employee.id },
-        include: { usuario: { select: { id: true, email: true, activo: true } } },
+        include: {
+          usuario: { select: { id: true, email: true, activo: true } },
+        },
       });
     });
   }
@@ -488,7 +493,7 @@ export class PersonalService {
             minutosPausa: shift.minutosPausa ?? 0,
             unidadOperativaId:
               data.unidadOperativaId ?? shift.unidadOperativaId ?? null,
-          } as Prisma.TurnoPersonalUncheckedCreateInput,
+          },
         });
       }
 

@@ -63,7 +63,9 @@ export class ConfiguracionService {
     contexto: ContextoAuditoria,
   ) {
     const restauranteId = this.obtenerRestauranteId(usuario);
-    if (usuario.sucursalId !== null) {
+    const esAdminRestaurante =
+      usuario.rol === 'ADMIN' || usuario.roles?.includes('ADMIN');
+    if (usuario.sucursalId !== null && !esAdminRestaurante) {
       throw new ForbiddenException(
         'La identidad visual se administra a nivel de restaurante',
       );

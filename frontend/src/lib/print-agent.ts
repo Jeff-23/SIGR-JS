@@ -20,7 +20,7 @@ type PrintAgentHealth = {
 
 type PrintAgentResult = {
   ok: boolean;
-  status: "completed" | "offline" | "timeout" | "error" | "invalid";
+  status: "submitted" | "completed" | "offline" | "timeout" | "error" | "invalid";
   error?: string;
   printer?: string | LocalPrinter;
   jobName?: string;

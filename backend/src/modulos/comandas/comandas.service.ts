@@ -365,10 +365,15 @@ export class ComandasService {
     });
   }
 
-  listarEstaciones(usuario: UsuarioAutenticado, sucursalId?: number) {
+  listarEstaciones(
+    usuario: UsuarioAutenticado,
+    sucursalId?: number,
+    incluirInactivas = false,
+  ) {
+    const puedeGestionar = usuario.permisos.includes('CONFIGURACION_GESTIONAR');
     return this.prisma.estacionPreparacion.findMany({
       where: {
-        estado: true,
+        ...(!(incluirInactivas && puedeGestionar) ? { estado: true } : {}),
         sucursal: {
           AND: [
             this.filtroSucursal(usuario),

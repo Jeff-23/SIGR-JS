@@ -240,6 +240,7 @@ export function AppShell() {
   const [open, setOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
   const [pendingKitchenCommands, setPendingKitchenCommands] = useState(0);
+  const [pendingDeliveries, setPendingDeliveries] = useState(0);
   const {
     session,
     logout,
@@ -314,6 +315,39 @@ export function AppShell() {
       window.clearInterval(timer);
     };
   }, [branchId, hasCapability, hasPermission, session?.demo, session?.user.id]);
+  useEffect(() => {
+    if (session?.demo || !branchId || !hasPermission("DOMICILIOS_VER")) {
+      const reset = window.setTimeout(() => setPendingDeliveries(0), 0);
+      return () => window.clearTimeout(reset);
+    }
+    const controller = new AbortController();
+    const load = async () => {
+      try {
+        const response = await api.get<Array<{
+          estado: string;
+          pedido: { sucursalId: number; estado: string };
+        }>>("/pedidos/domicilios/activos", { signal: controller.signal });
+        setPendingDeliveries(
+          response.data.filter(
+            (delivery) =>
+              delivery.pedido.sucursalId === branchId &&
+              delivery.pedido.estado === "LISTO" &&
+              ["PENDIENTE_ASIGNACION", "ASIGNADO"].includes(delivery.estado),
+          ).length,
+        );
+      } catch {
+        if (!controller.signal.aborted) setPendingDeliveries(0);
+      }
+    };
+    void load();
+    // El contador de domicilios es informativo; 15 s evita duplicar la misma
+    // consulta que ya realizan la pantalla y el aviso operativo.
+    const timer = window.setInterval(() => void load(), 15000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [branchId, hasPermission, session?.demo, session?.user.id]);
   const kitchenBadge = session?.demo
     ? demoKitchenPending
     : branchId && hasPermission("COMANDAS_VER") && hasCapability("KDS")
@@ -416,6 +450,15 @@ export function AppShell() {
                     title={`${kitchenBadge} comandas pendientes por iniciar`}
                   >
                     {kitchenBadge > 99 ? "99+" : kitchenBadge}
+                  </span>
+                )}
+                {to === "/domicilios" && pendingDeliveries > 0 && (
+                  <span
+                    className="grid min-w-6 place-items-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-black text-white shadow-sm"
+                    aria-label={`${pendingDeliveries} domicilios listos para despacho`}
+                    title={`${pendingDeliveries} domicilios listos para tomar o despachar`}
+                  >
+                    {pendingDeliveries > 99 ? "99+" : pendingDeliveries}
                   </span>
                 )}
               </NavLink>

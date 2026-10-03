@@ -84,6 +84,15 @@ export class PlantillaPerfilCartaDto {
 
   @IsOptional()
   @IsString()
+  @Matches(/^#[0-9A-Fa-f]{6}$/)
+  especialColor?: string;
+
+  @IsOptional()
+  @IsIn(['AUTO', 'VERTICAL', 'HORIZONTAL'])
+  orientacion?: 'AUTO' | 'VERTICAL' | 'HORIZONTAL';
+
+  @IsOptional()
+  @IsString()
   @MaxLength(500)
   logoUrl?: string | null;
 
@@ -97,6 +106,21 @@ export class PlantillaPerfilCartaDto {
   @Max(0.75)
   fondoImagenOpacidad!: number;
 
+  @IsOptional()
+  @IsIn(['COVER', 'FIT', 'WATERMARK'])
+  fondoImagenModo?: 'COVER' | 'FIT' | 'WATERMARK';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(20)
+  @Max(120)
+  fondoImagenEscala?: number;
+
+  @IsOptional()
+  @IsIn(['TOP', 'CENTER', 'BOTTOM'])
+  fondoImagenPosicion?: 'TOP' | 'CENTER' | 'BOTTOM';
+
   @IsNumber()
   @Min(0.25)
   @Max(1)
@@ -107,6 +131,18 @@ export class PlantillaPerfilCartaDto {
   @ValidateNested({ each: true })
   @Type(() => SeccionPerfilCartaDto)
   secciones!: SeccionPerfilCartaDto[];
+}
+
+export class PrecioProductoPerfilCartaDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  productoId!: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  precio!: number;
 }
 
 export class GuardarPerfilCartaDto {
@@ -157,6 +193,21 @@ export class GuardarPerfilCartaDto {
   @ValidateNested()
   @Type(() => PlantillaPerfilCartaDto)
   plantilla!: PlantillaPerfilCartaDto;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => PrecioProductoPerfilCartaDto)
+  preciosProductos?: PrecioProductoPerfilCartaDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  turnoOperativoIds?: number[];
 }
 
 export class GuardarIdentidadCartaDto {

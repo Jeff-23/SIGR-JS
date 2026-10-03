@@ -95,38 +95,42 @@ try {
   $printDoc.Dispose()
 }
 
-$deadline = (Get-Date).AddSeconds([Math]::Max(3, $TimeoutSeconds))
-$seenIds = @()
+$deadline = (Get-Date).AddSeconds([Math]::Max(2, [Math]::Min($TimeoutSeconds, 4)))
 $observed = $false
-Start-Sleep -Milliseconds 250
+$observedAt = $null
+Start-Sleep -Milliseconds 120
 while ((Get-Date) -lt $deadline) {
   $jobs = @(Get-PrintJob -PrinterName $PrinterName -ErrorAction SilentlyContinue | Where-Object { -not $before.ContainsKey([int]$_.ID) })
   if ($jobs.Count -gt 0) {
     $observed = $true
-    $seenIds = @($jobs | ForEach-Object { [int]$_.ID })
+    if ($null -eq $observedAt) { $observedAt = Get-Date }
     $bad = $jobs | Where-Object { ([string]$_.JobStatus) -match 'Error|Offline|PaperOut|Blocked|UserIntervention|Deleted' }
     if ($bad) {
       $jobs | Remove-PrintJob -ErrorAction SilentlyContinue
       [pscustomobject]@{ ok=$false; status='error'; error='Windows reportó un error en la cola; el trabajo fue cancelado'; printer=$PrinterName } | ConvertTo-Json -Compress
       exit 3
     }
+    # Para una térmica local no esperamos a que Windows retire el trabajo de la
+    # cola: una vez aceptado y estable durante ~0.7 s, devolvemos control a SIGR.
+    if (((Get-Date) - $observedAt).TotalMilliseconds -ge 700) {
+      [pscustomobject]@{ ok=$true; status='submitted'; printer=$PrinterName; jobName=$JobName } | ConvertTo-Json -Compress
+      exit 0
+    }
   } elseif ($observed) {
     [pscustomobject]@{ ok=$true; status='completed'; printer=$PrinterName; jobName=$JobName } | ConvertTo-Json -Compress
     exit 0
   }
-  Start-Sleep -Milliseconds 300
+  Start-Sleep -Milliseconds 150
 }
 
-if (-not $observed) {
-  # En algunas colas térmicas el trabajo entra y sale antes del primer sondeo.
-  $latest = Convert-Printer (Get-SigrPrinter $PrinterName)
-  if ($latest.available) {
-    [pscustomobject]@{ ok=$true; status='completed'; printer=$PrinterName; jobName=$JobName; fastSpool=$true } | ConvertTo-Json -Compress
-    exit 0
-  }
+# Algunas colas térmicas entran y salen antes del primer sondeo. Si Windows
+# mantiene la impresora disponible después de Print(), consideramos el trabajo
+# entregado al spooler, sin afirmar que el papel fue verificado físicamente.
+$latest = Convert-Printer (Get-SigrPrinter $PrinterName)
+if ($latest.available) {
+  [pscustomobject]@{ ok=$true; status='submitted'; printer=$PrinterName; jobName=$JobName; fastSpool=$true } | ConvertTo-Json -Compress
+  exit 0
 }
 
-$remaining = @(Get-PrintJob -PrinterName $PrinterName -ErrorAction SilentlyContinue | Where-Object { $seenIds -contains [int]$_.ID })
-$remaining | Remove-PrintJob -ErrorAction SilentlyContinue
-[pscustomobject]@{ ok=$false; status='timeout'; error='No se confirmó la salida del trabajo dentro del tiempo límite. SIGR canceló el trabajo para evitar una impresión tardía'; printer=$PrinterName } | ConvertTo-Json -Compress
+[pscustomobject]@{ ok=$false; status='timeout'; error='Windows no confirmó que el trabajo entrara a la cola de impresión'; printer=$PrinterName } | ConvertTo-Json -Compress
 exit 4

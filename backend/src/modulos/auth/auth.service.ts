@@ -13,8 +13,6 @@ export class AuthService {
 
   async login(loginDto: LoginDto) {
     const { email, password } = loginDto;
-
-    // 1. Buscamos al usuario en la base de datos
     const usuario = await this.prisma.usuario.findUnique({
       where: { email },
       include: {
@@ -23,6 +21,18 @@ export class AuthService {
             permisos: {
               where: { permiso: { activo: true } },
               include: { permiso: true },
+            },
+          },
+        },
+        rolesAsignados: {
+          include: {
+            rol: {
+              include: {
+                permisos: {
+                  where: { permiso: { activo: true } },
+                  include: { permiso: true },
+                },
+              },
             },
           },
         },
@@ -42,25 +52,29 @@ export class AuthService {
       },
     });
 
-    // 2. Si no existe, devolvemos un error genérico (Regla de oro anti-hackers: nunca revelar si el correo existe o no)
-    if (!usuario) {
+    if (!usuario || !usuario.activo) {
       throw new UnauthorizedException('Credenciales incorrectas');
     }
 
-    if (!usuario.activo) {
-      throw new UnauthorizedException('Credenciales incorrectas');
-    }
-
-    // 3. Comparamos la contraseña enviada con la contraseña encriptada guardada
     const passwordValida = await bcrypt.compare(password, usuario.password);
     if (!passwordValida) {
       throw new UnauthorizedException('Credenciales incorrectas');
     }
 
-    // 4. Creamos el "Carnet Digital" (Token) con la info clave del usuario
+    const rolesAsignados = usuario.rolesAsignados.length
+      ? usuario.rolesAsignados.map((item) => item.rol)
+      : [usuario.rol];
+    const roles = [...new Set(rolesAsignados.map((rol) => rol.nombre))];
+    const permisos = [
+      ...new Set(
+        rolesAsignados.flatMap((rol) =>
+          rol.permisos.map((rolPermiso) => rolPermiso.permiso.codigo),
+        ),
+      ),
+    ];
+
     const payload = { sub: usuario.id };
     const token = this.jwtService.sign(payload);
-    // 5. Ocultamos la contraseña antes de responderle al frontend
     return {
       mensaje: 'Autenticación exitosa',
       usuario: {
@@ -77,11 +91,10 @@ export class AuthService {
         apellidos: usuario.apellidos,
         email: usuario.email,
         rol: usuario.rol.nombre,
+        roles,
         restauranteId: usuario.restauranteId,
         sucursalId: usuario.sucursalId,
-        permisos: usuario.rol.permisos.map(
-          (rolPermiso) => rolPermiso.permiso.codigo,
-        ),
+        permisos,
         capacidades: usuario.restaurante?.plan?.activo
           ? usuario.restaurante.plan.capacidades.map(
               (planCapacidad) => planCapacidad.capacidad.codigo,
@@ -90,7 +103,7 @@ export class AuthService {
         restauranteNombre: usuario.restaurante?.nombre,
         sucursalNombre: usuario.sucursal?.nombre,
       },
-      token, // <- ¡Esta es la llave de acceso para todas las rutas futuras!
+      token,
     };
   }
 }

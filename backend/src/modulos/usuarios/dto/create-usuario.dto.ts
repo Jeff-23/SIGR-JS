@@ -1,4 +1,6 @@
 import {
+  ArrayUnique,
+  IsArray,
   IsEmail,
   IsInt,
   IsNotEmpty,
@@ -25,7 +27,14 @@ export class CreateUsuarioDto {
   password: string;
 
   @IsInt()
-  rolId: number;
+  @IsOptional()
+  rolId?: number;
+
+  @IsArray()
+  @ArrayUnique()
+  @IsInt({ each: true })
+  @IsOptional()
+  rolIds?: number[];
 
   @IsInt()
   @IsOptional()
@@ -34,4 +43,18 @@ export class CreateUsuarioDto {
   @IsInt()
   @IsOptional()
   sucursalId?: number | null;
+
+  @IsInt()
+  @IsOptional()
+  perfilCartaId?: number | null;
+
+  @IsArray()
+  @ArrayUnique()
+  @IsInt({ each: true })
+  @IsOptional()
+  turnoOperativoIds?: number[];
+
+  @IsInt()
+  @IsOptional()
+  turnoOperativoActivoId?: number | null;
 }
